@@ -1,5 +1,11 @@
-/* eslint-disable @next/next/no-img-element -- 엠블럼은 작은 외부 이미지라 이미지 최적화 없이 그대로 씁니다. */
+import Image from "next/image";
+
 type CrestProps = { src: string | null | undefined; size?: number };
+
+// football-data.org 엠블럼 원본은 장당 10KB 안팎의 PNG라 작은 화면에서 늦게 떠요.
+// Next.js 이미지 최적화로 표시 크기에 맞는 작은 WebP로 바꿔서 같은 서버에서 내려줍니다.
+// 그 외 주소나 SVG는 최적화하지 않고 그대로 보여 줘요.
+const OPTIMIZABLE = /^https:\/\/crests\.football-data\.org\/[^?#]+\.(png|jpe?g|gif|webp)$/i;
 
 export function Crest({ src, size = 20 }: CrestProps) {
   if (!src) {
@@ -12,14 +18,13 @@ export function Crest({ src, size = 20 }: CrestProps) {
     );
   }
   return (
-    <img
+    <Image
       src={src}
       alt=""
       aria-hidden
       width={size}
       height={size}
-      loading="lazy"
-      decoding="async"
+      unoptimized={!OPTIMIZABLE.test(src)}
       className="shrink-0 object-contain"
       style={{ width: size, height: size }}
     />

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { COMPETITIONS } from "@/lib/competitions";
+import { LinkPending } from "./LinkPending";
 
 export function NavLinks({ activeCode = null }: { activeCode?: string | null }) {
   return (
@@ -13,18 +14,21 @@ export function NavLinks({ activeCode = null }: { activeCode?: string | null }) 
       {COMPETITIONS.map((competition) => {
         const active = competition.code === activeCode;
         return (
+          // 대회 페이지를 화면에 보이는 대로 전부 미리 만들면 API 호출이 한꺼번에 몰려서 미리 불러오기를 꺼 뒀어요.
+          // 대신 누르는 순간 LinkPending이 반응을 보여 줘요.
           <Link
             key={competition.code}
             href={`/league/${competition.code}`}
             prefetch={false}
             aria-current={active ? "page" : undefined}
-            className={`shrink-0 rounded-full px-3 py-1.5 text-sm transition-colors ${
+            className={`relative shrink-0 rounded-full px-3 py-1.5 text-sm transition-colors ${
               active
                 ? "bg-emerald-600 font-semibold text-white"
                 : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
             }`}
           >
             {competition.short}
+            <LinkPending className="rounded-full bg-emerald-500/25" />
           </Link>
         );
       })}

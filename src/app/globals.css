@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
+/* 웹폰트를 내려받지 않고 기기에 있는 한글 글꼴을 써요.
+   글꼴 파일을 기다리거나 도중에 글꼴이 바뀌면서 화면이 다시 그려지는 일이 없어요.
+   Pretendard가 설치된 기기에서만 Pretendard로 보여요. */
 @theme {
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui,
-    "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+    "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Segoe UI", sans-serif;
 }
 
 html {

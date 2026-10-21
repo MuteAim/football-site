@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { DayMatches } from "@/components/DayMatches";
-import { ListSkeleton } from "@/components/Skeletons";
+import { DaySkeleton } from "@/components/Skeletons";
 import { addDays, formatDayHeading, isDateKey, todayKst } from "@/lib/time";
 
 // 동적 경로는 빌드할 때 최소 하나를 미리 만들어야 해서, 빌드 시점의 내일 날짜를 넣었어요.
@@ -24,7 +24,7 @@ async function DateContent({ params }: { params: PageProps<"/matches/[date]">["p
 
 export default function DatePage({ params }: PageProps<"/matches/[date]">) {
   return (
-    <Suspense fallback={<ListSkeleton rows={8} />}>
+    <Suspense fallback={<DaySkeleton rows={8} />}>
       <DateContent params={params} />
     </Suspense>
   );

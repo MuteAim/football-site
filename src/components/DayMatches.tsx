@@ -15,6 +15,7 @@ import { Crest } from "./Crest";
 import { DateStrip } from "./DateStrip";
 import { EmptyState } from "./EmptyState";
 import { cardClass, cardHeadingClass } from "./MatchDayList";
+import { LinkPending } from "./LinkPending";
 import { MatchRow } from "./MatchRow";
 
 const MAX_DISTANCE_DAYS = 60;
@@ -93,8 +94,9 @@ export async function DayMatches({ date }: { date?: string }) {
                     <Crest src={info?.emblem ?? list[0].competition.emblem} size={16} />
                   </span>
                   {info ? (
-                    <Link href={`/league/${code}`} prefetch={false} className="hover:underline">
+                    <Link href={`/league/${code}`} prefetch={false} className="relative hover:underline">
                       {info.name}
+                      <LinkPending className="rounded bg-emerald-500/20" />
                     </Link>
                   ) : (
                     list[0].competition.name
