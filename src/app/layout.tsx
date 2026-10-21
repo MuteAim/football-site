@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { LogoMark } from "@/components/Icons";
 import { ActiveNavLinks, NavLinks } from "@/components/SiteNav";
 import "./globals.css";
 
@@ -16,18 +17,23 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#18181b" },
+    { media: "(prefers-color-scheme: dark)", color: "#09090b" },
   ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="ko" className="h-full antialiased">
-      <body className="flex min-h-full flex-col bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-        <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/90">
-          <div className="mx-auto flex max-w-3xl items-center gap-3 overflow-hidden px-4 py-2.5">
-            <Link href="/" className="shrink-0 text-base font-bold">
-              ⚽ 해외축구
+      <body className="flex min-h-full flex-col bg-zinc-100 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+        {/* 화면 전환 때 머리글은 제자리에 두고 내용만 움직이도록 이름을 붙여 둬요. */}
+        <header
+          style={{ viewTransitionName: "site-header" }}
+          className="sticky top-0 z-30 border-b border-zinc-950/5 bg-white/75 backdrop-blur-xl backdrop-saturate-150 dark:border-white/[0.07] dark:bg-zinc-950/75"
+        >
+          <div className="mx-auto flex h-14 max-w-3xl items-center gap-3 overflow-hidden px-4">
+            <Link href="/" className="flex shrink-0 items-center gap-2 text-[17px] font-bold tracking-tight">
+              <LogoMark />
+              해외축구
             </Link>
             <Suspense fallback={<NavLinks />}>
               <ActiveNavLinks />
@@ -35,16 +41,21 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-5">{children}</main>
+        <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-4 pb-8">{children}</main>
 
-        <footer className="mx-auto w-full max-w-3xl space-y-1 px-4 pb-8 pt-4 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-          <p>모든 시간은 한국 시간 기준이에요. 무료 플랜 데이터라 실제 경기보다 몇 분 늦게 반영될 수 있어요.</p>
-          <p>
-            경기 데이터 제공{" "}
-            <a href="https://www.football-data.org" className="underline underline-offset-2">
-              football-data.org
-            </a>
-          </p>
+        <footer className="border-t border-zinc-950/5 dark:border-white/[0.07]">
+          <div className="mx-auto max-w-3xl space-y-1 px-4 pt-5 pb-10 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+            <p>모든 시간은 한국 시간 기준이에요. 무료 플랜 데이터라 실제 경기보다 몇 분 늦게 반영될 수 있어요.</p>
+            <p>
+              경기 데이터 제공{" "}
+              <a
+                href="https://www.football-data.org"
+                className="font-medium text-zinc-700 underline decoration-zinc-300 underline-offset-2 hover:decoration-current dark:text-zinc-300 dark:decoration-zinc-600"
+              >
+                football-data.org
+              </a>
+            </p>
+          </div>
         </footer>
       </body>
     </html>

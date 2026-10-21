@@ -23,6 +23,15 @@ const weekdayFormat = new Intl.DateTimeFormat("ko-KR", {
   timeZone: TIME_ZONE,
   weekday: "short",
 });
+const longWeekdayFormat = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: TIME_ZONE,
+  weekday: "long",
+});
+const longMonthDayFormat = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: TIME_ZONE,
+  month: "long",
+  day: "numeric",
+});
 
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -70,9 +79,19 @@ export function formatWeekday(key: string): string {
   return weekdayFormat.format(kstNoon(key));
 }
 
-/** 예: 10.25 */
-export function formatMonthDay(key: string): string {
-  return `${Number(key.slice(5, 7))}.${Number(key.slice(8, 10))}`;
+/** 예: 일요일 */
+export function formatWeekdayLong(key: string): string {
+  return longWeekdayFormat.format(kstNoon(key));
+}
+
+/** 예: 10월 25일 */
+export function formatMonthDayLong(key: string): string {
+  return longMonthDayFormat.format(kstNoon(key));
+}
+
+/** 예: 25 */
+export function dayOfMonth(key: string): number {
+  return Number(key.slice(8, 10));
 }
 
 export function relativeDayLabel(key: string, today: string): string | null {

@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { TableSkeleton } from "@/components/Skeletons";
 import { StandingsTable } from "@/components/StandingsTable";
+import { mutedClass } from "@/components/ui";
 import { getCompetition } from "@/lib/competitions";
 import { getStandings } from "@/lib/football-data";
 import { groupLabel, stageLabel } from "@/lib/match-display";
@@ -27,8 +28,8 @@ async function Standings({ params }: { params: PageProps<"/league/[code]">["para
 
   const multiple = data.tables.length > 1;
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">{seasonLabel(data.season)}</p>
+    <div className="space-y-3">
+      <p className={`text-sm font-medium ${mutedClass}`}>{seasonLabel(data.season)}</p>
       {data.tables.map((table, index) => (
         <StandingsTable
           key={`${table.stage}-${table.group ?? index}`}

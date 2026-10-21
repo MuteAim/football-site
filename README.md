@@ -67,6 +67,14 @@ NEXT_PRIVATE_DEBUG_CACHE=1 npm run start
   글꼴 파일을 기다리거나 도중에 글꼴이 바뀌면서 화면이 다시 그려지는 일이 없어요.
   Pretendard로 되돌리고 싶으면 `src/app/layout.tsx`에 Pretendard CSS 링크를 다시 넣으면 돼요.
 
+## 화면 디자인
+
+- 공통 카드 모양은 `src/components/ui.ts`에 모아 두었어요. 여기만 바꾸면 모든 카드가 같이 바뀌어요.
+- 대회 페이지 머리는 대회마다 고유색을 써요. 색은 `src/lib/competitions.ts`의 `color`이고,
+  흰 글씨가 잘 읽히도록 대비가 4.5:1 이상인 진한 색만 넣어 주세요.
+- 날짜를 앞뒤로 옮기면 경기 목록이 그 방향으로 밀려 들어와요. 브라우저의 View Transitions 기능을 써서
+  지원하지 않는 브라우저나 움직임 줄이기를 켠 기기에서는 애니메이션 없이 바로 바뀌어요.
+
 ## Vercel 배포
 
 1. 이 폴더를 GitHub 저장소로 올리고 Vercel에서 가져와요.

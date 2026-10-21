@@ -1,24 +1,24 @@
+import { cardClass, cardHeadingClass, cardListClass } from "./ui";
+
 // 첫 방문 때 데이터가 오기 전까지 보이는 뼈대 화면이에요.
 // 실제 화면과 높이를 맞춰 두어서 내용이 들어올 때 화면이 밀리지 않게 했어요.
-const bar = "rounded bg-zinc-200 dark:bg-zinc-800";
-const card =
-  "overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900";
+const bar = "rounded-md bg-zinc-200/80 dark:bg-white/[0.07]";
 
 function MatchRowSkeleton() {
   return (
-    <div className="flex items-center gap-3 px-3 py-2.5">
-      <div className="w-14 shrink-0 space-y-1.5">
-        <div className={`h-3 w-10 ${bar}`} />
+    <div className="flex items-center gap-3 py-3">
+      <div className="w-14 shrink-0 space-y-2">
+        <div className={`h-3.5 w-10 ${bar}`} />
         <div className={`h-2.5 w-7 ${bar}`} />
       </div>
-      <div className="min-w-0 flex-1 space-y-1.5 border-l border-zinc-100 pl-3 dark:border-zinc-800">
-        <div className="flex h-5 items-center gap-2">
-          <div className={`h-5 w-5 rounded-full ${bar}`} />
-          <div className={`h-3 w-24 ${bar}`} />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex h-6 items-center gap-2.5">
+          <div className={`size-[22px] rounded-full ${bar}`} />
+          <div className={`h-3.5 w-24 ${bar}`} />
         </div>
-        <div className="flex h-5 items-center gap-2">
-          <div className={`h-5 w-5 rounded-full ${bar}`} />
-          <div className={`h-3 w-20 ${bar}`} />
+        <div className="flex h-6 items-center gap-2.5">
+          <div className={`size-[22px] rounded-full ${bar}`} />
+          <div className={`h-3.5 w-20 ${bar}`} />
         </div>
       </div>
     </div>
@@ -27,9 +27,12 @@ function MatchRowSkeleton() {
 
 export function ListSkeleton({ rows = 6 }: { rows?: number }) {
   return (
-    <div className={`${card} animate-pulse`} aria-busy="true" aria-label="불러오는 중">
-      <div className="h-9 border-b border-zinc-100 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60" />
-      <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+    <div className={`${cardClass} animate-pulse`} aria-busy="true" aria-label="불러오는 중">
+      <div className={cardHeadingClass}>
+        <div className={`size-7 rounded-lg ${bar}`} />
+        <div className={`h-3.5 w-28 ${bar}`} />
+      </div>
+      <div className={cardListClass}>
         {Array.from({ length: rows }, (_, i) => (
           <MatchRowSkeleton key={i} />
         ))}
@@ -42,24 +45,34 @@ export function ListSkeleton({ rows = 6 }: { rows?: number }) {
 export function DaySkeleton({ rows = 6 }: { rows?: number }) {
   return (
     <div aria-busy="true" aria-label="불러오는 중">
-      <div className={`mb-5 h-12 animate-pulse ${bar}`} />
-      <div className={`mb-4 h-7 w-40 animate-pulse ${bar}`} />
+      <div className={`mb-5 h-[68px] animate-pulse ${cardClass}`} />
+      <div className="mb-4 animate-pulse">
+        <div className="flex h-5 items-center">
+          <div className={`h-3.5 w-20 ${bar}`} />
+        </div>
+        <div className="mt-0.5 flex h-8 items-center">
+          <div className={`h-6 w-32 ${bar}`} />
+        </div>
+      </div>
       <ListSkeleton rows={rows} />
     </div>
   );
 }
 
-export function TableSkeleton({ rows = 12 }: { rows?: number }) {
+/** 순위표와 득점 순위용. 득점 순위는 한 줄에 선수와 팀이 같이 있어서 줄 높이를 따로 넘겨요. */
+export function TableSkeleton({ rows = 12, rowClass = "h-11" }: { rows?: number; rowClass?: string }) {
   return (
-    <div className="space-y-4" aria-busy="true" aria-label="불러오는 중">
-      <div className={`h-5 w-24 animate-pulse ${bar}`} />
-      <div className={`${card} animate-pulse`}>
-        <div className="h-8 bg-zinc-50 dark:bg-zinc-900/60" />
-        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+    <div className="space-y-3" aria-busy="true" aria-label="불러오는 중">
+      <div className="flex h-5 items-center">
+        <div className={`h-3.5 w-24 animate-pulse ${bar}`} />
+      </div>
+      <div className={`${cardClass} animate-pulse`}>
+        <div className="h-[37px] border-b border-zinc-100 dark:border-white/[0.07]" />
+        <div className="divide-y divide-zinc-100 dark:divide-white/[0.06]">
           {Array.from({ length: rows }, (_, i) => (
-            <div key={i} className="flex items-center gap-3 px-3 py-2">
+            <div key={i} className={`flex items-center gap-3 px-4 ${rowClass}`}>
               <div className={`h-3 w-4 ${bar}`} />
-              <div className={`h-5 w-5 rounded-full ${bar}`} />
+              <div className={`size-5 rounded-full ${bar}`} />
               <div className={`h-3 flex-1 ${bar}`} />
               <div className={`h-3 w-28 ${bar}`} />
             </div>
@@ -72,15 +85,9 @@ export function TableSkeleton({ rows = 12 }: { rows?: number }) {
 
 export function HeaderSkeleton() {
   return (
-    <div className="mb-4 animate-pulse" aria-hidden>
-      <div className="flex items-center gap-3">
-        <div className={`h-12 w-12 rounded-xl ${bar}`} />
-        <div className="space-y-2">
-          <div className={`h-5 w-36 ${bar}`} />
-          <div className={`h-3 w-16 ${bar}`} />
-        </div>
-      </div>
-      <div className="mt-4 h-[41px] border-b border-zinc-200 dark:border-zinc-800" />
+    <div className="mb-5 animate-pulse" aria-hidden>
+      <div className={`h-[104px] rounded-3xl ${bar}`} />
+      <div className={`mt-3 h-11 rounded-2xl ${bar}`} />
     </div>
   );
 }
