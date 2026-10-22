@@ -4,18 +4,23 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { refresh } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { getMatchOnDay } from "../match-day";
+import { isPredictionOpen } from "../match-display";
+import { isDateKey } from "../time";
 import { getBoard, isWritableBoard, postHref } from "./boards";
 import {
   LIMITS,
   LOGIN_PROVIDERS,
   NICKNAME_HINT,
   NICKNAME_PATTERN,
+  PREDICTION_PICKS,
   isCafeConfigured,
   safeNext,
 } from "./config";
+import { countPredictions } from "./predictions";
 import { createSessionClient } from "./supabase-server";
 import { findTeamChoice } from "./teams";
-import type { FormState, Talk, TalkSide } from "./types";
+import type { FormState, PredictionCounts, PredictionPick, Talk, TalkSide } from "./types";
 
 // 카페의 모든 쓰기 동작이에요.
 // 서버 동작은 화면을 거치지 않고도 불릴 수 있어서, 매번 로그인과 입력값을 서버에서 다시 확인해요.
@@ -283,6 +288,43 @@ export async function deleteComment(formData: FormData): Promise<void> {
   if (!commentId || typeof member === "string") return;
   await member.supabase.from("comments").delete().eq("id", commentId);
   refresh();
+}
+
+// ---------- 승부 예측 ----------
+
+/** 승부 예측 고르기와 바꾸기. 킥오프 전까지만 받고, 바뀐 예측 수를 돌려줘요. */
+export async function savePrediction(input: {
+  matchId: number;
+  date: string;
+  pick: PredictionPick;
+}): Promise<{ pick: PredictionPick; counts: PredictionCounts } | { error: string }> {
+  const matchId = positiveInt(input.matchId);
+  const pick = PREDICTION_PICKS.find((p) => p === input.pick);
+  if (!matchId || !pick || typeof input.date !== "string" || !isDateKey(input.date)) {
+    return { error: "예측을 다시 골라 주세요." };
+  }
+
+  const member = await requireMember();
+  if (typeof member === "string") return { error: member };
+  const { supabase, userId } = member;
+
+  // 킥오프 시각은 화면이 보낸 값을 믿지 않고 경기 API에서 다시 확인해요.
+  const match = await getMatchOnDay(input.date, matchId);
+  if (!match) return { error: "경기를 찾을 수 없어요." };
+  if (!isPredictionOpen(match, Date.now())) return { error: "킥오프가 지나서 예측이 마감됐어요." };
+
+  const { data: existing } = await supabase
+    .from("match_predictions")
+    .select("pick")
+    .eq("match_id", matchId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const { error } = existing
+    ? await supabase.from("match_predictions").update({ pick }).eq("match_id", matchId).eq("user_id", userId)
+    : await supabase.from("match_predictions").insert({ match_id: matchId, competition: match.competition.code, pick });
+  if (error) return { error: describe(error, "예측을 저장할 수 없어요.") };
+
+  return { pick, counts: await countPredictions(matchId, match.utcDate) };
 }
 
 // ---------- 응원톡 ----------

@@ -38,6 +38,9 @@ export const PAGE_SIZE = 20;
 /** 추천을 이만큼 받으면 인기글 게시판에 올라가요. */
 export const BEST_LIKES = 3;
 
+/** 승부 예측에서 고를 수 있는 것. supabase/schema.sql의 pick 조건과 같아야 해요. */
+export const PREDICTION_PICKS = ["home", "draw", "away"] as const;
+
 /** 로그인 뒤 돌아갈 주소. 다른 사이트로 빠져나가는 주소는 막고 카페 첫 화면으로 보내요. */
 export function safeNext(value: unknown, fallback = "/cafe"): string {
   if (typeof value !== "string") return fallback;

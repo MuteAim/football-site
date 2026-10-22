@@ -1,17 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 import { Suspense } from "react";
-import { MatchSummarySkeleton, TalkSkeleton } from "@/components/cafe/CafeSkeletons";
+import { MatchSummarySkeleton, PredictionSkeleton, TalkSkeleton } from "@/components/cafe/CafeSkeletons";
 import { CafeSetupNotice } from "@/components/cafe/CafeNotices";
+import { PredictionCard } from "@/components/cafe/PredictionCard";
 import { TalkRoom } from "@/components/cafe/TalkRoom";
 import { ChevronLeftIcon } from "@/components/Icons";
 import { MatchSummary } from "@/components/MatchSummary";
 import { isCafeConfigured } from "@/lib/cafe/config";
 import { countTalkSides, listTalks } from "@/lib/cafe/data";
+import { countPredictions, getMyPrediction } from "@/lib/cafe/predictions";
 import { getViewer } from "@/lib/cafe/viewer";
 import type { Match } from "@/lib/football-data";
 import { getMatchOnDay } from "@/lib/match-day";
+import { isFinished, isPredictionOpen, matchResult, statusLabel } from "@/lib/match-display";
 import { teamName } from "@/lib/teams-ko";
 import { formatDayHeading, isDateKey } from "@/lib/time";
 
@@ -58,10 +62,45 @@ async function MatchTalk({ match, path }: { match: Match; path: string }) {
   );
 }
 
+/** 승부 예측. 내 예측과 예측 수는 볼 때마다 새로 읽어요. */
+async function MatchPrediction({ match, date, path }: { match: Match; date: string; path: string }) {
+  const viewer = await getViewer();
+  // 마감 여부를 지금 시각으로 정해서, 미리 만들어 둘 수 없는 요청 시점 작업이라고 알려 둬요.
+  await connection();
+  const [counts, mine] = await Promise.all([
+    countPredictions(match.id, match.utcDate),
+    viewer?.profile ? getMyPrediction(match.id, viewer.id) : null,
+  ]);
+  const now = new Date();
+  const open = isPredictionOpen(match, now.getTime());
+  const result = matchResult(match);
+  const label = statusLabel(match);
+
+  return (
+    <PredictionCard
+      // 서버에서 새 값이 오면 카드도 그 값으로 다시 시작해요.
+      key={`${match.id}:${mine}:${open}:${result}:${counts.home}-${counts.draw}-${counts.away}`}
+      matchId={match.id}
+      date={date}
+      kickoff={match.utcDate}
+      home={{ name: teamName(match.homeTeam), crest: match.homeTeam.crest }}
+      away={{ name: teamName(match.awayTeam), crest: match.awayTeam.crest }}
+      open={open}
+      closedNote={label && !isFinished(match) ? `${label}된 경기라 예측을 받지 않아요.` : null}
+      result={result}
+      initialPick={mine}
+      initialCounts={counts}
+      viewer={!viewer ? "guest" : viewer.profile ? "member" : "join"}
+      path={path}
+    />
+  );
+}
+
 async function MatchContent({ params }: { params: Params }) {
   const { date } = await params;
   const match = await findMatch(params);
   if (!match) notFound();
+  const path = `/matches/${date}/${match.id}`;
 
   return (
     <>
@@ -74,9 +113,14 @@ async function MatchContent({ params }: { params: Params }) {
       </Link>
       <MatchSummary match={match} />
       {isCafeConfigured() ? (
-        <Suspense fallback={<TalkSkeleton />}>
-          <MatchTalk match={match} path={`/matches/${date}/${match.id}`} />
-        </Suspense>
+        <>
+          <Suspense fallback={<PredictionSkeleton />}>
+            <MatchPrediction match={match} date={date} path={path} />
+          </Suspense>
+          <Suspense fallback={<TalkSkeleton />}>
+            <MatchTalk match={match} path={path} />
+          </Suspense>
+        </>
       ) : (
         <div className="mt-3">
           <CafeSetupNotice />

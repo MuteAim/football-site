@@ -94,6 +94,21 @@ export function roundLabel(match: Match): string {
   return stageLabel(match.stage);
 }
 
+/**
+ * 승부 예측에 쓰는 결과. 연장까지의 점수로 정하고, 승부차기로 갈린 경기는 무승부로 쳐요.
+ * 끝나지 않은 경기는 null이에요.
+ */
+export function matchResult(match: Match): "home" | "draw" | "away" | null {
+  if (!isFinished(match)) return null;
+  const { home, away } = matchScore(match);
+  return home > away ? "home" : home < away ? "away" : "draw";
+}
+
+/** 승부 예측을 받을 수 있는지. 일정이 잡힌 경기를 킥오프 전까지만 받아요. */
+export function isPredictionOpen(match: Match, now: number): boolean {
+  return (match.status === "SCHEDULED" || match.status === "TIMED") && now < Date.parse(match.utcDate);
+}
+
 export function isKoreanPlayer(nationality: string | null): boolean {
   if (!nationality) return false;
   return /korea/i.test(nationality) && !/north|dpr/i.test(nationality);

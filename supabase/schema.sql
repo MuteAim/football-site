@@ -89,6 +89,21 @@ create table if not exists public.match_talks (
 create index if not exists match_talks_match_idx on public.match_talks (match_id, id desc);
 create index if not exists match_talks_user_idx on public.match_talks (user_id, created_at desc);
 
+-- 승부 예측. 경기마다 한 사람이 하나만 고르고, 킥오프 전까지 바꿀 수 있어요.
+-- 킥오프 시각과 결과는 경기 API에만 있어서, 순위를 셀 때 서버가 킥오프 뒤에 고친 예측을 빼요.
+-- 그래서 고친 시각(updated_at)은 회원이 못 바꾸고 DB가 적어요.
+-- competition은 결과를 찾을 대회 코드예요. 틀린 코드를 넣으면 결과를 못 찾아 순위에서 빠질 뿐이에요.
+create table if not exists public.match_predictions (
+  match_id integer not null check (match_id > 0),
+  user_id uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  competition text not null check (competition ~ '^[A-Z0-9]{2,5}$'),
+  pick text not null check (pick in ('home', 'draw', 'away')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (match_id, user_id)
+);
+create index if not exists match_predictions_user_idx on public.match_predictions (user_id);
+
 -- ---------- 숫자 자동 계산 ----------
 -- 회원은 글의 숫자 칸을 직접 고칠 수 없어서, 추천·댓글이 생기거나 지워질 때 DB가 대신 세요.
 
@@ -161,6 +176,18 @@ drop trigger if exists comments_remove_empty_parent on public.comments;
 create trigger comments_remove_empty_parent after delete on public.comments
   for each row execute function public.remove_empty_deleted_parent();
 
+-- 예측을 바꾸면 고친 시각을 DB가 적어요.
+create or replace function public.touch_prediction() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  new.updated_at := now();
+  return new;
+end $$;
+
+drop trigger if exists match_predictions_touch on public.match_predictions;
+create trigger match_predictions_touch before update on public.match_predictions
+  for each row execute function public.touch_prediction();
+
 -- 조회수 올리기. 로그인하지 않은 방문자도 부를 수 있어요.
 create or replace function public.count_post_view(target bigint) returns void
 language sql security definer set search_path = '' as $$
@@ -177,10 +204,12 @@ $$;
 -- 읽기는 누구나, 쓰기는 가입한 회원 본인만 할 수 있어요.
 -- 칸 단위로 권한을 줘서 회원이 매니저 표시나 조회수·추천 수를 직접 바꾸지 못하게 막아요.
 
-revoke all on public.profiles, public.posts, public.comments, public.post_likes, public.match_talks
+revoke all on public.profiles, public.posts, public.comments, public.post_likes, public.match_talks,
+  public.match_predictions
   from anon, authenticated;
 
-grant select on public.profiles, public.posts, public.comments, public.match_talks to anon, authenticated;
+grant select on public.profiles, public.posts, public.comments, public.match_talks, public.match_predictions
+  to anon, authenticated;
 grant select on public.post_likes to authenticated;
 
 grant insert (nickname), update (nickname, team_id, team_name, team_crest) on public.profiles to authenticated;
@@ -188,12 +217,14 @@ grant insert (board, title, body), update (title, body, updated_at), delete on p
 grant insert (post_id, parent_id, body), delete on public.comments to authenticated;
 grant insert (post_id), delete on public.post_likes to authenticated;
 grant insert (match_id, side, body), delete on public.match_talks to authenticated;
+grant insert (match_id, competition, pick), update (pick) on public.match_predictions to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.posts enable row level security;
 alter table public.comments enable row level security;
 alter table public.post_likes enable row level security;
 alter table public.match_talks enable row level security;
+alter table public.match_predictions enable row level security;
 
 -- 회원
 drop policy if exists profiles_select on public.profiles;
@@ -278,6 +309,16 @@ create policy match_talks_insert on public.match_talks for insert to authenticat
 drop policy if exists match_talks_delete on public.match_talks;
 create policy match_talks_delete on public.match_talks for delete to authenticated
   using (user_id = (select auth.uid()) or (select public.is_cafe_manager()));
+
+-- 승부 예측. 누구나 볼 수 있고, 내 예측만 고칠 수 있어요. 킥오프 확인은 서버와 순위 계산이 맡아요.
+drop policy if exists match_predictions_select on public.match_predictions;
+create policy match_predictions_select on public.match_predictions for select using (true);
+drop policy if exists match_predictions_insert on public.match_predictions;
+create policy match_predictions_insert on public.match_predictions for insert to authenticated
+  with check (user_id = (select auth.uid()));
+drop policy if exists match_predictions_update on public.match_predictions;
+create policy match_predictions_update on public.match_predictions for update to authenticated
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 
 -- ---------- 실시간 ----------
 -- 응원톡에 새 글이 올라오면 보고 있는 사람 화면에 바로 뜨도록 실시간 전송을 켜요.

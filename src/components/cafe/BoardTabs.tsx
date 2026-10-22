@@ -4,10 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef } from "react";
 import { ALL_BOARD, BOARDS, boardHref, getBoard } from "@/lib/cafe/boards";
+import { TrophyIcon } from "../Icons";
 import { LinkPending } from "../LinkPending";
 import { useCenterActive } from "../useCenterActive";
 
 const TABS = [ALL_BOARD, ...BOARDS];
+const PREDICT_TAB = "predict";
+const PREDICT_HREF = "/cafe/predict";
 
 /** 게시판 탭. 가로로 넘길 수 있고 고른 게시판만 진하게 보여 줘요. active가 ""이면 전체글이에요. */
 export function BoardTabs({ active }: { active: string | null }) {
@@ -38,6 +41,20 @@ export function BoardTabs({ active }: { active: string | null }) {
           </Link>
         );
       })}
+      {/* 게시판은 아니지만 카페에서 자주 볼 승부 예측 순위를 맨 끝에 붙여 둬요. */}
+      <Link
+        href={PREDICT_HREF}
+        aria-current={active === PREDICT_TAB ? "page" : undefined}
+        className={`relative flex h-9 shrink-0 items-center gap-1 rounded-full px-3.5 text-sm font-medium transition active:scale-95 ${
+          active === PREDICT_TAB
+            ? "bg-zinc-900 font-semibold text-white dark:bg-white dark:text-zinc-900"
+            : "bg-white text-zinc-600 ring-1 ring-zinc-950/5 hover:text-zinc-900 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-white/10 dark:hover:text-white"
+        }`}
+      >
+        <TrophyIcon className="size-3.5" />
+        예측왕
+        <LinkPending className="rounded-full bg-emerald-500/20" />
+      </Link>
     </nav>
   );
 }
@@ -45,6 +62,8 @@ export function BoardTabs({ active }: { active: string | null }) {
 /** 주소를 읽어서 지금 게시판을 찾아요. 주소를 읽어야 해서 레이아웃에서는 Suspense로 감싸 둡니다. */
 export function ActiveBoardTabs() {
   const pathname = usePathname();
-  const active = pathname === "/cafe" ? "" : (getBoard(pathname.split("/")[2] ?? "")?.slug ?? null);
+  const segment = pathname.split("/")[2] ?? "";
+  const active =
+    pathname === "/cafe" ? "" : segment === PREDICT_TAB ? PREDICT_TAB : (getBoard(segment)?.slug ?? null);
   return <BoardTabs active={active} />;
 }

@@ -92,11 +92,32 @@ export function TalkSkeleton() {
   );
 }
 
+/** 승부 예측 카드 뼈대. 세 칸과 아래 안내 줄 자리를 잡아 둬요. */
+export function PredictionSkeleton() {
+  return (
+    <div className={`${cardClass} mt-3 animate-pulse`} aria-busy="true" aria-label="불러오는 중">
+      <div className={cardHeadingClass}>
+        <div className={`h-3.5 w-16 ${bar}`} />
+      </div>
+      <div className="grid grid-cols-3 gap-2 px-4 pt-3">
+        {Array.from({ length: 3 }, (_, i) => (
+          <div key={i} className={`h-[106px] rounded-xl ${bar}`} />
+        ))}
+      </div>
+      <div className="space-y-3 px-4 pt-3 pb-4">
+        <div className={`h-3.5 w-2/3 ${bar}`} />
+        <div className={`h-10 w-28 ${bar}`} />
+      </div>
+    </div>
+  );
+}
+
 export function MatchSummarySkeleton() {
   return (
     <div aria-busy="true" aria-label="불러오는 중" className="animate-pulse">
       <div className={`mb-3 h-5 w-28 ${bar}`} />
       <div className={`${cardClass} h-[188px]`} />
+      <PredictionSkeleton />
       <TalkSkeleton />
     </div>
   );

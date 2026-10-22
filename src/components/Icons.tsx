@@ -158,3 +158,22 @@ export function ReplyIcon({ className = "size-4" }: IconProps) {
     </LineIcon>
   );
 }
+
+/** 승부 예측 순위 등 순위표 표시. 트로피 모양이에요. */
+export function TrophyIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M8 4h8v5a4 4 0 0 1-8 0V4z" />
+      <path d="M8 6H5.5a2 2 0 0 0 0 4H8M16 6h2.5a2 2 0 0 1 0 4H16" />
+      <path d="M12 13v4M9 20h6M10 17h4" />
+    </LineIcon>
+  );
+}
+
+export function CheckIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </LineIcon>
+  );
+}

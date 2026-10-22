@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Suspense } from "react";
 import { Avatar, NameBadge } from "@/components/cafe/Avatar";
 import { MemberRequired } from "@/components/cafe/CafeNotices";
 import { TeamPickerSkeleton } from "@/components/cafe/CafeSkeletons";
 import { ProfileForm } from "@/components/cafe/ProfileForm";
 import { TeamPicker } from "@/components/cafe/TeamPicker";
-import { cardClass, mutedClass, secondaryButtonClass, skeletonClass } from "@/components/ui";
+import { cardClass, mutedClass, secondaryButtonClass, skeletonClass, textButtonClass } from "@/components/ui";
 import { signOut } from "@/lib/cafe/actions";
 import { safeNext } from "@/lib/cafe/config";
+import { getPredictionRanking, rankOf } from "@/lib/cafe/predictions";
 import { getTeamChoices } from "@/lib/cafe/teams";
 import type { FanTeam } from "@/lib/cafe/types";
 import { getViewer } from "@/lib/cafe/viewer";
@@ -17,6 +19,30 @@ export const metadata: Metadata = { title: "내 정보" };
 async function TeamSection({ current }: { current: FanTeam | null }) {
   const leagues = await getTeamChoices();
   return <TeamPicker leagues={leagues} current={current} />;
+}
+
+/** 내 승부 예측 성적. 예측 순위와 같은 계산 결과를 써요. */
+async function PredictionRecord({ userId }: { userId: string }) {
+  const entries = await getPredictionRanking();
+  const index = entries.findIndex((entry) => entry.author.id === userId);
+  const entry = entries[index];
+
+  return (
+    <div className="mt-1.5 flex items-center justify-between gap-3">
+      <p className={`text-sm ${entry ? "" : mutedClass}`}>
+        {entry ? (
+          <>
+            <span className="font-semibold">{rankOf(entries)[index]}위</span> · {entry.settled}경기 중 {entry.hits}경기 적중
+          </>
+        ) : (
+          "아직 결과가 나온 예측이 없어요. 경기 화면에서 승부를 예측해 보세요."
+        )}
+      </p>
+      <Link href="/cafe/predict" className={`shrink-0 ${textButtonClass}`}>
+        순위 보기
+      </Link>
+    </div>
+  );
 }
 
 // 처음 로그인한 사람은 여기서 닉네임을 정해 가입하고, 회원은 닉네임을 바꾸거나 로그아웃해요.
@@ -67,6 +93,15 @@ async function MeContent({ searchParams }: { searchParams: PageProps<"/cafe/me">
           {/* 팀 목록은 경기 API에서 와서 늦을 수 있으니, 닉네임 폼을 먼저 보여 주고 따로 불러와요. */}
           <Suspense fallback={<TeamPickerSkeleton />}>
             <TeamSection current={profile.team} />
+          </Suspense>
+        </section>
+      ) : null}
+
+      {profile ? (
+        <section className="mt-6 border-t border-zinc-100 pt-5 dark:border-white/[0.07]">
+          <h2 className="text-sm font-semibold">승부 예측</h2>
+          <Suspense fallback={<div className={`mt-2 h-5 w-48 animate-pulse ${skeletonClass}`} />}>
+            <PredictionRecord userId={viewer.id} />
           </Suspense>
         </section>
       ) : null}

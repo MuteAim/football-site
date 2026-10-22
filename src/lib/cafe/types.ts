@@ -48,6 +48,19 @@ export type Comment = {
   author: Author;
 };
 
+/** 승부 예측. 홈팀 승, 무승부, 원정팀 승 */
+export type PredictionPick = "home" | "draw" | "away";
+
+export type PredictionCounts = Record<PredictionPick, number>;
+
+/** 예측 순위 한 줄 */
+export type RankingEntry = {
+  author: Author;
+  /** 결과가 나온 경기 중 킥오프 전에 고른 예측 수 */
+  settled: number;
+  hits: number;
+};
+
 export type TalkSide = "home" | "away";
 
 export type Talk = {

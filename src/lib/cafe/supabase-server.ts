@@ -25,7 +25,18 @@ export async function createSessionClient(): Promise<SupabaseClient> {
   });
 }
 
-let anonClient: SupabaseClient | null = null;
+let shared: SupabaseClient | null = null;
+
+/**
+ * 로그인하지 않은 클라이언트. 요청 시점을 표시하지 않아서 "use cache" 함수 안에서도 쓸 수 있어요.
+ * 캐시 밖에서 최신 글을 읽을 때는 publicClient를 쓰세요.
+ */
+export function anonClient(): SupabaseClient {
+  shared ??= createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+  return shared;
+}
 
 /**
  * 로그인과 상관없는 공개 글 읽기용. 쿠키를 읽지 않아서 로그인 상태가 이상해도 글은 보여요.
@@ -33,8 +44,5 @@ let anonClient: SupabaseClient | null = null;
  */
 export async function publicClient(): Promise<SupabaseClient> {
   await connection();
-  anonClient ??= createClient(SUPABASE_URL, SUPABASE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-  });
-  return anonClient;
+  return anonClient();
 }
