@@ -30,7 +30,7 @@ export function MatchDayList({
             </h2>
             <ul className={cardListClass}>
               {items.map((match) => (
-                <MatchRow key={match.id} match={match} caption={roundLabel(match)} />
+                <MatchRow key={match.id} match={match} caption={roundLabel(match)} today={today} />
               ))}
             </ul>
           </section>

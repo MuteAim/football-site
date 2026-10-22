@@ -1,8 +1,12 @@
+import Link from "next/link";
 import type { Match, Team } from "@/lib/football-data";
+import { matchHref } from "@/lib/match-day";
 import { isFinished, isLive, matchScore, statusLabel } from "@/lib/match-display";
 import { teamName } from "@/lib/teams-ko";
-import { formatKickoff } from "@/lib/time";
+import { formatKickoff, toKstDateKey } from "@/lib/time";
 import { Crest } from "./Crest";
+import { ChatIcon } from "./Icons";
+import { LinkPending } from "./LinkPending";
 
 type Outcome = "won" | "lost" | null;
 
@@ -65,20 +69,32 @@ function MatchState({ match, note }: { match: Match; note: string | null }) {
   return <span className="text-[15px] font-semibold tabular-nums">{formatKickoff(match.utcDate)}</span>;
 }
 
-/** 한 경기. 휴대폰에서도 팀 이름이 잘리지 않게 홈팀과 원정팀을 두 줄로 보여 줘요. */
-export function MatchRow({ match, caption }: { match: Match; caption?: string | null }) {
+/**
+ * 한 경기. 휴대폰에서도 팀 이름이 잘리지 않게 홈팀과 원정팀을 두 줄로 보여 줘요.
+ * 줄을 누르면 경기 화면(응원톡)으로 가요.
+ */
+export function MatchRow({
+  match,
+  caption,
+  today,
+}: {
+  match: Match;
+  caption?: string | null;
+  today: string;
+}) {
   const finished = isFinished(match);
   const live = isLive(match);
   const score = finished || live ? matchScore(match) : null;
   const winner = finished ? match.score.winner : null;
+  const href = matchHref(toKstDateKey(match.utcDate), match.id, today);
 
   function outcome(side: "HOME_TEAM" | "AWAY_TEAM"): Outcome {
     if (winner !== "HOME_TEAM" && winner !== "AWAY_TEAM") return null;
     return winner === side ? "won" : "lost";
   }
 
-  return (
-    <li className="flex items-center gap-3 py-3">
+  const content = (
+    <>
       <div className="flex w-14 shrink-0 flex-col gap-1 leading-tight">
         <MatchState match={match} note={score?.note ?? null} />
         {caption ? (
@@ -99,6 +115,23 @@ export function MatchRow({ match, caption }: { match: Match; caption?: string | 
           outcome={outcome("AWAY_TEAM")}
         />
       </div>
+    </>
+  );
+
+  if (!href) return <li className="flex items-center gap-3 py-3">{content}</li>;
+  return (
+    <li>
+      {/* 경기 화면을 미리 만들면 날짜마다 API를 따로 불러서, 미리 불러오기를 꺼 두고 누를 때 반짝임으로 반응해요. */}
+      <Link
+        href={href}
+        prefetch={false}
+        className="group relative -mx-4 flex items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-white/[0.03]"
+      >
+        {content}
+        {/* 누르면 응원톡으로 간다는 표시 */}
+        <ChatIcon className="-mr-1 size-4 shrink-0 text-zinc-300 transition group-hover:text-emerald-500 dark:text-zinc-600" />
+        <LinkPending className="bg-emerald-500/10" />
+      </Link>
     </li>
   );
 }

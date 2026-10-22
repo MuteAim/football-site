@@ -88,7 +88,7 @@ export async function DayMatches({ date }: { date?: string }) {
   if (!isWithinRange(selected, today)) {
     body = (
       <>
-        <DayHeading date={selected} />
+        <DayHeading date={selected} today={today} />
         <EmptyState>오늘 기준 앞뒤 {MAX_DISTANCE_DAYS}일 안의 경기만 볼 수 있어요.</EmptyState>
       </>
     );
@@ -133,7 +133,7 @@ export async function DayMatches({ date }: { date?: string }) {
                 <CompetitionHeading code={code} list={list} />
                 <ul className={cardListClass}>
                   {list.map((match) => (
-                    <MatchRow key={match.id} match={match} caption={roundLabel(match)} />
+                    <MatchRow key={match.id} match={match} caption={roundLabel(match)} today={today} />
                   ))}
                 </ul>
               </section>
@@ -146,7 +146,7 @@ export async function DayMatches({ date }: { date?: string }) {
 
   return (
     <>
-      <DateStrip selected={selected} />
+      <DateStrip selected={selected} today={today} />
       <ViewTransition enter={SLIDE} exit={SLIDE} default="none">
         <div>{body}</div>
       </ViewTransition>
