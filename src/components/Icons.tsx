@@ -148,3 +148,13 @@ export function UserIcon({ className = "size-4" }: IconProps) {
     </LineIcon>
   );
 }
+
+/** 답글 표시. 위에서 내려와 오른쪽으로 꺾이는 화살표예요. */
+export function ReplyIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M6 5v6a3 3 0 0 0 3 3h9" />
+      <path d="M15 10.5l3.5 3.5-3.5 3.5" />
+    </LineIcon>
+  );
+}

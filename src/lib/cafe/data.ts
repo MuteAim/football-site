@@ -25,7 +25,14 @@ type RawPostSummary = {
 
 type RawPost = RawPostSummary & { body: string; updated_at: string | null };
 
-type RawComment = { id: number; body: string; created_at: string; author: RawAuthorField };
+type RawComment = {
+  id: number;
+  parent_id: number | null;
+  deleted_at: string | null;
+  body: string;
+  created_at: string;
+  author: RawAuthorField;
+};
 
 type RawTalk = {
   id: number;
@@ -132,13 +139,15 @@ export async function listComments(postId: number): Promise<Comment[]> {
   const supabase = await publicClient();
   const { data, error } = await supabase
     .from("comments")
-    .select(`id, body, created_at, ${AUTHOR}`)
+    .select(`id, parent_id, deleted_at, body, created_at, ${AUTHOR}`)
     .eq("post_id", postId)
     .order("id", { ascending: true })
     .limit(500);
   if (error) throw new CafeError(error.message);
   return (data as RawComment[]).map((raw) => ({
     id: raw.id,
+    parentId: raw.parent_id,
+    deleted: raw.deleted_at !== null,
     body: raw.body,
     createdAt: raw.created_at,
     author: toAuthor(raw.author),

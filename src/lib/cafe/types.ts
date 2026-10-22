@@ -39,6 +39,10 @@ export type Post = PostSummary & {
 
 export type Comment = {
   id: number;
+  /** 답글이면 맨 위 댓글 번호, 아니면 null */
+  parentId: number | null;
+  /** 답글이 남아 있어서 "삭제된 댓글" 자리로 남은 댓글 */
+  deleted: boolean;
   body: string;
   createdAt: string;
   author: Author;

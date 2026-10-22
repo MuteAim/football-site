@@ -249,19 +249,30 @@ export async function countView(postId: number): Promise<void> {
 
 // ---------- 댓글 ----------
 
+/** 댓글과 답글. parentId가 있으면 그 댓글의 답글이에요. */
 export async function addComment(_prev: FormState, formData: FormData): Promise<FormState> {
   const postId = positiveInt(formData.get("postId"));
+  const parentId = formData.get("parentId") ? positiveInt(formData.get("parentId")) : null;
   const body = text(formData, "body");
   const values = { body };
   if (!postId) return { error: "글을 찾을 수 없어요.", values };
+  if (formData.get("parentId") && !parentId) return { error: "답글을 달 댓글을 찾을 수 없어요.", values };
   if (!body) return { error: "댓글 내용을 써 주세요.", values };
   if (body.length > LIMITS.comment) return { error: `댓글은 ${LIMITS.comment}자까지 쓸 수 있어요.`, values };
 
   const member = await requireMember();
   if (typeof member === "string") return { error: member, values };
 
-  const { error } = await member.supabase.from("comments").insert({ post_id: postId, body });
-  if (error) return { error: describe(error, "댓글은 5초에 한 번만 달 수 있어요."), values };
+  const { error } = await member.supabase
+    .from("comments")
+    .insert(parentId ? { post_id: postId, parent_id: parentId, body } : { post_id: postId, body });
+  if (error) {
+    // 답글은 댓글이 그사이 지워져도 DB가 거절해요.
+    const tooFast = parentId
+      ? "답글을 달 수 없어요. 댓글이 지워졌거나, 5초 안에 또 쓰고 있어요."
+      : "댓글은 5초에 한 번만 달 수 있어요.";
+    return { error: describe(error, tooFast), values };
+  }
   refresh();
   return { error: null };
 }

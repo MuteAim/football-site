@@ -53,11 +53,21 @@ create table if not exists public.comments (
   id bigint generated always as identity primary key,
   post_id bigint not null references public.posts (id) on delete cascade,
   user_id uuid not null default auth.uid() references public.profiles (id) on delete cascade,
-  body text not null check (char_length(btrim(body)) between 1 and 1000),
+  body text not null,
   created_at timestamptz not null default now()
 );
 create index if not exists comments_post_idx on public.comments (post_id, id);
 create index if not exists comments_user_idx on public.comments (user_id, created_at desc);
+
+-- 답글. 댓글 바로 아래 한 단계만 달 수 있어요(답글에 다시 답글을 달면 같은 댓글 아래에 붙여요).
+-- 답글이 달린 댓글을 지우면 내용만 지우고 deleted_at을 적어서 "삭제된 댓글" 자리로 남겨요.
+-- 나중에 생긴 칸이라 이미 만든 DB에도 붙도록 따로 추가해요.
+alter table public.comments add column if not exists parent_id bigint references public.comments (id) on delete cascade;
+alter table public.comments add column if not exists deleted_at timestamptz;
+create index if not exists comments_parent_idx on public.comments (parent_id);
+alter table public.comments drop constraint if exists comments_body_check;
+alter table public.comments add constraint comments_body_check
+  check (deleted_at is not null or char_length(btrim(body)) between 1 and 1000);
 
 -- 추천. 한 사람이 한 글에 한 번만 할 수 있어요.
 create table if not exists public.post_likes (
@@ -102,7 +112,8 @@ language plpgsql security definer set search_path = '' as $$
 begin
   if tg_op = 'INSERT' then
     update public.posts set comment_count = comment_count + 1 where id = new.post_id;
-  else
+  elsif old.deleted_at is null then
+    -- "삭제된 댓글" 자리는 남길 때 이미 빼서 다시 빼지 않아요.
     update public.posts set comment_count = greatest(comment_count - 1, 0) where id = old.post_id;
   end if;
   return null;
@@ -111,6 +122,44 @@ end $$;
 drop trigger if exists comments_count on public.comments;
 create trigger comments_count after insert or delete on public.comments
   for each row execute function public.sync_post_comment_count();
+
+-- 답글이 달린 댓글을 지우면, 남의 답글이 같이 사라지지 않게 내용만 지우고 자리를 남겨요.
+-- 글을 지우거나 회원이 탈퇴해서 지워질 때는(글이나 회원이 이미 없으면) 답글까지 그냥 다 지워요.
+create or replace function public.keep_comment_with_replies() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if exists (select 1 from public.comments r where r.parent_id = old.id)
+     and exists (select 1 from public.posts p where p.id = old.post_id)
+     and exists (select 1 from public.profiles u where u.id = old.user_id) then
+    if old.deleted_at is null then
+      update public.comments set body = '', deleted_at = now() where id = old.id;
+      update public.posts set comment_count = greatest(comment_count - 1, 0) where id = old.post_id;
+    end if;
+    return null;
+  end if;
+  return old;
+end $$;
+
+drop trigger if exists comments_keep_replied on public.comments;
+create trigger comments_keep_replied before delete on public.comments
+  for each row execute function public.keep_comment_with_replies();
+
+-- "삭제된 댓글" 자리에 남은 답글이 다 지워지면 그 자리도 지워요.
+create or replace function public.remove_empty_deleted_parent() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if old.parent_id is not null then
+    delete from public.comments c
+    where c.id = old.parent_id
+      and c.deleted_at is not null
+      and not exists (select 1 from public.comments r where r.parent_id = c.id);
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists comments_remove_empty_parent on public.comments;
+create trigger comments_remove_empty_parent after delete on public.comments
+  for each row execute function public.remove_empty_deleted_parent();
 
 -- 조회수 올리기. 로그인하지 않은 방문자도 부를 수 있어요.
 create or replace function public.count_post_view(target bigint) returns void
@@ -136,7 +185,7 @@ grant select on public.post_likes to authenticated;
 
 grant insert (nickname), update (nickname, team_id, team_name, team_crest) on public.profiles to authenticated;
 grant insert (board, title, body), update (title, body, updated_at), delete on public.posts to authenticated;
-grant insert (post_id, body), delete on public.comments to authenticated;
+grant insert (post_id, parent_id, body), delete on public.comments to authenticated;
 grant insert (post_id), delete on public.post_likes to authenticated;
 grant insert (match_id, side, body), delete on public.match_talks to authenticated;
 
@@ -175,6 +224,7 @@ create policy posts_delete on public.posts for delete to authenticated
   using (user_id = (select auth.uid()) or (select public.is_cafe_manager()));
 
 -- 댓글. 5초에 한 번만 달 수 있어요.
+-- 답글은 같은 글의, 지워지지 않은 맨 위 댓글에만 달 수 있어요.
 drop policy if exists comments_select on public.comments;
 create policy comments_select on public.comments for select using (true);
 drop policy if exists comments_insert on public.comments;
@@ -183,6 +233,16 @@ create policy comments_insert on public.comments for insert to authenticated wit
   and not exists (
     select 1 from public.comments c
     where c.user_id = (select auth.uid()) and c.created_at > now() - interval '5 seconds'
+  )
+  and (
+    comments.parent_id is null
+    or exists (
+      select 1 from public.comments parent
+      where parent.id = comments.parent_id
+        and parent.post_id = comments.post_id
+        and parent.parent_id is null
+        and parent.deleted_at is null
+    )
   )
 );
 drop policy if exists comments_delete on public.comments;

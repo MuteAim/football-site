@@ -5,12 +5,13 @@ import { Suspense } from "react";
 import { Avatar, NameBadge } from "@/components/cafe/Avatar";
 import { PostSkeleton } from "@/components/cafe/CafeSkeletons";
 import { CommentForm } from "@/components/cafe/CommentForm";
+import { CommentThread, ReplyButton } from "@/components/cafe/CommentThread";
 import { ConfirmButton } from "@/components/cafe/ConfirmButton";
 import { LikeButton } from "@/components/cafe/LikeButton";
 import { LoginLink } from "@/components/cafe/LoginLink";
 import { RichText } from "@/components/cafe/RichText";
 import { ViewCounter } from "@/components/cafe/ViewCounter";
-import { ChevronLeftIcon, EyeIcon } from "@/components/Icons";
+import { ChevronLeftIcon, EyeIcon, ReplyIcon } from "@/components/Icons";
 import {
   cardClass,
   cardHeadingClass,
@@ -36,21 +37,44 @@ export async function generateMetadata({ params }: PageProps<"/cafe/[board]/[id]
   return { title: post?.title ?? "글을 찾을 수 없어요" };
 }
 
+/** 댓글 한 줄. 답글은 작은 프로필 그림과 꺾인 화살표로 보여 줘요. */
 function CommentItem({
   comment,
   post,
   viewer,
   now,
+  isReply,
+  canReply,
 }: {
   comment: Comment;
   post: Post;
   viewer: Viewer | null;
   now: Date;
+  isReply: boolean;
+  canReply: boolean;
 }) {
+  const arrow = isReply ? <ReplyIcon className="mt-1 size-3.5 shrink-0 text-zinc-300 dark:text-zinc-600" /> : null;
+
+  // 답글이 남아 있어서 자리만 남은 댓글이에요.
+  if (comment.deleted) {
+    return (
+      <div className="flex items-center gap-2 py-3">
+        {arrow}
+        <p className={`text-sm ${mutedClass}`}>삭제된 댓글이에요.</p>
+      </div>
+    );
+  }
+
   const canDelete = viewer?.id === comment.author.id || viewer?.profile?.isManager === true;
   return (
-    <li className="flex gap-2.5 py-3">
-      <Avatar id={comment.author.id} nickname={comment.author.nickname} team={comment.author.team} />
+    <div className={`flex ${isReply ? "gap-2 py-2.5" : "gap-2.5 py-3"}`}>
+      {arrow}
+      <Avatar
+        id={comment.author.id}
+        nickname={comment.author.nickname}
+        team={comment.author.team}
+        size={isReply ? "sm" : "md"}
+      />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-xs">
           <span className="truncate text-sm font-semibold">{comment.author.nickname}</span>
@@ -59,16 +83,20 @@ function CommentItem({
           <span className="shrink-0 text-zinc-400 dark:text-zinc-500">
             {formatRelativeTime(comment.createdAt, now)}
           </span>
-          {canDelete ? (
-            <form action={deleteComment} className="ml-auto">
-              <input type="hidden" name="commentId" value={comment.id} />
-              <ConfirmButton message="이 댓글을 지울까요?">삭제</ConfirmButton>
-            </form>
-          ) : null}
+          <div className="ml-auto flex shrink-0 items-center">
+            {/* 답글에서 누르면 그 사람 닉네임을 붙여서 같은 댓글 아래에 답글을 달아요. */}
+            {canReply ? <ReplyButton mention={isReply ? comment.author.nickname : undefined} /> : null}
+            {canDelete ? (
+              <form action={deleteComment}>
+                <input type="hidden" name="commentId" value={comment.id} />
+                <ConfirmButton message="이 댓글을 지울까요?">삭제</ConfirmButton>
+              </form>
+            ) : null}
+          </div>
         </div>
         <RichText text={comment.body} className="mt-1 text-[15px] leading-relaxed" />
       </div>
-    </li>
+    </div>
   );
 }
 
@@ -84,16 +112,54 @@ function CommentSection({
   now: Date;
 }) {
   const next = postHref(post);
+  const tops = comments.filter((comment) => comment.parentId === null);
+  const replies = new Map<number, Comment[]>();
+  for (const comment of comments) {
+    if (comment.parentId === null) continue;
+    const list = replies.get(comment.parentId);
+    if (list) list.push(comment);
+    else replies.set(comment.parentId, [comment]);
+  }
+  // "삭제된 댓글" 자리는 댓글 수에 넣지 않아요. 글 목록의 댓글 수와 같아요.
+  const count = comments.filter((comment) => !comment.deleted).length;
+
   return (
     <section className={`${cardClass} mt-3`}>
       <h2 className={cardHeadingClass}>
-        댓글 <span className="text-emerald-600 tabular-nums dark:text-emerald-400">{comments.length}</span>
+        댓글 <span className="text-emerald-600 tabular-nums dark:text-emerald-400">{count}</span>
       </h2>
-      {comments.length > 0 ? (
+      {tops.length > 0 ? (
         <ul className={cardListClass}>
-          {comments.map((comment) => (
-            <CommentItem key={comment.id} comment={comment} post={post} viewer={viewer} now={now} />
-          ))}
+          {tops.map((top) => {
+            const thread = replies.get(top.id) ?? [];
+            // 지워진 댓글에는 DB가 답글을 받지 않아서 버튼도 숨겨요.
+            const canReply = viewer?.profile != null && !top.deleted;
+            const item = (
+              <>
+                <CommentItem comment={top} post={post} viewer={viewer} now={now} isReply={false} canReply={canReply} />
+                {thread.length > 0 ? (
+                  <ul className="mb-3 divide-y divide-zinc-200/70 rounded-xl bg-zinc-50 px-3 dark:divide-white/[0.06] dark:bg-white/[0.03]">
+                    {thread.map((reply) => (
+                      <li key={reply.id}>
+                        <CommentItem comment={reply} post={post} viewer={viewer} now={now} isReply canReply={canReply} />
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            );
+            return (
+              <li key={top.id}>
+                {canReply ? (
+                  <CommentThread postId={post.id} parentId={top.id}>
+                    {item}
+                  </CommentThread>
+                ) : (
+                  item
+                )}
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className={`px-4 py-6 text-center text-sm ${mutedClass}`}>첫 댓글을 남겨 보세요.</p>
