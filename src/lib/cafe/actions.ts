@@ -1,0 +1,286 @@
+"use server";
+
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import { refresh, revalidatePath } from "next/cache";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { getBoard, isWritableBoard, postHref } from "./boards";
+import {
+  LIMITS,
+  LOGIN_PROVIDERS,
+  NICKNAME_HINT,
+  NICKNAME_PATTERN,
+  isCafeConfigured,
+  safeNext,
+} from "./config";
+import { createSessionClient } from "./supabase-server";
+import type { FormState, Talk, TalkSide } from "./types";
+
+// 카페의 모든 쓰기 동작이에요.
+// 서버 동작은 화면을 거치지 않고도 불릴 수 있어서, 매번 로그인과 입력값을 서버에서 다시 확인해요.
+// DB에도 같은 규칙(본인 글만 수정, 글자 수, 도배 방지)이 있어서 여기를 건너뛰어도 막혀요.
+
+type Member = { supabase: SupabaseClient; userId: string };
+
+/** 가입(닉네임 설정)까지 마친 회원만 통과시켜요. 아니면 화면에 보여 줄 오류 문구를 돌려줘요. */
+async function requireMember(): Promise<Member | string> {
+  if (!isCafeConfigured()) return "카페 설정이 아직 안 됐어요.";
+  const supabase = await createSessionClient();
+  const { data } = await supabase.auth.getClaims();
+  const userId = data?.claims.sub;
+  if (!userId) return "로그인이 필요해요. 다시 로그인해 주세요.";
+
+  const { data: profile } = await supabase.from("profiles").select("id").eq("id", userId).maybeSingle();
+  if (!profile) return "닉네임을 정한 뒤에 쓸 수 있어요.";
+  return { supabase, userId };
+}
+
+/** DB가 거절한 이유를 사람이 읽을 문구로 바꿔요. 42501은 권한 규칙, 여기서는 대부분 도배 방지예요. */
+function describe(error: PostgrestError, tooFast: string): string {
+  if (error.code === "42501") return tooFast;
+  if (error.code === "23514") return "글자 수나 형식이 맞지 않아요.";
+  if (error.code === "23503") return "이미 지워진 글이에요.";
+  console.error(error);
+  return "저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
+}
+
+function text(formData: FormData, name: string): string {
+  const value = formData.get(name);
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function positiveInt(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
+/** 로그인 뒤 돌아올 이 사이트 주소. 배포된 곳마다 달라서 요청에서 알아내요. */
+async function siteOrigin(): Promise<string> {
+  const h = await headers();
+  const origin = h.get("origin");
+  if (origin) return origin;
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  return `${proto}://${host}`;
+}
+
+// ---------- 로그인 ----------
+
+/** 소셜 로그인 버튼. 카카오·구글 로그인 화면으로 보냈다가 /auth/callback으로 돌아와요. */
+export async function signIn(formData: FormData): Promise<void> {
+  const provider = LOGIN_PROVIDERS.find((p) => p.id === formData.get("provider"))?.id;
+  const next = safeNext(formData.get("next"));
+  if (!provider || !isCafeConfigured()) redirect("/cafe/login?error=1");
+
+  const supabase = await createSessionClient();
+  const callback = new URL("/auth/callback", await siteOrigin());
+  callback.searchParams.set("next", next);
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider,
+    options: { redirectTo: callback.toString() },
+  });
+  if (error || !data.url) {
+    console.error(error);
+    redirect("/cafe/login?error=1");
+  }
+  redirect(data.url);
+}
+
+export async function signOut(): Promise<void> {
+  if (!isCafeConfigured()) return;
+  const supabase = await createSessionClient();
+  await supabase.auth.signOut();
+  refreshViewer();
+}
+
+/**
+ * 로그인 상태나 닉네임이 바뀌면 카페 머리의 닉네임처럼 여러 화면이 같이 쓰는 부분도 다시 그려요.
+ * 카페 화면에는 저장해 둔 데이터가 없어서 다시 그려도 경기 API를 부르지 않아요.
+ */
+function refreshViewer() {
+  revalidatePath("/cafe", "layout");
+}
+
+/** 처음 가입할 때 닉네임을 정하고, 나중에 바꿀 때도 같은 폼을 써요. */
+export async function saveProfile(_prev: FormState, formData: FormData): Promise<FormState> {
+  const nickname = text(formData, "nickname");
+  const values = { nickname };
+  if (!NICKNAME_PATTERN.test(nickname)) return { error: NICKNAME_HINT, values };
+  if (!isCafeConfigured()) return { error: "카페 설정이 아직 안 됐어요.", values };
+
+  const supabase = await createSessionClient();
+  const { data } = await supabase.auth.getClaims();
+  const userId = data?.claims.sub;
+  if (!userId) return { error: "로그인이 필요해요. 다시 로그인해 주세요.", values };
+
+  const { data: existing } = await supabase.from("profiles").select("id").eq("id", userId).maybeSingle();
+  const { error } = existing
+    ? await supabase.from("profiles").update({ nickname }).eq("id", userId)
+    : await supabase.from("profiles").insert({ nickname });
+
+  if (error?.code === "23505") return { error: "이미 누가 쓰고 있는 닉네임이에요.", values };
+  if (error) return { error: describe(error, "닉네임을 저장할 수 없어요."), values };
+
+  refreshViewer();
+  if (!existing) redirect(safeNext(formData.get("next")));
+  return { error: null, message: "닉네임을 바꿨어요." };
+}
+
+// ---------- 게시글 ----------
+
+/** 새 글과 글 수정을 같이 처리해요. postId가 있으면 수정이에요. */
+export async function savePost(_prev: FormState, formData: FormData): Promise<FormState> {
+  const postId = positiveInt(formData.get("postId"));
+  const board = text(formData, "board");
+  const title = text(formData, "title");
+  const body = text(formData, "body");
+  const values = { board, title, body };
+
+  if (!postId && !isWritableBoard(board)) return { error: "게시판을 골라 주세요.", values };
+  if (!title) return { error: "제목을 써 주세요.", values };
+  if (title.length > LIMITS.title) return { error: `제목은 ${LIMITS.title}자까지 쓸 수 있어요.`, values };
+  if (!body) return { error: "내용을 써 주세요.", values };
+  if (body.length > LIMITS.body) return { error: `내용은 ${LIMITS.body}자까지 쓸 수 있어요.`, values };
+
+  const member = await requireMember();
+  if (typeof member === "string") return { error: member, values };
+  const { supabase, userId } = member;
+
+  if (postId) {
+    const { data, error } = await supabase
+      .from("posts")
+      .update({ title, body, updated_at: new Date().toISOString() })
+      .eq("id", postId)
+      .eq("user_id", userId)
+      .select("id, board")
+      .maybeSingle<{ id: number; board: string }>();
+    if (error) return { error: describe(error, "이 글을 고칠 수 없어요."), values };
+    if (!data) return { error: "내가 쓴 글만 고칠 수 있어요.", values };
+    redirect(postHref(data));
+  }
+
+  const { data, error } = await supabase
+    .from("posts")
+    .insert({ board, title, body })
+    .select("id, board")
+    .single<{ id: number; board: string }>();
+  if (error) return { error: describe(error, "글은 30초에 한 번만 쓸 수 있어요. 잠시 후 다시 올려 주세요."), values };
+  redirect(postHref(data));
+}
+
+export async function deletePost(formData: FormData): Promise<void> {
+  const postId = positiveInt(formData.get("postId"));
+  const member = await requireMember();
+  if (!postId || typeof member === "string") return;
+
+  // 지울 권한이 없으면 DB가 조용히 아무것도 지우지 않아요.
+  const { data } = await member.supabase
+    .from("posts")
+    .delete()
+    .eq("id", postId)
+    .select("board")
+    .maybeSingle<{ board: string }>();
+  if (!data) return;
+  redirect(getBoard(data.board) ? `/cafe/${data.board}` : "/cafe");
+}
+
+/** 추천 누르기와 취소. 바뀐 추천 상태와 개수를 돌려줘요. */
+export async function toggleLike(
+  postId: number,
+): Promise<{ liked: boolean; count: number } | { error: string }> {
+  const id = positiveInt(postId);
+  if (!id) return { error: "글을 찾을 수 없어요." };
+  const member = await requireMember();
+  if (typeof member === "string") return { error: member };
+  const { supabase, userId } = member;
+
+  const { data: existing } = await supabase
+    .from("post_likes")
+    .select("post_id")
+    .eq("post_id", id)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const { error } = existing
+    ? await supabase.from("post_likes").delete().eq("post_id", id).eq("user_id", userId)
+    : await supabase.from("post_likes").insert({ post_id: id });
+  if (error && error.code !== "23505") return { error: describe(error, "내 글은 추천할 수 없어요.") };
+
+  const { data: post } = await supabase
+    .from("posts")
+    .select("like_count")
+    .eq("id", id)
+    .maybeSingle<{ like_count: number }>();
+  return { liked: !existing, count: post?.like_count ?? 0 };
+}
+
+/** 조회수 올리기. 화면이 열릴 때 브라우저가 한 번 불러요. */
+export async function countView(postId: number): Promise<void> {
+  const id = positiveInt(postId);
+  if (!id || !isCafeConfigured()) return;
+  const supabase = await createSessionClient();
+  await supabase.rpc("count_post_view", { target: id });
+}
+
+// ---------- 댓글 ----------
+
+export async function addComment(_prev: FormState, formData: FormData): Promise<FormState> {
+  const postId = positiveInt(formData.get("postId"));
+  const body = text(formData, "body");
+  const values = { body };
+  if (!postId) return { error: "글을 찾을 수 없어요.", values };
+  if (!body) return { error: "댓글 내용을 써 주세요.", values };
+  if (body.length > LIMITS.comment) return { error: `댓글은 ${LIMITS.comment}자까지 쓸 수 있어요.`, values };
+
+  const member = await requireMember();
+  if (typeof member === "string") return { error: member, values };
+
+  const { error } = await member.supabase.from("comments").insert({ post_id: postId, body });
+  if (error) return { error: describe(error, "댓글은 5초에 한 번만 달 수 있어요."), values };
+  refresh();
+  return { error: null };
+}
+
+export async function deleteComment(formData: FormData): Promise<void> {
+  const commentId = positiveInt(formData.get("commentId"));
+  const member = await requireMember();
+  if (!commentId || typeof member === "string") return;
+  await member.supabase.from("comments").delete().eq("id", commentId);
+  refresh();
+}
+
+// ---------- 응원톡 ----------
+
+export async function sendTalk(input: {
+  matchId: number;
+  side: TalkSide | null;
+  body: string;
+}): Promise<{ talk: Talk } | { error: string }> {
+  const matchId = positiveInt(input.matchId);
+  const side = input.side === "home" || input.side === "away" ? input.side : null;
+  const body = typeof input.body === "string" ? input.body.trim() : "";
+  if (!matchId) return { error: "경기를 찾을 수 없어요." };
+  if (!body) return { error: "응원 메시지를 써 주세요." };
+  if (body.length > LIMITS.talk) return { error: `응원톡은 ${LIMITS.talk}자까지 쓸 수 있어요.` };
+
+  const member = await requireMember();
+  if (typeof member === "string") return { error: member };
+
+  const { data, error } = await member.supabase
+    .from("match_talks")
+    .insert({ match_id: matchId, side, body })
+    .select("id, user_id, side, body, created_at")
+    .single<{ id: number; user_id: string; side: TalkSide | null; body: string; created_at: string }>();
+  if (error) return { error: describe(error, "조금만 천천히 보내 주세요.") };
+  return {
+    talk: { id: data.id, userId: data.user_id, side: data.side, body: data.body, createdAt: data.created_at },
+  };
+}
+
+export async function deleteTalk(talkId: number): Promise<boolean> {
+  const id = positiveInt(talkId);
+  const member = await requireMember();
+  if (!id || typeof member === "string") return false;
+  const { data } = await member.supabase.from("match_talks").delete().eq("id", id).select("id");
+  return (data?.length ?? 0) > 0;
+}
