@@ -41,7 +41,15 @@ async function LoginContent({ searchParams }: { searchParams: PageProps<"/cafe/l
         <LoginButtons />
       </form>
       <p className={`mt-5 text-xs leading-relaxed ${mutedClass}`}>
-        로그인한 계정의 이름과 이메일은 다른 회원에게 보이지 않아요. 카페에서는 직접 정한 닉네임만 보여요.
+        로그인한 계정의 이름과 이메일은 다른 회원에게 보이지 않아요. 카페에서는 직접 정한 닉네임만 보여요. 어떤 정보를 왜
+        모으는지는{" "}
+        <Link
+          href="/privacy"
+          className="font-semibold text-zinc-700 underline decoration-zinc-300 underline-offset-2 hover:decoration-current dark:text-zinc-300 dark:decoration-zinc-600"
+        >
+          개인정보 처리방침
+        </Link>
+        에 있어요.
       </p>
     </div>
   );

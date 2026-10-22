@@ -58,6 +58,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 football-data.org
               </a>
             </p>
+            <p>
+              <Link
+                href="/privacy"
+                className="font-semibold text-zinc-700 underline decoration-zinc-300 underline-offset-2 hover:decoration-current dark:text-zinc-300 dark:decoration-zinc-600"
+              >
+                개인정보 처리방침
+              </Link>
+            </p>
           </div>
         </footer>
       </body>
