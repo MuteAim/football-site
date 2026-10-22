@@ -7,7 +7,7 @@ football-data.org 무료 API로 만든 해외축구 정보 사이트예요.
 
 ```bash
 npm install
-cp .env.example .env.local   # 복사한 파일에 football-data.org 키를 넣어 주세요.
+cp .env.example .env.local   # 복사한 파일에 football-data.org 키와 Supabase 주소·키를 넣어 주세요.
 npm run dev                  # http://localhost:3000
 ```
 
@@ -24,6 +24,12 @@ npm run dev                  # http://localhost:3000
 | `/league/PL/fixtures` | 다가오는 경기 |
 | `/league/PL/results` | 지난 경기 결과 |
 | `/league/PL/scorers` | 득점 순위 상위 20명 |
+| `/matches/2026-10-25/537785` | 경기 화면과 실시간 응원톡. 경기 줄을 누르면 와요 |
+| `/cafe` | 카페 전체글과 이번 주 인기글 |
+| `/cafe/PL` | 게시판. `best`(인기글), `free`(자유), 리그 코드, `etc`(기타 리그) |
+| `/cafe/PL/12` | 글 보기, 추천, 댓글 |
+| `/cafe/write` | 글쓰기 |
+| `/cafe/me` | 처음 로그인하면 닉네임을 정해 가입하고, 그 뒤엔 닉네임 바꾸기·로그아웃 |
 
 대회 코드는 PL, PD, BL1, SA, FL1, CL, ELC, DED, PPL, BSA, CLI, WC, EC예요.
 
@@ -36,7 +42,11 @@ npm run dev                  # http://localhost:3000
 | `src/lib/competitions.ts` | 대회 목록과 한글 이름 |
 | `src/lib/teams-ko.ts` | 팀 한글 이름 |
 | `src/lib/time.ts` | 한국 시간 변환과 날짜 묶기 |
-| `src/components/` | 화면 조각 |
+| `src/lib/match-day.ts` | 날짜별 경기 조회 범위와 경기 하나 찾기 |
+| `src/lib/cafe/` | 카페 설정, 게시판 목록, 글 읽기(`data.ts`), 쓰기(`actions.ts`) |
+| `src/proxy.ts` | 카페 로그인 유지(토큰 갱신) |
+| `supabase/schema.sql` | 카페 DB 표와 권한 규칙 |
+| `src/components/` | 화면 조각. 카페 조각은 `cafe/` 안에 있어요 |
 | `src/app/` | 페이지 |
 
 ## API 호출 한도 관리
@@ -75,10 +85,65 @@ NEXT_PRIVATE_DEBUG_CACHE=1 npm run start
 - 날짜를 앞뒤로 옮기면 경기 목록이 그 방향으로 밀려 들어와요. 브라우저의 View Transitions 기능을 써서
   지원하지 않는 브라우저나 움직임 줄이기를 켠 기기에서는 애니메이션 없이 바로 바뀌어요.
 
+## 카페
+
+축구 팬끼리 이야기하는 공간이에요. 게시판(자유·리그별·인기글), 추천, 댓글, 경기별 실시간 응원톡이 있어요.
+글과 회원 정보는 [Supabase](https://supabase.com) 무료 플랜에 저장하고, 카카오·구글 계정으로 로그인해요.
+글 읽기는 누구나, 글·댓글·추천·응원톡은 로그인하고 닉네임을 정한 회원만 할 수 있어요.
+
+### 카페 설정
+
+1. supabase.com에서 새 프로젝트를 만들어요. 지역은 Northeast Asia (Seoul)가 빨라요.
+2. 대시보드의 **SQL Editor**에 `supabase/schema.sql` 내용을 통째로 붙여 넣고 Run을 눌러요.
+   여러 번 실행해도 괜찮아서, 이 파일을 고친 뒤에도 다시 실행하면 돼요.
+3. 대시보드 위쪽 **Connect** 버튼이나 **Project Settings > API Keys**에서 프로젝트 주소(Project URL)와 Publishable key를 복사해
+   `.env.local`의 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`에 넣어요.
+   Vercel 프로젝트의 Environment Variables에도 같은 값을 넣어요. 빌드할 때 화면에 박히는 값이라 바꾸면 다시 배포해야 해요.
+4. **Authentication > URL Configuration**에서
+   - Site URL에 배포한 사이트 주소를 넣고,
+   - Redirect URLs에 `http://localhost:3000/auth/callback`과 `https://내도메인/auth/callback`을 추가해요.
+5. **Authentication > Sign In / Providers**에서 로그인 방식을 켜요.
+   - 카카오: [Kakao Developers](https://developers.kakao.com)에서 앱을 만들고 카카오 로그인을 켠 뒤,
+     Redirect URI에 `https://프로젝트주소.supabase.co/auth/v1/callback`을 넣어요.
+     REST API 키와 Client Secret을 Supabase 카카오 설정에 넣어요.
+     동의항목은 [Supabase 카카오 로그인 문서](https://supabase.com/docs/guides/auth/social-login/auth-kakao)를 따라 주세요.
+     이메일 동의항목은 카카오 비즈 앱 전환이 필요할 수 있어요.
+   - 구글: [Google Cloud Console](https://console.cloud.google.com)에서 OAuth 클라이언트를 만들고
+     승인된 리디렉션 URI에 같은 Supabase 콜백 주소를 넣어요.
+     자세한 순서는 [Supabase 구글 로그인 문서](https://supabase.com/docs/guides/auth/social-login/auth-google)에 있어요.
+   - 한쪽만 쓰려면 `src/lib/cafe/config.ts`의 `LOGIN_PROVIDERS`에서 다른 쪽을 지워요.
+
+### 카페 운영
+
+- **매니저 지정**: SQL Editor에서 아래처럼 실행하면 그 회원이 아무 글·댓글·응원톡이나 지울 수 있어요.
+  닉네임 옆에 "매니저" 표시도 붙어요.
+
+  ```sql
+  update public.profiles set is_manager = true where nickname = '내닉네임';
+  ```
+
+- **게시판 바꾸기**: `src/lib/cafe/boards.ts`의 목록과 `supabase/schema.sql`의 `posts_board_check`를 같이 고치고 SQL을 다시 실행해요.
+- **도배 방지**: 글은 30초, 댓글은 5초, 응원톡은 3초에 한 번만 쓸 수 있어요. DB 규칙이라 화면을 거치지 않아도 막혀요.
+- **인기글 기준**: 추천 3개 이상이에요. `src/lib/cafe/config.ts`의 `BEST_LIKES`에서 바꿔요.
+
+### 카페가 동작하는 방식
+
+- 글 목록과 본문은 저장해 두지 않고 볼 때마다 Supabase에서 읽어요. 그래서 새 글이 바로 보이고,
+  경기 API 호출 한도와도 상관없어요. 게시판 머리와 화면 뼈대는 미리 만들어 둬서 바로 떠요.
+- 경기 화면은 날짜별 경기 화면과 같은 저장된 API 응답에서 경기를 찾아서 API 호출이 늘지 않아요.
+  그래서 경기 화면도 오늘 기준 앞뒤 60일 안의 경기만 열려요. 경기 줄 링크는 미리 불러오기를 꺼 두었어요.
+- 응원톡은 Supabase 실시간 전송으로 새 메시지를 받아요. 보내기는 서버를 거쳐서 로그인과 글자 수를 다시 확인해요.
+- 권한 규칙(본인 글만 수정, 매니저 삭제, 내 글 추천 금지, 매니저 표시는 회원이 못 바꿈)은 모두 DB에 있어요.
+  공개 키가 브라우저에 보여도 이 규칙을 넘을 수 없어요.
+- 로그인한 계정의 이름·이메일은 다른 회원에게 보이지 않아요. 화면에는 직접 정한 닉네임만 나와요.
+- 이 Next.js는 지나온 화면을 숨겨 두었다가 뒤로 가기 때 그대로 보여 줘요.
+  글쓰기 폼은 링크로 새로 들어올 때만 비우고, 응원톡은 다시 연결될 때 그사이 메시지를 채워요.
+
 ## Vercel 배포
 
 1. 이 폴더를 GitHub 저장소로 올리고 Vercel에서 가져와요.
 2. Vercel 프로젝트 설정의 Environment Variables에 `FOOTBALL_DATA_API_KEY`를 넣어요. 빌드할 때도 필요해요.
+   카페를 쓰려면 Supabase 주소와 키도 넣어요(위의 "카페 설정" 참고).
 3. 광고를 붙이면 Vercel 무료 플랜 약관상 상업적 이용이라 유료 플랜이 필요해요.
 
 ## 한글 팀 이름 추가
@@ -95,7 +160,9 @@ curl -H "X-Auth-Token: 내_키" https://api.football-data.org/v4/competitions/PL
 ## 알아 둘 점
 
 - 무료 플랜은 스코어와 일정이 몇 분 늦게 반영돼요.
-- 라인업과 골 시간 같은 경기 상세 정보는 무료 플랜에 없어요.
+- 라인업과 골 시간 같은 경기 상세 정보는 무료 플랜에 없어요. 그래서 경기 화면에는 점수와 응원톡만 있어요.
+- Supabase 무료 프로젝트는 일주일 동안 아무도 안 쓰면 잠들어요. 대시보드에서 다시 켜면 돼요.
+- 카페에는 사진 올리기, 신고, 검색 기능이 아직 없어요. 문제 글은 매니저가 지워요.
 - API의 최종 점수에는 승부차기 골이 합쳐져 있어서, 화면에서는 정규·연장 점수와 승부차기 점수를 따로 계산해요.
 - 끝난 토너먼트는 순위표 API가 404를 줘서 "순위표 없음"으로 보여 줘요.
 - `npm audit` 경고는 린트 도구 쪽 패키지에만 해당해요. `npm audit fix --force`는 린트 설정을 옛 버전으로 내리니 실행하지 마세요.
