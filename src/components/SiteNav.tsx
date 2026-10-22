@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef } from "react";
 import { COMPETITIONS } from "@/lib/competitions";
+import { ChatIcon } from "./Icons";
 import { LinkPending } from "./LinkPending";
 import { useCenterActive } from "./useCenterActive";
 
@@ -51,3 +52,26 @@ export function ActiveNavLinks() {
   return <NavLinks activeCode={activeCode} />;
 }
 
+/** 상단 메뉴의 카페 버튼. 대회 메뉴와 구분되게 초록색으로 보여 줘요. */
+export function CafeNavLink({ active = false }: { active?: boolean }) {
+  return (
+    <Link
+      href="/cafe"
+      aria-current={active ? "page" : undefined}
+      className={`relative flex h-8 shrink-0 items-center gap-1 rounded-full px-3 text-sm font-semibold transition active:scale-95 ${
+        active
+          ? "bg-emerald-600 text-white"
+          : "bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+      }`}
+    >
+      <ChatIcon className="size-4" />
+      카페
+      <LinkPending className="rounded-full bg-emerald-500/25" />
+    </Link>
+  );
+}
+
+export function ActiveCafeNavLink() {
+  const pathname = usePathname();
+  return <CafeNavLink active={pathname === "/cafe" || pathname.startsWith("/cafe/")} />;
+}
