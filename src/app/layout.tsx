@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { AttendanceCheck } from "@/components/cafe/AttendanceCheck";
+import { FeedbackHost, FlashToast } from "@/components/FeedbackHost";
 import { LogoMark } from "@/components/Icons";
 import { ActiveCafeNavLink, ActiveNavLinks, CafeNavLink, NavLinks } from "@/components/SiteNav";
 import "./globals.css";
@@ -71,6 +72,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </footer>
         {/* 어느 화면이든 하루 첫 방문이면 출석 골을 줘요. */}
         <AttendanceCheck />
+        {/* 브라우저 기본 alert·confirm 대신 쓰는 화면 아래 알림과 확인 창이에요. */}
+        <FeedbackHost />
+        <Suspense fallback={null}>
+          <FlashToast />
+        </Suspense>
       </body>
     </html>
   );

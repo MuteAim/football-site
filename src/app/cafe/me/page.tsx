@@ -6,9 +6,9 @@ import { Avatar, LevelBadge, NameBadge } from "@/components/cafe/Avatar";
 import { MemberRequired } from "@/components/cafe/CafeNotices";
 import { TeamPickerSkeleton } from "@/components/cafe/CafeSkeletons";
 import { ProfileForm } from "@/components/cafe/ProfileForm";
+import { SignOutButton } from "@/components/cafe/SignOutButton";
 import { TeamPicker } from "@/components/cafe/TeamPicker";
 import { cardClass, mutedClass, secondaryButtonClass, skeletonClass, textButtonClass } from "@/components/ui";
-import { signOut } from "@/lib/cafe/actions";
 import { safeNext } from "@/lib/cafe/config";
 import { getMyGoals, settlePredictions } from "@/lib/cafe/goals";
 import { levelOf, nextLevel } from "@/lib/cafe/levels";
@@ -205,11 +205,7 @@ async function MeContent({ searchParams }: { searchParams: PageProps<"/cafe/me">
         <p className={`text-sm ${mutedClass}`}>
           {profile ? "이 기기에서 로그아웃해요." : "다른 계정으로 로그인하려면 먼저 로그아웃하세요."}
         </p>
-        <form action={signOut}>
-          <button type="submit" className={secondaryButtonClass}>
-            로그아웃
-          </button>
-        </form>
+        <SignOutButton className={secondaryButtonClass} />
       </div>
     </div>
   );

@@ -94,7 +94,13 @@ function CommentItem({
             {canDelete ? (
               <form action={deleteComment}>
                 <input type="hidden" name="commentId" value={comment.id} />
-                <ConfirmButton message="이 댓글을 지울까요?">삭제</ConfirmButton>
+                <ConfirmButton
+                  title="이 댓글을 지울까요?"
+                  description="답글이 달려 있으면 '삭제된 댓글' 자리로 남아요."
+                  doneMessage="댓글을 지웠어요"
+                >
+                  삭제
+                </ConfirmButton>
               </form>
             ) : null}
           </div>
@@ -277,7 +283,9 @@ async function PostContent({ params }: { params: Params }) {
             ) : null}
             <form action={deletePost}>
               <input type="hidden" name="postId" value={post.id} />
-              <ConfirmButton message="이 글을 지울까요? 댓글도 함께 지워져요.">삭제</ConfirmButton>
+              <ConfirmButton title="이 글을 지울까요?" description="댓글도 함께 지워지고, 되돌릴 수 없어요.">
+                삭제
+              </ConfirmButton>
             </form>
           </div>
         ) : null}

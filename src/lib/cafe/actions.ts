@@ -2,13 +2,14 @@
 
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { refresh } from "next/cache";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getMatchOnDay } from "../match-day";
 import { isPredictionOpen } from "../match-display";
 import { isDateKey } from "../time";
 import { getBoard, isWritableBoard, postHref } from "./boards";
 import {
+  FLASH_COOKIE,
   LIMITS,
   LOGIN_PROVIDERS,
   NICKNAME_HINT,
@@ -101,6 +102,14 @@ export async function signOut(): Promise<void> {
 }
 
 /**
+ * 다른 화면으로 넘어가는 동작이 끝났을 때 넘어간 화면 아래에 띄울 알림을 남겨요.
+ * 브라우저가 화면을 옮긴 뒤 FlashToast가 읽고 바로 지워요.
+ */
+async function flash(message: string) {
+  (await cookies()).set(FLASH_COOKIE, message, { path: "/", maxAge: 60, sameSite: "lax" });
+}
+
+/**
  * 로그인 상태나 프로필이 바뀌면 카페 머리의 닉네임처럼 여러 화면이 같이 쓰는 부분도 다시 그려요.
  * revalidatePath는 내 정보 화면의 응원팀 목록(순위표 캐시)까지 버려서 API를 다시 부르게 하니,
  * 저장해 둔 데이터는 그대로 두고 화면만 다시 그리는 refresh를 써요.
@@ -130,7 +139,10 @@ export async function saveProfile(_prev: FormState, formData: FormData): Promise
   if (error) return { error: describe(error, "닉네임을 저장할 수 없어요."), values };
 
   refreshViewer();
-  if (!existing) redirect(safeNext(formData.get("next")));
+  if (!existing) {
+    await flash(`${nickname}님, 가입을 환영해요!`);
+    redirect(safeNext(formData.get("next")));
+  }
   return { error: null, message: "닉네임을 바꿨어요." };
 }
 
@@ -254,6 +266,7 @@ export async function savePost(_prev: FormState, formData: FormData): Promise<Fo
       .maybeSingle<{ id: number; board: string }>();
     if (error) return { error: describe(error, "이 글을 고칠 수 없어요."), values };
     if (!data) return { error: "내가 쓴 글만 고칠 수 있어요.", values };
+    await flash("글을 고쳤어요");
     redirect(postHref(data));
   }
 
@@ -263,6 +276,7 @@ export async function savePost(_prev: FormState, formData: FormData): Promise<Fo
     .select("id, board")
     .single<{ id: number; board: string }>();
   if (error) return { error: describe(error, "글은 30초에 한 번만 쓸 수 있어요. 잠시 후 다시 올려 주세요."), values };
+  await flash("글을 올렸어요");
   redirect(postHref(data));
 }
 
@@ -279,6 +293,7 @@ export async function deletePost(formData: FormData): Promise<void> {
     .select("board")
     .maybeSingle<{ board: string }>();
   if (!data) return;
+  await flash("글을 지웠어요");
   redirect(getBoard(data.board) ? `/cafe/${data.board}` : "/cafe");
 }
 

@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { signOut } from "@/lib/cafe/actions";
 import { nameColorClass } from "@/lib/cafe/shop";
 import type { Author } from "@/lib/cafe/types";
 import { BagIcon, ChevronDownIcon, TrophyIcon, UserIcon } from "../Icons";
 import { cardClass, mutedClass } from "../ui";
 import { Avatar, LevelBadge } from "./Avatar";
+import { SignOutButton } from "./SignOutButton";
 
 function MenuLink({
   href,
@@ -117,14 +117,11 @@ export function AccountMenu({ me, chipClass }: { me: Author; chipClass: string }
               onPick={close}
             />
           </nav>
-          <form action={signOut} className="border-t border-zinc-100 p-1.5 dark:border-white/[0.07]">
-            <button
-              type="submit"
+          <div className="border-t border-zinc-100 p-1.5 dark:border-white/[0.07]">
+            <SignOutButton
               className={`w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-zinc-100 dark:hover:bg-white/[0.06] ${mutedClass}`}
-            >
-              로그아웃
-            </button>
-          </form>
+            />
+          </div>
         </div>
       ) : null}
     </div>

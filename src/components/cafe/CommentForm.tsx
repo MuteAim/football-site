@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef } from "react";
 import { addComment } from "@/lib/cafe/actions";
 import { LIMITS } from "@/lib/cafe/config";
 import type { FormState } from "@/lib/cafe/types";
+import { showToast } from "../feedback";
 import { errorTextClass, inputClass, primaryButtonClass, textButtonClass } from "../ui";
 
 const initialState: FormState = { error: null };
@@ -23,7 +24,10 @@ type ReplyOptions = {
 export function CommentForm({ postId, reply }: { postId: number; reply?: ReplyOptions }) {
   const [state, formAction, pending] = useActionState(async (prev: FormState, formData: FormData) => {
     const result = await addComment(prev, formData);
-    if (!result.error) reply?.onDone();
+    if (!result.error) {
+      showToast(reply ? "답글을 달았어요" : "댓글을 달았어요");
+      reply?.onDone();
+    }
     return result;
   }, initialState);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

@@ -11,6 +11,7 @@ import type { Author, Talk, TalkSide } from "@/lib/cafe/types";
 import { formatKickoff } from "@/lib/time";
 import { Crest } from "../Crest";
 import { SendIcon } from "../Icons";
+import { confirmDialog } from "../feedback";
 import {
   cardClass,
   cardHeadingClass,
@@ -211,8 +212,8 @@ export function TalkRoom({
     });
   }
 
-  function remove(id: number) {
-    if (!window.confirm("이 응원톡을 지울까요?")) return;
+  async function remove(id: number) {
+    if (!(await confirmDialog({ title: "이 응원톡을 지울까요?", confirmLabel: "지우기", tone: "danger" }))) return;
     startSending(async () => {
       if (await deleteTalk(id)) setTalks((prev) => prev.filter((talk) => talk.id !== id));
     });
@@ -283,7 +284,7 @@ export function TalkRoom({
                     {mine || viewer?.isManager ? (
                       <button
                         type="button"
-                        onClick={() => remove(talk.id)}
+                        onClick={() => void remove(talk.id)}
                         className={`ml-auto opacity-0 group-hover:opacity-100 focus:opacity-100 max-sm:opacity-100 ${textButtonClass}`}
                       >
                         삭제

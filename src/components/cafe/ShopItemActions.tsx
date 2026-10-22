@@ -3,9 +3,11 @@
 import { useState, useTransition } from "react";
 import { buyItem, equipItem } from "@/lib/cafe/actions";
 import type { ShopKind } from "@/lib/cafe/shop";
+import { objectParticle } from "@/lib/korean";
+import { confirmDialog, showToast } from "../feedback";
 import { errorTextClass, primaryButtonClass, secondaryButtonClass } from "../ui";
 
-/** 상점 아이템 버튼. 안 샀으면 사기, 샀으면 쓰기와 벗기예요. 끝나면 서버가 화면을 다시 그려요. */
+/** 상점 아이템 버튼. 안 샀으면 사기, 샀으면 쓰기와 벗기예요. 끝나면 알림을 띄우고 서버가 화면을 다시 그려요. */
 export function ShopItemActions({
   itemId,
   kind,
@@ -26,12 +28,24 @@ export function ShopItemActions({
   const [pending, startAction] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  function run(action: () => Promise<{ error: string | null }>) {
+  const named = `${name}${objectParticle(name)}`;
+
+  function run(action: () => Promise<{ error: string | null }>, done: string) {
     setError(null);
     startAction(async () => {
       const result = await action();
       if (result.error) setError(result.error);
+      else showToast(done);
     });
+  }
+
+  async function buy() {
+    const ok = await confirmDialog({
+      title: `${named} 살까요?`,
+      description: `${price.toLocaleString("ko-KR")}골을 쓰면 ${(balance - price).toLocaleString("ko-KR")}골이 남아요. 등급은 그대로예요.`,
+      confirmLabel: `${price.toLocaleString("ko-KR")}골에 사기`,
+    });
+    if (ok) run(() => buyItem(itemId), `${named} 샀어요. 쓰기를 누르면 바로 보여요.`);
   }
 
   let button;
@@ -41,9 +55,7 @@ export function ShopItemActions({
       <button
         type="button"
         disabled={!affordable || pending}
-        onClick={() => {
-          if (window.confirm(`${price}골로 「${name}」 아이템을 살까요?`)) run(() => buyItem(itemId));
-        }}
+        onClick={() => void buy()}
         className={`w-full ${primaryButtonClass}`}
       >
         {pending ? "사는 중…" : affordable ? `${price}골에 사기` : "골이 모자라요"}
@@ -54,7 +66,7 @@ export function ShopItemActions({
       <button
         type="button"
         disabled={pending}
-        onClick={() => run(() => equipItem(kind, null))}
+        onClick={() => run(() => equipItem(kind, null), `${named} 벗었어요`)}
         className={`w-full ${secondaryButtonClass}`}
       >
         {pending ? "바꾸는 중…" : "벗기"}
@@ -65,7 +77,7 @@ export function ShopItemActions({
       <button
         type="button"
         disabled={pending}
-        onClick={() => run(() => equipItem(kind, itemId))}
+        onClick={() => run(() => equipItem(kind, itemId), `${named} 쓰고 있어요`)}
         className={`w-full ${primaryButtonClass}`}
       >
         {pending ? "바꾸는 중…" : "쓰기"}

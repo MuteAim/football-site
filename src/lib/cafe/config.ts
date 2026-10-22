@@ -38,6 +38,9 @@ export const PAGE_SIZE = 20;
 /** 추천을 이만큼 받으면 인기글 게시판에 올라가요. */
 export const BEST_LIKES = 3;
 
+/** 다른 화면으로 넘어가는 동작이 끝났을 때 보여 줄 알림 문구를 잠깐 담아 두는 쿠키 이름 */
+export const FLASH_COOKIE = "cafe-flash";
+
 /** 승부 예측에서 고를 수 있는 것. supabase/schema.sql의 pick 조건과 같아야 해요. */
 export const PREDICTION_PICKS = ["home", "draw", "away"] as const;
 
