@@ -96,18 +96,30 @@ NEXT_PRIVATE_DEBUG_CACHE=1 npm run start
 1. supabase.com에서 새 프로젝트를 만들어요. 지역은 Northeast Asia (Seoul)가 빨라요.
 2. 대시보드의 **SQL Editor**에 `supabase/schema.sql` 내용을 통째로 붙여 넣고 Run을 눌러요.
    여러 번 실행해도 괜찮아서, 이 파일을 고친 뒤에도 다시 실행하면 돼요.
-3. 대시보드 위쪽 **Connect** 버튼이나 **Project Settings > API Keys**에서 프로젝트 주소(Project URL)와 Publishable key를 복사해
-   `.env.local`의 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`에 넣어요.
+3. 프로젝트 주소(Project URL)와 Publishable key를 복사해 `.env.local`의 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`에 넣어요.
+   - 프로젝트 주소는 `https://abcdefghijklmnopqrst.supabase.co`처럼 생겼고, 가운데 글자는 프로젝트마다 다른 프로젝트 ID예요.
+     대시보드 위쪽 **Connect** 버튼을 누르면 보여요.
+     대시보드 주소창 `supabase.com/dashboard/project/abcdefghijklmnopqrst`의 맨 끝도 같은 프로젝트 ID예요.
+   - Publishable key는 **Project Settings > API Keys**에 있고 `sb_publishable_`로 시작해요. 같은 화면의 Secret key는 넣지 마세요.
    Vercel 프로젝트의 Environment Variables에도 같은 값을 넣어요. 빌드할 때 화면에 박히는 값이라 바꾸면 다시 배포해야 해요.
 4. **Authentication > URL Configuration**에서
-   - Site URL에 배포한 사이트 주소를 넣고,
-   - Redirect URLs에 `http://localhost:3000/auth/callback`과 `https://내도메인/auth/callback`을 추가해요.
+   - Site URL에 배포한 사이트 주소(`https://내도메인`)를 넣어요. 아직 배포 전이면 `http://localhost:3000`을 넣어요.
+   - Redirect URLs에 `http://localhost:3000/**`을 추가해요. 로컬에서 로그인하면 로컬로 돌아오게 해 줘요.
+     돌아갈 화면이 `/auth/callback?next=...`처럼 뒤에 붙어서 `/**`까지 적어야 맞아요.
+     주소가 목록에 없으면 Supabase가 Site URL로 보내 버려서 로그인이 끝나지 않아요.
+   - Site URL과 같은 주소는 목록에 없어도 돼요. Vercel 미리보기처럼 다른 주소에서도 로그인하려면 그 주소에 `/**`를 붙여 추가해요.
 5. **Authentication > Sign In / Providers**에서 로그인 방식을 켜요.
+   카카오·구글 쪽에는 Supabase 콜백 주소를 넣어요. 3번의 프로젝트 주소 뒤에 `/auth/v1/callback`을 붙인 것으로,
+   `https://abcdefghijklmnopqrst.supabase.co/auth/v1/callback`처럼 생겼어요.
+   Supabase에서 카카오나 구글 설정을 열면 **Callback URL (for OAuth)** 칸에 이 주소가 나와서 그대로 복사하면 돼요.
    - 카카오: [Kakao Developers](https://developers.kakao.com)에서 앱을 만들고 카카오 로그인을 켠 뒤,
-     Redirect URI에 `https://프로젝트주소.supabase.co/auth/v1/callback`을 넣어요.
+     Redirect URI에 Supabase 콜백 주소를 넣어요.
      REST API 키와 Client Secret을 Supabase 카카오 설정에 넣어요.
-     동의항목은 [Supabase 카카오 로그인 문서](https://supabase.com/docs/guides/auth/social-login/auth-kakao)를 따라 주세요.
-     이메일 동의항목은 카카오 비즈 앱 전환이 필요할 수 있어요.
+     동의항목에서 닉네임, 프로필 사진, 카카오계정(이메일)을 모두 켜요. 하나라도 꺼져 있으면 KOE205 오류가 나요.
+     Supabase가 이 세 가지를 늘 같이 요청하고, 코드에서 뺄 수 없어요.
+     이메일은 비즈 앱에서만 켤 수 있어요. 사업자가 아니어도 **앱 > 일반 > 비즈니스 정보**에서 개인 개발자 비즈 앱으로 바꾸면 돼요.
+     카페는 이메일을 쓰지 않으니 이메일은 선택 동의로 두고, Supabase 카카오 설정에서 **Allow users without an email**을 켜요.
+     자세한 내용은 [Supabase 카카오 로그인 문서](https://supabase.com/docs/guides/auth/social-login/auth-kakao)에 있어요.
    - 구글: [Google Cloud Console](https://console.cloud.google.com)에서 OAuth 클라이언트를 만들고
      승인된 리디렉션 URI에 같은 Supabase 콜백 주소를 넣어요.
      자세한 순서는 [Supabase 구글 로그인 문서](https://supabase.com/docs/guides/auth/social-login/auth-google)에 있어요.
