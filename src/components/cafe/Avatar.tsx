@@ -96,7 +96,7 @@ export function LevelBadge({ goals }: { goals: number }) {
   return (
     <span
       title={`${goals.toLocaleString("ko-KR")}골`}
-      className={`shrink-0 rounded px-1 py-px text-[10px] font-bold leading-tight ${level.className}`}
+      className={`shrink-0 rounded px-1 py-px text-[10px] font-bold leading-tight whitespace-nowrap ${level.className}`}
     >
       {level.name}
     </span>
@@ -107,7 +107,8 @@ export function LevelBadge({ goals }: { goals: number }) {
 export function NameBadge({ children, tone = "emerald" }: { children: string; tone?: "emerald" | "zinc" }) {
   return (
     <span
-      className={`rounded px-1 py-px text-[10px] font-bold leading-tight ${
+      // 좁은 줄에서도 글자가 두 줄로 꺾이지 않고, 닉네임이 먼저 줄어들게 해요.
+      className={`shrink-0 rounded px-1 py-px text-[10px] font-bold leading-tight whitespace-nowrap ${
         tone === "emerald"
           ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
           : "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300"
