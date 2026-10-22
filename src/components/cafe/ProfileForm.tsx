@@ -26,7 +26,7 @@ export function ProfileForm({ nickname, next }: { nickname?: string; next: strin
             maxLength={12}
             autoComplete="nickname"
             defaultValue={state.values?.nickname ?? nickname}
-            placeholder="예: 손흥민팬"
+            placeholder="예: 아자르팬"
             className={inputClass}
           />
           <button type="submit" disabled={pending} className={primaryButtonClass}>
