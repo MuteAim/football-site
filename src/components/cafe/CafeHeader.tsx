@@ -55,9 +55,9 @@ export function CafeHeader() {
             <ChatIcon className="size-7" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-white/85">해외축구 팬들의 수다방</p>
+            <p className="text-sm font-medium text-white/85">해축남</p>
             <Link href="/cafe" className="block truncate text-2xl font-bold tracking-tight">
-              해외축구 카페
+              해외축구에 진심인 사람들 대화하는곳
             </Link>
           </div>
           <Suspense fallback={<span className="h-9 w-20 shrink-0 rounded-full bg-white/15" />}>
