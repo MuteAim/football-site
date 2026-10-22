@@ -261,7 +261,7 @@ export function TalkRoom({
               <div key={talk.id} className="group flex gap-2.5">
                 <Avatar id={talk.userId} nickname={nickname} team={author?.team} frame={author?.frame} size="md" />
                 <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-1.5 text-xs">
+                  <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
                     {/* 산 닉네임 색이 있으면 그 색을, 없으면 내 메시지만 초록으로 보여 줘요. */}
                     <span
                       className={`truncate font-semibold ${

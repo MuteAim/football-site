@@ -78,7 +78,8 @@ function CommentItem({
         size={isReply ? "sm" : "md"}
       />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 text-xs">
+        {/* 좁은 화면에서 배지와 시각이 자리를 다 차지하면 닉네임이 잘리지 않게 다음 줄로 넘겨요. */}
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
           <span className={`truncate text-sm font-semibold ${nameColorClass(comment.author.nameColor)}`}>
             {comment.author.nickname}
           </span>
