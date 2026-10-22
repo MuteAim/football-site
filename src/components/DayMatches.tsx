@@ -3,10 +3,9 @@ import { cacheLife } from "next/cache";
 import { ViewTransition, type ReactNode } from "react";
 import { competitionOrder, getCompetition } from "@/lib/competitions";
 import { getMatchesBetween, type Match } from "@/lib/football-data";
+import { isWithinRange, MAX_DISTANCE_DAYS, queryRange } from "@/lib/match-day";
 import { isLive, roundLabel } from "@/lib/match-display";
 import {
-  addDays,
-  diffDays,
   formatMonthDayLong,
   formatWeekdayLong,
   relativeDayLabel,
@@ -21,22 +20,9 @@ import { LinkPending } from "./LinkPending";
 import { MatchRow } from "./MatchRow";
 import { cardClass, cardHeadingClass, cardListClass } from "./ui";
 
-const MAX_DISTANCE_DAYS = 60;
-
 // DateStrip이 날짜 링크에 붙인 방향대로 경기 목록이 밀려 들어와요.
 // 방향이 없는 이동(브라우저 뒤로 가기, 새로 불러오기)에서는 움직이지 않아요.
 const SLIDE = { "nav-forward": "nav-forward", "nav-back": "nav-back", default: "none" };
-
-// 한국 날짜 하루는 UTC로 전날 15시부터 그날 15시까지예요.
-// 날짜 띠에 보이는 어제부터 5일 뒤까지는 한 번의 호출로 묶어서 같은 캐시를 같이 써요.
-// API의 dateTo는 포함되지 않고, 조회 범위는 최대 10일이에요.
-function queryRange(selected: string, today: string) {
-  const offset = diffDays(selected, today);
-  if (offset >= -1 && offset <= 5) {
-    return { from: addDays(today, -2), to: addDays(today, 7) };
-  }
-  return { from: addDays(selected, -1), to: addDays(selected, 2) };
-}
 
 function DayHeading({ date, today, children }: { date: string; today: string; children?: ReactNode }) {
   const relative = relativeDayLabel(date, today);
@@ -99,7 +85,7 @@ export async function DayMatches({ date }: { date?: string }) {
   const selected = date ?? today;
 
   let body: ReactNode;
-  if (Math.abs(diffDays(selected, today)) > MAX_DISTANCE_DAYS) {
+  if (!isWithinRange(selected, today)) {
     body = (
       <>
         <DayHeading date={selected} today={today} />

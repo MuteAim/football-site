@@ -11,3 +11,6 @@ export const cardListClass = "divide-y divide-zinc-100 px-4 dark:divide-white/[0
 
 /** 보조 설명 글씨 */
 export const mutedClass = "text-zinc-500 dark:text-zinc-400";
+
+/** 뼈대 화면의 회색 막대 */
+export const skeletonClass = "rounded-md bg-zinc-200/80 dark:bg-white/[0.07]";
