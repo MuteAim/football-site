@@ -133,7 +133,7 @@ export async function DayMatches({ date }: { date?: string }) {
                 <CompetitionHeading code={code} list={list} />
                 <ul className={cardListClass}>
                   {list.map((match) => (
-                    <MatchRow key={match.id} match={match} caption={roundLabel(match)} />
+                    <MatchRow key={match.id} match={match} caption={roundLabel(match)} today={today} />
                   ))}
                 </ul>
               </section>
