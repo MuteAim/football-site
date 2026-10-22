@@ -30,7 +30,7 @@ npm run dev                  # http://localhost:3000
 | `/cafe/PL/12` | 글 보기, 추천, 댓글과 답글 |
 | `/cafe/write` | 글쓰기 |
 | `/cafe/predict` | 승부 예측 순위 |
-| `/cafe/me` | 처음 로그인하면 닉네임을 정해 가입하고, 그 뒤엔 닉네임·응원팀 바꾸기, 예측 성적, 로그아웃 |
+| `/cafe/me` | 처음 로그인하면 닉네임을 정해 가입하고, 그 뒤엔 골과 등급, 예측 성적, 닉네임·응원팀 바꾸기, 로그아웃 |
 | `/privacy` | 개인정보 처리방침 |
 
 대회 코드는 PL, PD, BL1, SA, FL1, CL, ELC, DED, PPL, BSA, CLI, WC, EC예요.
@@ -104,8 +104,11 @@ NEXT_PRIVATE_DEBUG_CACHE=1 npm run start
    - 프로젝트 주소는 `https://abcdefghijklmnopqrst.supabase.co`처럼 생겼고, 가운데 글자는 프로젝트마다 다른 프로젝트 ID예요.
      대시보드 위쪽 **Connect** 버튼을 누르면 보여요.
      대시보드 주소창 `supabase.com/dashboard/project/abcdefghijklmnopqrst`의 맨 끝도 같은 프로젝트 ID예요.
-   - Publishable key는 **Project Settings > API Keys**에 있고 `sb_publishable_`로 시작해요. 같은 화면의 Secret key는 넣지 마세요.
+   - Publishable key는 **Project Settings > API Keys**에 있고 `sb_publishable_`로 시작해요. 이 두 칸에는 Secret key를 넣지 마세요.
    Vercel 프로젝트의 Environment Variables에도 같은 값을 넣어요. 빌드할 때 화면에 박히는 값이라 바꾸면 다시 배포해야 해요.
+   - 승부 예측 골을 주려면 같은 화면의 **Secret key**(`sb_secret_`로 시작)를 `SUPABASE_SECRET_KEY`에 넣어요.
+     서버에서만 쓰는 키라 이름 앞에 `NEXT_PUBLIC_`을 절대 붙이면 안 돼요. Vercel에도 같은 이름으로 넣어요.
+     비워 두면 예측 골 지급만 멈추고 출석 골과 나머지 기능은 그대로 돌아가요.
 4. **Authentication > URL Configuration**에서
    - Site URL에 배포한 사이트 주소(`https://내도메인`)를 넣어요. 아직 배포 전이면 `http://localhost:3000`을 넣어요.
    - Redirect URLs에 `http://localhost:3000/**`을 추가해요. 로컬에서 로그인하면 로컬로 돌아오게 해 줘요.
@@ -160,6 +163,13 @@ NEXT_PRIVATE_DEBUG_CACHE=1 npm run start
   연장까지의 결과로 채점하고, 승부차기로 갈린 경기는 무승부로 쳐요.
   킥오프 시각과 결과는 경기 API에만 있어서, 고친 시각을 DB가 직접 적고 순위를 셀 때 킥오프 뒤에 고친 예측을 빼요.
 - 예측 순위(`/cafe/predict`)는 이번 시즌 대회별 경기 목록에서 결과를 찾아 5분마다 새로 계산해요.
+- **골**은 돈 가치가 없는 자랑용 포인트예요. 하루 첫 방문 때 자동으로 출석해서 10골, 7일 연속마다 30골을 더 받아요.
+  승부 예측을 맞히면 10골, 5명 이상 참여한 경기에서 적중자가 30% 이하면 10골을 더 받고, 예측 골은 하루 50골까지예요.
+  골에 따라 새싹(0) → 유망주(100) → 주전(300) → 에이스(800) → 레전드(2000) 등급 배지가 닉네임 옆에 붙어요.
+- 골은 회원이 직접 바꿀 수 없어요. 출석은 DB 함수(`check_in`)가 한국 날짜로 하루 한 번만 주고,
+  예측 골은 서버가 경기 결과를 확인한 뒤 비밀 키로만 부를 수 있는 `settle_match`가 줘요.
+  정산은 회원이 홈, 내 정보, 예측 순위, 끝난 경기 화면을 볼 때 화면을 다 보낸 뒤 5분에 한 번씩 돌아요.
+  골을 현금이나 상품으로 바꿔 주거나 예측에 골을 걸게 하면 사행성 문제가 생길 수 있으니 자랑용으로만 써 주세요.
 - 권한 규칙(본인 글만 수정, 매니저 삭제, 내 글 추천 금지, 매니저 표시는 회원이 못 바꿈)은 모두 DB에 있어요.
   공개 키가 브라우저에 보여도 이 규칙을 넘을 수 없어요.
 - 로그인한 계정의 이름·이메일은 다른 회원에게 보이지 않아요. 화면에는 직접 정한 닉네임만 나와요.

@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { connection } from "next/server";
+import { after, connection } from "next/server";
 import { Suspense } from "react";
-import { Avatar, NameBadge } from "@/components/cafe/Avatar";
+import { Avatar, LevelBadge, NameBadge } from "@/components/cafe/Avatar";
 import { PostListSkeleton } from "@/components/cafe/CafeSkeletons";
 import { EmptyState } from "@/components/EmptyState";
 import { TrophyIcon } from "@/components/Icons";
 import { cardClass, cardListClass, mutedClass } from "@/components/ui";
+import { settlePredictions } from "@/lib/cafe/goals";
 import { getPredictionRanking, rankOf } from "@/lib/cafe/predictions";
 import type { RankingEntry } from "@/lib/cafe/types";
 import { getViewer } from "@/lib/cafe/viewer";
@@ -35,6 +36,7 @@ function RankRow({ entry, rank, mine }: { entry: RankingEntry; rank: number; min
       <Avatar id={entry.author.id} nickname={entry.author.nickname} team={entry.author.team} size="md" />
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         <span className="truncate text-[15px] font-semibold">{entry.author.nickname}</span>
+        <LevelBadge goals={entry.author.goals} />
         {entry.author.isManager ? <NameBadge>매니저</NameBadge> : null}
         {mine ? <NameBadge tone="zinc">나</NameBadge> : null}
       </div>
@@ -52,6 +54,8 @@ function RankRow({ entry, rank, mine }: { entry: RankingEntry; rank: number; min
 async function Ranking() {
   // 빌드할 때 순위를 미리 계산해 두지 않게, 요청 시점 작업이라고 먼저 알려 둬요.
   await connection();
+  // 순위를 보러 온 김에 끝난 경기 예측을 정산해서 골을 줘요. 화면을 다 보낸 뒤에 해요.
+  after(settlePredictions);
   const [entries, viewer] = await Promise.all([getPredictionRanking(), getViewer()]);
   if (entries.length === 0) {
     return <EmptyState>아직 결과가 나온 예측이 없어요. 경기 화면에서 승부를 예측해 보세요.</EmptyState>;

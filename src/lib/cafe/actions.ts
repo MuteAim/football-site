@@ -156,6 +156,31 @@ export async function saveTeam(_prev: FormState, formData: FormData): Promise<Fo
   return { error: null, message: team ? "응원팀을 저장했어요." : "응원팀을 지웠어요." };
 }
 
+// ---------- 골 ----------
+
+/**
+ * 출석 체크. 하루 첫 방문 때 브라우저가 한 번 불러요. 로그인하지 않았거나 닉네임을 정하기 전이면 null이에요.
+ * 날짜와 골은 DB가 정해서 화면에서 조작할 수 없어요.
+ */
+export async function checkIn(): Promise<{ awarded: number; streak: number; goals: number } | null> {
+  if (!isCafeConfigured()) return null;
+  const supabase = await createSessionClient();
+  const { data: claims } = await supabase.auth.getClaims();
+  if (!claims?.claims.sub) return null;
+
+  const { data, error } = await supabase
+    .rpc("check_in")
+    .maybeSingle<{ awarded: number; streak: number; goals: number }>();
+  if (error) {
+    console.error(error);
+    return null;
+  }
+  if (!data) return null;
+  // 골이 늘었으면 닉네임 옆 등급처럼 화면에 보이는 골도 다시 그려요.
+  if (data.awarded > 0) refresh();
+  return data;
+}
+
 // ---------- 게시글 ----------
 
 /** 새 글과 글 수정을 같이 처리해요. postId가 있으면 수정이에요. */

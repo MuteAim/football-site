@@ -1,3 +1,4 @@
+import { levelOf } from "@/lib/cafe/levels";
 import type { FanTeam } from "@/lib/cafe/types";
 import { Crest } from "../Crest";
 
@@ -77,6 +78,19 @@ export function TeamCrest({ team }: { team: FanTeam | null }) {
       className="inline-flex size-[18px] shrink-0 items-center justify-center rounded-full dark:bg-white"
     >
       <Crest src={team.crest} size={14} />
+    </span>
+  );
+}
+
+/** 골로 정해지는 회원 등급. 닉네임 바로 뒤에 붙여요. 마우스를 올리면 골 수가 보여요. */
+export function LevelBadge({ goals }: { goals: number }) {
+  const level = levelOf(goals);
+  return (
+    <span
+      title={`${goals.toLocaleString("ko-KR")}골`}
+      className={`shrink-0 rounded px-1 py-px text-[10px] font-bold leading-tight ${level.className}`}
+    >
+      {level.name}
     </span>
   );
 }

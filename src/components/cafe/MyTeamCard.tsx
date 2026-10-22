@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { after } from "next/server";
 import { isCafeConfigured } from "@/lib/cafe/config";
+import { settlePredictions } from "@/lib/cafe/goals";
 import { getTeamDigest, type TeamDigest, type TeamOutcome } from "@/lib/cafe/teams";
 import { getViewer } from "@/lib/cafe/viewer";
 import type { Match } from "@/lib/football-data";
@@ -164,6 +166,8 @@ export async function MyTeamSection() {
   if (!isCafeConfigured()) return null;
   const viewer = await getViewer();
   if (!viewer?.profile) return null;
+  // 회원이 홈에 올 때마다 끝난 경기 예측을 정산해 둬요. 화면을 다 보낸 뒤에 하고, 5분에 한 번만 돌아요.
+  after(settlePredictions);
   if (!viewer.profile.team) return <PickTeamPrompt />;
 
   // 경기 API가 한도에 걸려도 홈의 오늘 경기는 보여야 해서, 내 팀 카드만 조용히 빼요.

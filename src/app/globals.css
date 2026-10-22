@@ -83,6 +83,14 @@ html {
   }
 }
 
+/* 출석 골 알림이 아래에서 살짝 올라와요. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
 /* 움직임 줄이기를 켠 기기에서는 밀리는 동작 없이 바로 바뀌어요. */
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(*),

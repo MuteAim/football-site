@@ -104,6 +104,40 @@ create table if not exists public.match_predictions (
 );
 create index if not exists match_predictions_user_idx on public.match_predictions (user_id);
 
+-- 골. 출석과 승부 예측 적중으로 받고 등급 배지에 써요. 돈 가치가 없는 자랑용이에요.
+-- 회원은 골을 직접 바꿀 수 없어요. 출석은 DB 함수(check_in)가, 예측 적중은 서버만 가진 비밀 키로 settle_match가 적어요.
+alter table public.profiles add column if not exists goals integer not null default 0;
+alter table public.profiles add column if not exists attendance_streak integer not null default 0;
+alter table public.profiles add column if not exists last_attended date;
+
+-- 골 내역. 같은 사람이 같은 이유로 같은 대상(출석 날짜, 경기 번호)에서 두 번 받지 못해요.
+-- day는 한국 날짜예요. 예측 골은 킥오프 날짜로 적어서 하루 상한을 셀 때 써요.
+create table if not exists public.goal_events (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  kind text not null check (kind in ('attendance', 'streak', 'prediction', 'minority')),
+  ref text not null,
+  day date not null,
+  amount integer not null check (amount > 0),
+  created_at timestamptz not null default now(),
+  unique (user_id, kind, ref)
+);
+create index if not exists goal_events_user_idx on public.goal_events (user_id, id desc);
+
+-- 정산을 마친 경기. 한 경기는 한 번만 정산해요.
+create table if not exists public.settled_matches (
+  match_id integer primary key,
+  result text not null check (result in ('home', 'draw', 'away')),
+  kickoff timestamptz not null,
+  settled_at timestamptz not null default now()
+);
+
+-- 아직 정산하지 않은 예측이 있는 경기. 서버가 정산할 경기를 찾을 때만 써요.
+create or replace view public.unsettled_matches with (security_invoker = true) as
+  select distinct p.match_id, p.competition
+  from public.match_predictions p
+  where not exists (select 1 from public.settled_matches s where s.match_id = p.match_id);
+
 -- ---------- 숫자 자동 계산 ----------
 -- 회원은 글의 숫자 칸을 직접 고칠 수 없어서, 추천·댓글이 생기거나 지워질 때 DB가 대신 세요.
 
@@ -188,6 +222,105 @@ drop trigger if exists match_predictions_touch on public.match_predictions;
 create trigger match_predictions_touch before update on public.match_predictions
   for each row execute function public.touch_prediction();
 
+-- 골 내역이 생기면 회원의 골 합계를 올려요.
+create or replace function public.add_goals() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  update public.profiles set goals = goals + new.amount where id = new.user_id;
+  return null;
+end $$;
+
+drop trigger if exists goal_events_add on public.goal_events;
+create trigger goal_events_add after insert on public.goal_events
+  for each row execute function public.add_goals();
+
+-- 출석. 한국 날짜로 하루 한 번 10골, 7일 연속마다 30골을 더 줘요.
+-- 이미 출석했으면 0골을 돌려주고, 닉네임을 정하기 전이면 아무것도 돌려주지 않아요.
+create or replace function public.check_in()
+returns table (awarded integer, streak integer, goals integer)
+language plpgsql security definer set search_path = '' as $$
+declare
+  me uuid := (select auth.uid());
+  today date := (now() at time zone 'Asia/Seoul')::date;
+  last_day date;
+  days integer;
+begin
+  -- 여러 기기에서 동시에 들어와도 한 번만 세도록 내 줄을 잠가요.
+  select p.last_attended, p.attendance_streak into last_day, days
+  from public.profiles p where p.id = me for update;
+  if not found then
+    return;
+  end if;
+
+  if last_day = today then
+    return query select 0, p.attendance_streak, p.goals from public.profiles p where p.id = me;
+    return;
+  end if;
+
+  days := case when last_day = today - 1 then days + 1 else 1 end;
+  update public.profiles p set last_attended = today, attendance_streak = days where p.id = me;
+  insert into public.goal_events (user_id, kind, ref, day, amount) values (me, 'attendance', today::text, today, 10);
+  if days % 7 = 0 then
+    insert into public.goal_events (user_id, kind, ref, day, amount) values (me, 'streak', today::text, today, 30);
+  end if;
+  return query
+    select case when days % 7 = 0 then 40 else 10 end, days, p.goals from public.profiles p where p.id = me;
+end $$;
+
+-- 내 출석 상태. 출석 칸은 다른 회원에게 보이지 않아서 본인은 이 함수로 읽어요.
+create or replace function public.my_attendance()
+returns table (streak integer, last_attended date)
+language sql stable security definer set search_path = '' as $$
+  select p.attendance_streak, p.last_attended from public.profiles p where p.id = (select auth.uid());
+$$;
+
+-- 승부 예측 정산. 서버가 경기 API에서 확인한 결과로 부르고, 서버의 비밀 키(service_role)로만 부를 수 있어요.
+-- 킥오프 전에 고른 예측만 세요. 맞히면 10골, 5명 이상 참여한 경기에서 적중자가 30% 이하면 10골을 더 줘요.
+-- 예측으로 받는 골은 킥오프 날짜(한국) 기준 하루 50골까지예요.
+create or replace function public.settle_match(target integer, outcome text, kickoff timestamptz)
+returns integer
+language plpgsql security definer set search_path = '' as $$
+declare
+  kick_day date := (kickoff at time zone 'Asia/Seoul')::date;
+  participants integer;
+  hitters integer;
+  minority boolean;
+  winner uuid;
+  room integer;
+begin
+  insert into public.settled_matches (match_id, result, kickoff) values (target, outcome, kickoff)
+  on conflict (match_id) do nothing;
+  if not found then
+    return 0;
+  end if;
+
+  select count(*), count(*) filter (where p.pick = outcome) into participants, hitters
+  from public.match_predictions p
+  where p.match_id = target and p.updated_at < kickoff;
+  minority := participants >= 5 and hitters * 10 <= participants * 3;
+
+  for winner in
+    select p.user_id from public.match_predictions p
+    where p.match_id = target and p.updated_at < kickoff and p.pick = outcome
+  loop
+    -- 같은 회원의 다른 경기 정산과 겹쳐도 하루 상한을 넘지 않게 회원마다 차례를 지켜요.
+    perform pg_advisory_xact_lock(hashtext(winner::text));
+    select 50 - coalesce(sum(e.amount), 0) into room
+    from public.goal_events e
+    where e.user_id = winner and e.day = kick_day and e.kind in ('prediction', 'minority');
+    if room > 0 then
+      insert into public.goal_events (user_id, kind, ref, day, amount)
+      values (winner, 'prediction', target::text, kick_day, least(10, room));
+      room := room - least(10, room);
+    end if;
+    if minority and room > 0 then
+      insert into public.goal_events (user_id, kind, ref, day, amount)
+      values (winner, 'minority', target::text, kick_day, least(10, room));
+    end if;
+  end loop;
+  return hitters;
+end $$;
+
 -- 조회수 올리기. 로그인하지 않은 방문자도 부를 수 있어요.
 create or replace function public.count_post_view(target bigint) returns void
 language sql security definer set search_path = '' as $$
@@ -205,12 +338,22 @@ $$;
 -- 칸 단위로 권한을 줘서 회원이 매니저 표시나 조회수·추천 수를 직접 바꾸지 못하게 막아요.
 
 revoke all on public.profiles, public.posts, public.comments, public.post_likes, public.match_talks,
-  public.match_predictions
+  public.match_predictions, public.goal_events, public.settled_matches, public.unsettled_matches
   from anon, authenticated;
 
-grant select on public.profiles, public.posts, public.comments, public.match_talks, public.match_predictions
+grant select on public.posts, public.comments, public.match_talks, public.match_predictions to anon, authenticated;
+grant select on public.post_likes, public.goal_events to authenticated;
+-- 회원 정보는 공개해도 되는 칸만 보여요. 언제 들어왔는지 알 수 있는 출석 칸은 본인만 my_attendance로 봐요.
+grant select (id, nickname, is_manager, goals, team_id, team_name, team_crest, created_at) on public.profiles
   to anon, authenticated;
-grant select on public.post_likes to authenticated;
+revoke all on function public.my_attendance() from public, anon;
+grant execute on function public.my_attendance() to authenticated;
+
+-- 골은 DB 함수로만 생겨요. 출석은 회원이, 예측 정산은 서버의 비밀 키(service_role)만 부를 수 있어요.
+revoke all on function public.check_in() from public, anon;
+grant execute on function public.check_in() to authenticated;
+revoke all on function public.settle_match(integer, text, timestamptz) from public, anon, authenticated;
+grant execute on function public.settle_match(integer, text, timestamptz) to service_role;
 
 grant insert (nickname), update (nickname, team_id, team_name, team_crest) on public.profiles to authenticated;
 grant insert (board, title, body), update (title, body, updated_at), delete on public.posts to authenticated;
@@ -225,6 +368,14 @@ alter table public.comments enable row level security;
 alter table public.post_likes enable row level security;
 alter table public.match_talks enable row level security;
 alter table public.match_predictions enable row level security;
+alter table public.goal_events enable row level security;
+-- 정산 기록은 서버(service_role)만 읽고 써서 회원용 규칙을 두지 않아요.
+alter table public.settled_matches enable row level security;
+
+-- 골 내역은 내 것만 보여요. 다른 회원에게는 골 합계(등급)만 보여요.
+drop policy if exists goal_events_select on public.goal_events;
+create policy goal_events_select on public.goal_events for select to authenticated
+  using (user_id = (select auth.uid()));
 
 -- 회원
 drop policy if exists profiles_select on public.profiles;

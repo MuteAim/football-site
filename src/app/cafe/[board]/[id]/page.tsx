@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { Avatar, NameBadge } from "@/components/cafe/Avatar";
+import { Avatar, LevelBadge, NameBadge } from "@/components/cafe/Avatar";
 import { PostSkeleton } from "@/components/cafe/CafeSkeletons";
 import { CommentForm } from "@/components/cafe/CommentForm";
 import { CommentThread, ReplyButton } from "@/components/cafe/CommentThread";
@@ -78,6 +78,7 @@ function CommentItem({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-xs">
           <span className="truncate text-sm font-semibold">{comment.author.nickname}</span>
+          <LevelBadge goals={comment.author.goals} />
           {comment.author.id === post.author.id ? <NameBadge tone="zinc">글쓴이</NameBadge> : null}
           {comment.author.isManager ? <NameBadge>매니저</NameBadge> : null}
           <span className="shrink-0 text-zinc-400 dark:text-zinc-500">
@@ -221,6 +222,7 @@ async function PostContent({ params }: { params: Params }) {
             <div className="min-w-0">
               <p className="flex items-center gap-1.5 text-sm font-semibold">
                 <span className="truncate">{post.author.nickname}</span>
+                <LevelBadge goals={post.author.goals} />
                 {post.author.isManager ? <NameBadge>매니저</NameBadge> : null}
               </p>
               <p className={`mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs tabular-nums ${mutedClass}`}>

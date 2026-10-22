@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { connection } from "next/server";
+import { after, connection } from "next/server";
 import { Suspense } from "react";
 import { MatchSummarySkeleton, PredictionSkeleton, TalkSkeleton } from "@/components/cafe/CafeSkeletons";
 import { CafeSetupNotice } from "@/components/cafe/CafeNotices";
@@ -11,6 +11,7 @@ import { ChevronLeftIcon } from "@/components/Icons";
 import { MatchSummary } from "@/components/MatchSummary";
 import { isCafeConfigured } from "@/lib/cafe/config";
 import { countTalkSides, listTalks } from "@/lib/cafe/data";
+import { getMatchGoals, settlePredictions } from "@/lib/cafe/goals";
 import { countPredictions, getMyPrediction } from "@/lib/cafe/predictions";
 import { getViewer } from "@/lib/cafe/viewer";
 import type { Match } from "@/lib/football-data";
@@ -75,6 +76,9 @@ async function MatchPrediction({ match, date, path }: { match: Match; date: stri
   const open = isPredictionOpen(match, now.getTime());
   const result = matchResult(match);
   const label = statusLabel(match);
+  // 끝난 경기면 정산해 두고, 맞혔으면 받은 골을 보여 줘요.
+  if (result) after(settlePredictions);
+  const earnedGoals = result && mine === result && viewer ? await getMatchGoals(match.id, viewer.id) : null;
 
   return (
     <PredictionCard
@@ -88,6 +92,7 @@ async function MatchPrediction({ match, date, path }: { match: Match; date: stri
       open={open}
       closedNote={label && !isFinished(match) ? `${label}된 경기라 예측을 받지 않아요.` : null}
       result={result}
+      earnedGoals={earnedGoals}
       initialPick={mine}
       initialCounts={counts}
       viewer={!viewer ? "guest" : viewer.profile ? "member" : "join"}

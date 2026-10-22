@@ -5,7 +5,7 @@ import { formatPostTime } from "@/lib/time";
 import { HeartIcon } from "../Icons";
 import { LinkPending } from "../LinkPending";
 import { cardListClass } from "../ui";
-import { NameBadge, TeamCrest } from "./Avatar";
+import { LevelBadge, NameBadge, TeamCrest } from "./Avatar";
 
 /** 게시판 이름 앞에 대회 고유색 점을 찍어서 어느 게시판 글인지 한눈에 보여 줘요. */
 export function BoardChip({ slug }: { slug: string }) {
@@ -51,6 +51,7 @@ function PostRow({ post, showBoard, now }: { post: PostSummary; showBoard: boole
             <TeamCrest team={post.author.team} />
             <span className="truncate">{post.author.nickname}</span>
           </span>
+          <LevelBadge goals={post.author.goals} />
           {post.author.isManager ? <NameBadge>매니저</NameBadge> : null}
           <Dot />
           <span className="shrink-0 tabular-nums">{formatPostTime(post.createdAt, now)}</span>

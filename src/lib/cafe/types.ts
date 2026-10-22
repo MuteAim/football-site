@@ -18,7 +18,18 @@ export type Author = {
   id: string;
   nickname: string;
   isManager: boolean;
+  /** 지금까지 받은 골. 등급을 정해요. */
+  goals: number;
   team: FanTeam | null;
+};
+
+/** 골 내역 한 줄 */
+export type GoalEvent = {
+  id: number;
+  kind: "attendance" | "streak" | "prediction" | "minority";
+  amount: number;
+  /** 한국 날짜(YYYY-MM-DD). 예측 골은 킥오프 날짜예요. */
+  day: string;
 };
 
 export type PostSummary = {

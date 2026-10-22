@@ -46,6 +46,7 @@ export function PredictionCard({
   open,
   closedNote,
   result,
+  earnedGoals,
   initialPick,
   initialCounts,
   viewer,
@@ -60,6 +61,8 @@ export function PredictionCard({
   /** 마감된 이유. 연기·취소된 경기 등 */
   closedNote: string | null;
   result: PredictionPick | null;
+  /** 맞혀서 받은 골. 아직 정산 전이거나 못 맞혔으면 null */
+  earnedGoals: number | null;
   initialPick: PredictionPick | null;
   initialCounts: PredictionCounts;
   viewer: "guest" | "join" | "member";
@@ -100,7 +103,14 @@ export function PredictionCard({
 
   let note: string;
   if (result) {
-    note = pick === null ? "예측하지 않은 경기예요." : pick === result ? "예측 적중! 순위에 반영돼요." : "아쉽게 빗나갔어요.";
+    note =
+      pick === null
+        ? "예측하지 않은 경기예요."
+        : pick !== result
+          ? "아쉽게 빗나갔어요."
+          : earnedGoals
+            ? `예측 적중! +${earnedGoals}골을 받았어요.`
+            : "예측 적중! 순위에 반영돼요.";
   } else if (closed) {
     note = closedNote ?? "예측이 마감됐어요. 경기가 끝나면 결과가 나와요.";
   } else if (pick === null) {

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { AttendanceCheck } from "@/components/cafe/AttendanceCheck";
 import { LogoMark } from "@/components/Icons";
 import { ActiveCafeNavLink, ActiveNavLinks, CafeNavLink, NavLinks } from "@/components/SiteNav";
 import "./globals.css";
@@ -68,6 +69,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             </p>
           </div>
         </footer>
+        {/* 어느 화면이든 하루 첫 방문이면 출석 골을 줘요. */}
+        <AttendanceCheck />
       </body>
     </html>
   );

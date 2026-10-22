@@ -18,7 +18,7 @@ import {
   primaryButtonClass,
   textButtonClass,
 } from "../ui";
-import { Avatar, NameBadge } from "./Avatar";
+import { Avatar, LevelBadge, NameBadge } from "./Avatar";
 import { LoginLink } from "./LoginLink";
 
 // 화면에 들고 있는 응원톡 최대 개수. 오래된 것부터 지워서 오래 켜 둬도 느려지지 않아요.
@@ -263,6 +263,7 @@ export function TalkRoom({
                     <span className={`truncate font-semibold ${mine ? "text-emerald-700 dark:text-emerald-400" : ""}`}>
                       {nickname}
                     </span>
+                    {author ? <LevelBadge goals={author.goals} /> : null}
                     {author?.isManager ? <NameBadge>매니저</NameBadge> : null}
                     {talk.side ? (
                       <span className={`inline-flex shrink-0 items-center gap-1 font-medium ${SIDE_STYLE[talk.side].text}`}>
