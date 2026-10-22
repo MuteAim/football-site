@@ -4,7 +4,7 @@ import { SUPABASE_KEY, SUPABASE_URL, isCafeConfigured } from "@/lib/cafe/config"
 
 // 카페 로그인 유지 담당이에요. 로그인 토큰은 1시간마다 만료돼서, 화면을 그리기 전에 여기서 새 토큰으로 바꿔 둬요.
 // 화면을 그리는 중에는 쿠키를 바꿀 수 없어서 이 과정이 꼭 필요해요.
-// 로그인한 적 없는 방문자와 경기 일정·순위 화면은 아무것도 하지 않고 그냥 통과시켜요.
+// 로그인한 적 없는 방문자와, 로그인 상태를 읽지 않는 리그·날짜별 화면은 아무것도 하지 않고 그냥 통과시켜요.
 export async function proxy(request: NextRequest) {
   const hasSession = request.cookies.getAll().some((cookie) => cookie.name.startsWith("sb-"));
   if (!hasSession || !isCafeConfigured()) return NextResponse.next();
@@ -30,6 +30,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // 로그인이 필요한 카페 화면과 경기 응원톡 화면에서만 돌아요.
-  matcher: ["/cafe/:path*", "/matches/:date/:id"],
+  // 로그인 상태를 읽는 화면에서만 돌아요. 홈은 응원팀 카드 때문에, 경기 화면은 승부 예측과 응원톡 때문에 넣었어요.
+  matcher: ["/", "/cafe/:path*", "/matches/:date/:id"],
 };
