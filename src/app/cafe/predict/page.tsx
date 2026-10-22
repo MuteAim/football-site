@@ -8,6 +8,7 @@ import { TrophyIcon } from "@/components/Icons";
 import { cardClass, cardListClass, mutedClass } from "@/components/ui";
 import { settlePredictions } from "@/lib/cafe/goals";
 import { getPredictionRanking, rankOf } from "@/lib/cafe/predictions";
+import { nameColorClass } from "@/lib/cafe/shop";
 import type { RankingEntry } from "@/lib/cafe/types";
 import { getViewer } from "@/lib/cafe/viewer";
 
@@ -33,9 +34,11 @@ function RankRow({ entry, rank, mine }: { entry: RankingEntry; rank: number; min
       >
         {rank}
       </span>
-      <Avatar id={entry.author.id} nickname={entry.author.nickname} team={entry.author.team} size="md" />
+      <Avatar id={entry.author.id} nickname={entry.author.nickname} team={entry.author.team} frame={entry.author.frame} size="md" />
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        <span className="truncate text-[15px] font-semibold">{entry.author.nickname}</span>
+        <span className={`truncate text-[15px] font-semibold ${nameColorClass(entry.author.nameColor)}`}>
+          {entry.author.nickname}
+        </span>
         <LevelBadge goals={entry.author.goals} />
         {entry.author.isManager ? <NameBadge>매니저</NameBadge> : null}
         {mine ? <NameBadge tone="zinc">나</NameBadge> : null}

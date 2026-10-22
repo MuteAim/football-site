@@ -5,6 +5,7 @@ import { useEffect, useEffectEvent, useRef, useState, useTransition, type FormEv
 import { deleteTalk, sendTalk } from "@/lib/cafe/actions";
 import { LIMITS } from "@/lib/cafe/config";
 import { PROFILE_COLUMNS, type RawProfile, toAuthor } from "@/lib/cafe/profile";
+import { nameColorClass } from "@/lib/cafe/shop";
 import { getBrowserClient } from "@/lib/cafe/supabase-browser";
 import type { Author, Talk, TalkSide } from "@/lib/cafe/types";
 import { formatKickoff } from "@/lib/time";
@@ -257,10 +258,15 @@ export function TalkRoom({
             const mine = viewer?.id === talk.userId;
             return (
               <div key={talk.id} className="group flex gap-2.5">
-                <Avatar id={talk.userId} nickname={nickname} team={author?.team} size="md" />
+                <Avatar id={talk.userId} nickname={nickname} team={author?.team} frame={author?.frame} size="md" />
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1.5 text-xs">
-                    <span className={`truncate font-semibold ${mine ? "text-emerald-700 dark:text-emerald-400" : ""}`}>
+                    {/* 산 닉네임 색이 있으면 그 색을, 없으면 내 메시지만 초록으로 보여 줘요. */}
+                    <span
+                      className={`truncate font-semibold ${
+                        nameColorClass(author?.nameColor) || (mine ? "text-emerald-700 dark:text-emerald-400" : "")
+                      }`}
+                    >
                       {nickname}
                     </span>
                     {author ? <LevelBadge goals={author.goals} /> : null}

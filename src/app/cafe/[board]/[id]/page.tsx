@@ -25,6 +25,7 @@ import { deleteComment, deletePost } from "@/lib/cafe/actions";
 import { boardHref, getBoard, parsePostId, postHref } from "@/lib/cafe/boards";
 import { isCafeConfigured } from "@/lib/cafe/config";
 import { getPost, hasLiked, listComments } from "@/lib/cafe/data";
+import { nameColorClass } from "@/lib/cafe/shop";
 import type { Comment, Post, Viewer } from "@/lib/cafe/types";
 import { getViewer } from "@/lib/cafe/viewer";
 import { formatDateTime, formatRelativeTime } from "@/lib/time";
@@ -73,11 +74,14 @@ function CommentItem({
         id={comment.author.id}
         nickname={comment.author.nickname}
         team={comment.author.team}
+        frame={comment.author.frame}
         size={isReply ? "sm" : "md"}
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-xs">
-          <span className="truncate text-sm font-semibold">{comment.author.nickname}</span>
+          <span className={`truncate text-sm font-semibold ${nameColorClass(comment.author.nameColor)}`}>
+            {comment.author.nickname}
+          </span>
           <LevelBadge goals={comment.author.goals} />
           {comment.author.id === post.author.id ? <NameBadge tone="zinc">글쓴이</NameBadge> : null}
           {comment.author.isManager ? <NameBadge>매니저</NameBadge> : null}
@@ -218,10 +222,16 @@ async function PostContent({ params }: { params: Params }) {
         <header className="border-b border-zinc-100 px-5 pt-5 pb-4 dark:border-white/[0.07]">
           <h1 className="text-xl leading-snug font-bold tracking-tight break-words">{post.title}</h1>
           <div className="mt-3 flex items-center gap-2.5">
-            <Avatar id={post.author.id} nickname={post.author.nickname} team={post.author.team} size="lg" />
+            <Avatar
+              id={post.author.id}
+              nickname={post.author.nickname}
+              team={post.author.team}
+              frame={post.author.frame}
+              size="lg"
+            />
             <div className="min-w-0">
               <p className="flex items-center gap-1.5 text-sm font-semibold">
-                <span className="truncate">{post.author.nickname}</span>
+                <span className={`truncate ${nameColorClass(post.author.nameColor)}`}>{post.author.nickname}</span>
                 <LevelBadge goals={post.author.goals} />
                 {post.author.isManager ? <NameBadge>매니저</NameBadge> : null}
               </p>

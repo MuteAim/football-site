@@ -3,7 +3,8 @@ import type { Author } from "./types";
 // 회원 한 명을 읽을 때 가져오는 칸과, 그 칸을 화면용 모양으로 바꾸는 방법이에요.
 // 서버와 응원톡(브라우저)이 같이 써요.
 
-export const PROFILE_COLUMNS = "id, nickname, is_manager, goals, team_id, team_name, team_crest";
+export const PROFILE_COLUMNS =
+  "id, nickname, is_manager, goals, team_id, team_name, team_crest, name_color, avatar_frame";
 
 export type RawProfile = {
   id: string;
@@ -13,6 +14,8 @@ export type RawProfile = {
   team_id: number | null;
   team_name: string | null;
   team_crest: string | null;
+  name_color: string | null;
+  avatar_frame: string | null;
 };
 
 export function toAuthor(raw: RawProfile): Author {
@@ -21,6 +24,8 @@ export function toAuthor(raw: RawProfile): Author {
     nickname: raw.nickname,
     isManager: raw.is_manager,
     goals: raw.goals,
+    nameColor: raw.name_color,
+    frame: raw.avatar_frame,
     // DB가 세 칸을 다 같이 채우거나 비우게 막아 둬서, 하나만 봐도 되지만 타입을 위해 다 확인해요.
     team:
       raw.team_id != null && raw.team_name && raw.team_crest

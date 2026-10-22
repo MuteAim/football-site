@@ -13,6 +13,7 @@ import { safeNext } from "@/lib/cafe/config";
 import { getMyGoals, settlePredictions } from "@/lib/cafe/goals";
 import { levelOf, nextLevel } from "@/lib/cafe/levels";
 import { getPredictionRanking, rankOf } from "@/lib/cafe/predictions";
+import { nameColorClass } from "@/lib/cafe/shop";
 import { getTeamChoices } from "@/lib/cafe/teams";
 import type { FanTeam, GoalEvent } from "@/lib/cafe/types";
 import { getViewer } from "@/lib/cafe/viewer";
@@ -60,7 +61,7 @@ const GOAL_LABEL: Record<GoalEvent["kind"], string> = {
 
 /** 내 골과 등급, 출석 상태, 최근 골 내역 */
 async function GoalSection({ userId, goals }: { userId: string; goals: number }) {
-  const { streak, lastAttended, events } = await getMyGoals(userId);
+  const { streak, lastAttended, balance, events } = await getMyGoals(userId);
   const level = levelOf(goals);
   const next = nextLevel(goals);
   const progress = next ? Math.round(((goals - level.min) / (next.min - level.min)) * 100) : 100;
@@ -90,6 +91,15 @@ async function GoalSection({ userId, goals }: { userId: string; goals: number })
         className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-white/10"
       >
         <div className="h-full rounded-full bg-emerald-500" style={{ width: `${progress}%` }} />
+      </div>
+      {/* 등급은 모은 골로 정해지고, 상점에서는 남은 골만 줄어요. */}
+      <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-emerald-500/[0.07] px-3 py-2">
+        <p className="text-sm">
+          쓸 수 있는 골 <span className="font-bold tabular-nums">{balance.toLocaleString("ko-KR")}골</span>
+        </p>
+        <Link href="/cafe/shop" className="shrink-0 text-sm font-semibold text-emerald-700 hover:underline dark:text-emerald-400">
+          골 상점 →
+        </Link>
       </div>
       <p className={`mt-2 text-sm ${mutedClass}`}>
         {attendedToday
@@ -140,10 +150,10 @@ async function MeContent({ searchParams }: { searchParams: PageProps<"/cafe/me">
     <div className={`${cardClass} p-5`}>
       {profile ? (
         <div className="flex items-center gap-3">
-          <Avatar id={viewer.id} nickname={profile.nickname} team={profile.team} size="lg" />
+          <Avatar id={viewer.id} nickname={profile.nickname} team={profile.team} frame={profile.frame} size="lg" />
           <div className="min-w-0">
             <h1 className="flex items-center gap-1.5 text-xl font-bold tracking-tight">
-              <span className="truncate">{profile.nickname}</span>
+              <span className={`truncate ${nameColorClass(profile.nameColor)}`}>{profile.nickname}</span>
               <LevelBadge goals={profile.goals} />
               {profile.isManager ? <NameBadge>매니저</NameBadge> : null}
             </h1>

@@ -138,6 +138,42 @@ create or replace view public.unsettled_matches with (security_invoker = true) a
   from public.match_predictions p
   where not exists (select 1 from public.settled_matches s where s.match_id = p.match_id);
 
+-- 골 상점. 골로 닉네임 색과 프로필 테두리를 사요.
+-- 가격은 여기에만 있고, 사기와 쓰기는 DB 함수(buy_item, equip_item)로만 할 수 있어요.
+-- 아이템이 어떻게 보이는지는 src/lib/cafe/shop.ts에 있어요. 아이템을 늘리면 두 곳을 같이 고쳐요.
+create table if not exists public.shop_items (
+  id text primary key,
+  kind text not null check (kind in ('color', 'frame')),
+  price integer not null check (price > 0),
+  sort integer not null default 0
+);
+insert into public.shop_items (id, kind, price, sort) values
+  ('color-emerald', 'color', 100, 1),
+  ('color-sky', 'color', 100, 2),
+  ('color-violet', 'color', 100, 3),
+  ('color-rose', 'color', 100, 4),
+  ('color-gold', 'color', 300, 5),
+  ('color-legend', 'color', 800, 6),
+  ('frame-emerald', 'frame', 150, 11),
+  ('frame-sky', 'frame', 150, 12),
+  ('frame-gold', 'frame', 400, 13),
+  ('frame-rainbow', 'frame', 1000, 14)
+on conflict (id) do update set kind = excluded.kind, price = excluded.price, sort = excluded.sort;
+
+-- 산 아이템. 산 가격도 같이 적어 둬요.
+create table if not exists public.owned_items (
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  item_id text not null references public.shop_items (id) on delete cascade,
+  price integer not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, item_id)
+);
+
+-- 쓴 골과 지금 쓰고 있는 아이템. 등급은 모은 골(goals)로 정해서, 골을 써도 등급은 그대로예요.
+alter table public.profiles add column if not exists spent_goals integer not null default 0;
+alter table public.profiles add column if not exists name_color text references public.shop_items (id) on delete set null;
+alter table public.profiles add column if not exists avatar_frame text references public.shop_items (id) on delete set null;
+
 -- ---------- 숫자 자동 계산 ----------
 -- 회원은 글의 숫자 칸을 직접 고칠 수 없어서, 추천·댓글이 생기거나 지워질 때 DB가 대신 세요.
 
@@ -321,6 +357,69 @@ begin
   return hitters;
 end $$;
 
+-- 쓸 수 있는 골. 모은 골에서 상점에 쓴 골을 뺀 값이에요. 쓴 골은 본인만 봐요.
+create or replace function public.my_balance()
+returns integer
+language sql stable security definer set search_path = '' as $$
+  select p.goals - p.spent_goals from public.profiles p where p.id = (select auth.uid());
+$$;
+
+-- 아이템 사기. 가격은 shop_items에서 읽고, 골이 모자라거나 이미 가졌으면 거절해요. 남은 골을 돌려줘요.
+-- 오류 코드: 없는 아이템 P0002, 가입 전 42501, 이미 가짐 23505, 골 모자람 GL001
+create or replace function public.buy_item(item text)
+returns integer
+language plpgsql security definer set search_path = '' as $$
+declare
+  me uuid := (select auth.uid());
+  cost integer;
+  have integer;
+begin
+  select s.price into cost from public.shop_items s where s.id = item;
+  if not found then
+    raise exception '없는 아이템이에요.' using errcode = 'P0002';
+  end if;
+
+  -- 두 번 눌러도 골이 두 번 빠지지 않게 내 줄을 잠가요.
+  select p.goals - p.spent_goals into have from public.profiles p where p.id = me for update;
+  if not found then
+    raise exception '가입한 회원만 살 수 있어요.' using errcode = '42501';
+  end if;
+  if exists (select 1 from public.owned_items o where o.user_id = me and o.item_id = item) then
+    raise exception '이미 가진 아이템이에요.' using errcode = '23505';
+  end if;
+  if have < cost then
+    raise exception '골이 모자라요.' using errcode = 'GL001';
+  end if;
+
+  insert into public.owned_items (user_id, item_id, price) values (me, item, cost);
+  update public.profiles p set spent_goals = p.spent_goals + cost where p.id = me;
+  return have - cost;
+end $$;
+
+-- 아이템 쓰기와 벗기. item이 null이면 그 종류를 벗어요. 가진 아이템만 쓸 수 있어요.
+create or replace function public.equip_item(slot text, item text)
+returns void
+language plpgsql security definer set search_path = '' as $$
+declare
+  me uuid := (select auth.uid());
+begin
+  if slot not in ('color', 'frame') then
+    raise exception '없는 꾸미기 종류예요.' using errcode = '22023';
+  end if;
+  if item is not null and not exists (
+    select 1 from public.owned_items o join public.shop_items s on s.id = o.item_id
+    where o.user_id = me and o.item_id = item and s.kind = slot
+  ) then
+    raise exception '가진 아이템만 쓸 수 있어요.' using errcode = '42501';
+  end if;
+
+  if slot = 'color' then
+    update public.profiles p set name_color = item where p.id = me;
+  else
+    update public.profiles p set avatar_frame = item where p.id = me;
+  end if;
+end $$;
+
 -- 조회수 올리기. 로그인하지 않은 방문자도 부를 수 있어요.
 create or replace function public.count_post_view(target bigint) returns void
 language sql security definer set search_path = '' as $$
@@ -338,14 +437,16 @@ $$;
 -- 칸 단위로 권한을 줘서 회원이 매니저 표시나 조회수·추천 수를 직접 바꾸지 못하게 막아요.
 
 revoke all on public.profiles, public.posts, public.comments, public.post_likes, public.match_talks,
-  public.match_predictions, public.goal_events, public.settled_matches, public.unsettled_matches
+  public.match_predictions, public.goal_events, public.settled_matches, public.unsettled_matches,
+  public.shop_items, public.owned_items
   from anon, authenticated;
 
-grant select on public.posts, public.comments, public.match_talks, public.match_predictions to anon, authenticated;
-grant select on public.post_likes, public.goal_events to authenticated;
--- 회원 정보는 공개해도 되는 칸만 보여요. 언제 들어왔는지 알 수 있는 출석 칸은 본인만 my_attendance로 봐요.
-grant select (id, nickname, is_manager, goals, team_id, team_name, team_crest, created_at) on public.profiles
+grant select on public.posts, public.comments, public.match_talks, public.match_predictions, public.shop_items
   to anon, authenticated;
+grant select on public.post_likes, public.goal_events, public.owned_items to authenticated;
+-- 회원 정보는 공개해도 되는 칸만 보여요. 언제 들어왔는지 알 수 있는 출석 칸은 본인만 my_attendance로 봐요.
+grant select (id, nickname, is_manager, goals, team_id, team_name, team_crest, name_color, avatar_frame, created_at)
+  on public.profiles to anon, authenticated;
 revoke all on function public.my_attendance() from public, anon;
 grant execute on function public.my_attendance() to authenticated;
 
@@ -354,6 +455,14 @@ revoke all on function public.check_in() from public, anon;
 grant execute on function public.check_in() to authenticated;
 revoke all on function public.settle_match(integer, text, timestamptz) from public, anon, authenticated;
 grant execute on function public.settle_match(integer, text, timestamptz) to service_role;
+
+-- 상점도 DB 함수로만 사고 써요. 쓴 골(spent_goals)은 본인만 my_balance로 봐요.
+revoke all on function public.my_balance() from public, anon;
+grant execute on function public.my_balance() to authenticated;
+revoke all on function public.buy_item(text) from public, anon;
+grant execute on function public.buy_item(text) to authenticated;
+revoke all on function public.equip_item(text, text) from public, anon;
+grant execute on function public.equip_item(text, text) to authenticated;
 
 grant insert (nickname), update (nickname, team_id, team_name, team_crest) on public.profiles to authenticated;
 grant insert (board, title, body), update (title, body, updated_at), delete on public.posts to authenticated;
@@ -371,6 +480,15 @@ alter table public.match_predictions enable row level security;
 alter table public.goal_events enable row level security;
 -- 정산 기록은 서버(service_role)만 읽고 써서 회원용 규칙을 두지 않아요.
 alter table public.settled_matches enable row level security;
+alter table public.shop_items enable row level security;
+alter table public.owned_items enable row level security;
+
+-- 상점 아이템은 누구나 보고, 산 아이템은 내 것만 보여요.
+drop policy if exists shop_items_select on public.shop_items;
+create policy shop_items_select on public.shop_items for select using (true);
+drop policy if exists owned_items_select on public.owned_items;
+create policy owned_items_select on public.owned_items for select to authenticated
+  using (user_id = (select auth.uid()));
 
 -- 골 내역은 내 것만 보여요. 다른 회원에게는 골 합계(등급)만 보여요.
 drop policy if exists goal_events_select on public.goal_events;

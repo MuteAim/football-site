@@ -18,9 +18,19 @@ export type Author = {
   id: string;
   nickname: string;
   isManager: boolean;
-  /** 지금까지 받은 골. 등급을 정해요. */
+  /** 지금까지 받은 골. 등급을 정해요. 상점에서 써도 줄지 않아요. */
   goals: number;
+  /** 상점에서 사서 쓰고 있는 닉네임 색과 프로필 테두리 아이템 */
+  nameColor: string | null;
+  frame: string | null;
   team: FanTeam | null;
+};
+
+/** 상점 아이템. 가격은 DB가 정해요. */
+export type ShopItem = {
+  id: string;
+  kind: "color" | "frame";
+  price: number;
 };
 
 /** 골 내역 한 줄 */

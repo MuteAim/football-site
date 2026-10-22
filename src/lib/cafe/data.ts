@@ -49,7 +49,7 @@ const POST_SUMMARY = `id, board, title, view_count, like_count, comment_count, c
 
 function toAuthor(field: RawAuthorField): Author {
   const raw = Array.isArray(field) ? field[0] : field;
-  if (!raw) return { id: "", nickname: "알 수 없음", isManager: false, goals: 0, team: null };
+  if (!raw) return { id: "", nickname: "알 수 없음", isManager: false, goals: 0, nameColor: null, frame: null, team: null };
   return profileToAuthor(raw);
 }
 

@@ -3,11 +3,13 @@ import { getCompetition } from "../competitions";
 import { getCompetitionMatches, type Match } from "../football-data";
 import { matchResult } from "../match-display";
 import { CafeError } from "./data";
+import { SHOP_LOOKS } from "./shop";
 import { adminClient } from "./supabase-admin";
-import { createSessionClient } from "./supabase-server";
-import type { GoalEvent } from "./types";
+import { createSessionClient, publicClient } from "./supabase-server";
+import type { GoalEvent, ShopItem } from "./types";
 
-// 골 읽기와 승부 예측 정산이에요. 골 규칙은 supabase/schema.sql의 check_in, settle_match에 있어요.
+// 골 읽기, 승부 예측 정산, 골 상점 읽기예요.
+// 골 규칙은 supabase/schema.sql의 check_in, settle_match에, 상점 규칙은 buy_item, equip_item에 있어요.
 
 /** 한 서버가 정산을 다시 돌리기까지 기다리는 시간. 경기 결과 캐시(5분)와 맞췄어요. */
 const SETTLE_INTERVAL = 5 * 60_000;
@@ -59,16 +61,18 @@ export async function settlePredictions(): Promise<void> {
   }
 }
 
-/** 내 출석 상태와 최근 골 내역. 둘 다 본인만 볼 수 있어서 로그인 쿠키를 실어 읽어요. */
+/** 내 출석 상태, 쓸 수 있는 골, 최근 골 내역. 모두 본인만 볼 수 있어서 로그인 쿠키를 실어 읽어요. */
 export async function getMyGoals(userId: string): Promise<{
   streak: number;
   lastAttended: string | null;
+  balance: number;
   events: GoalEvent[];
 }> {
   const supabase = await createSessionClient();
-  const [attendance, events] = await Promise.all([
-    // 출석 칸은 다른 회원에게 숨겨 둬서 본인 전용 함수로 읽어요.
+  const [attendance, balance, events] = await Promise.all([
+    // 출석 칸과 쓴 골은 다른 회원에게 숨겨 둬서 본인 전용 함수로 읽어요.
     supabase.rpc("my_attendance").maybeSingle<{ streak: number; last_attended: string | null }>(),
+    supabase.rpc("my_balance"),
     supabase
       .from("goal_events")
       .select("id, kind, amount, day")
@@ -77,11 +81,38 @@ export async function getMyGoals(userId: string): Promise<{
       .limit(10),
   ]);
   if (attendance.error) throw new CafeError(attendance.error.message);
+  if (balance.error) throw new CafeError(balance.error.message);
   if (events.error) throw new CafeError(events.error.message);
   return {
     streak: attendance.data?.streak ?? 0,
     lastAttended: attendance.data?.last_attended ?? null,
+    balance: (balance.data as number | null) ?? 0,
     events: events.data as GoalEvent[],
+  };
+}
+
+// ---------- 골 상점 ----------
+
+/** 상점에 파는 아이템. 화면 모양(shop.ts)이 있는 것만, 정해 둔 순서대로 돌려줘요. */
+export async function listShopItems(): Promise<ShopItem[]> {
+  const supabase = await publicClient();
+  const { data, error } = await supabase.from("shop_items").select("id, kind, price").order("sort");
+  if (error) throw new CafeError(error.message);
+  return (data as ShopItem[]).filter((item) => SHOP_LOOKS[item.id]?.kind === item.kind);
+}
+
+/** 내 쓸 수 있는 골과 산 아이템. 둘 다 본인만 볼 수 있어요. */
+export async function getMyShop(userId: string): Promise<{ balance: number; owned: string[] }> {
+  const supabase = await createSessionClient();
+  const [balance, owned] = await Promise.all([
+    supabase.rpc("my_balance"),
+    supabase.from("owned_items").select("item_id").eq("user_id", userId),
+  ]);
+  if (balance.error) throw new CafeError(balance.error.message);
+  if (owned.error) throw new CafeError(owned.error.message);
+  return {
+    balance: (balance.data as number | null) ?? 0,
+    owned: (owned.data as { item_id: string }[]).map((row) => row.item_id),
   };
 }
 

@@ -18,6 +18,7 @@ import {
   safeNext,
 } from "./config";
 import { countPredictions } from "./predictions";
+import type { ShopKind } from "./shop";
 import { createSessionClient } from "./supabase-server";
 import { findTeamChoice } from "./teams";
 import type { FormState, PredictionCounts, PredictionPick, Talk, TalkSide } from "./types";
@@ -179,6 +180,48 @@ export async function checkIn(): Promise<{ awarded: number; streak: number; goal
   // 골이 늘었으면 닉네임 옆 등급처럼 화면에 보이는 골도 다시 그려요.
   if (data.awarded > 0) refresh();
   return data;
+}
+
+// ---------- 골 상점 ----------
+
+// DB 함수(buy_item, equip_item)가 거절한 이유를 사람이 읽을 문구로 바꿔요.
+const SHOP_ERRORS: Record<string, string> = {
+  P0002: "없는 아이템이에요.",
+  "23505": "이미 가진 아이템이에요.",
+  GL001: "골이 모자라요.",
+  "42501": "가입한 회원만 살 수 있어요.",
+};
+const ITEM_ID = /^[a-z0-9-]{1,40}$/;
+
+/** 아이템 사기. 가격과 남은 골은 DB가 확인해요. */
+export async function buyItem(itemId: string): Promise<{ error: string | null }> {
+  if (typeof itemId !== "string" || !ITEM_ID.test(itemId)) return { error: "아이템을 다시 골라 주세요." };
+  const member = await requireMember();
+  if (typeof member === "string") return { error: member };
+
+  const { error } = await member.supabase.rpc("buy_item", { item: itemId });
+  if (error) {
+    if (!SHOP_ERRORS[error.code]) console.error(error);
+    return { error: SHOP_ERRORS[error.code] ?? "사지 못했어요. 잠시 후 다시 시도해 주세요." };
+  }
+  refresh();
+  return { error: null };
+}
+
+/** 산 아이템 쓰기와 벗기. itemId가 null이면 그 종류를 벗어요. */
+export async function equipItem(slot: ShopKind, itemId: string | null): Promise<{ error: string | null }> {
+  const validItem = itemId === null || (typeof itemId === "string" && ITEM_ID.test(itemId));
+  if ((slot !== "color" && slot !== "frame") || !validItem) return { error: "아이템을 다시 골라 주세요." };
+  const member = await requireMember();
+  if (typeof member === "string") return { error: member };
+
+  const { error } = await member.supabase.rpc("equip_item", { slot, item: itemId });
+  if (error) {
+    if (error.code !== "42501") console.error(error);
+    return { error: error.code === "42501" ? "가진 아이템만 쓸 수 있어요." : "바꾸지 못했어요. 잠시 후 다시 시도해 주세요." };
+  }
+  refresh();
+  return { error: null };
 }
 
 // ---------- 게시글 ----------

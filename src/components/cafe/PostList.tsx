@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getBoard, postHref } from "@/lib/cafe/boards";
+import { nameColorClass } from "@/lib/cafe/shop";
 import type { PostSummary } from "@/lib/cafe/types";
 import { formatPostTime } from "@/lib/time";
 import { HeartIcon } from "../Icons";
@@ -49,7 +50,7 @@ function PostRow({ post, showBoard, now }: { post: PostSummary; showBoard: boole
           ) : null}
           <span className="flex min-w-0 items-center gap-1">
             <TeamCrest team={post.author.team} />
-            <span className="truncate">{post.author.nickname}</span>
+            <span className={`truncate ${nameColorClass(post.author.nameColor)}`}>{post.author.nickname}</span>
           </span>
           <LevelBadge goals={post.author.goals} />
           {post.author.isManager ? <NameBadge>매니저</NameBadge> : null}

@@ -1,4 +1,5 @@
 import { levelOf } from "@/lib/cafe/levels";
+import { frameClass } from "@/lib/cafe/shop";
 import type { FanTeam } from "@/lib/cafe/types";
 import { Crest } from "../Crest";
 
@@ -22,10 +23,11 @@ function colorFor(id: string): string {
 }
 
 const SIZES = {
-  sm: "size-6 text-[11px]",
-  md: "size-8 text-[13px]",
-  lg: "size-10 text-base",
+  sm: "size-6",
+  md: "size-8",
+  lg: "size-10",
 };
+const TEXT_SIZES = { sm: "text-[11px]", md: "text-[13px]", lg: "text-base" };
 
 /** 동그라미 안 엠블럼 크기. 가장자리에 닿지 않게 동그라미보다 조금 작게 그려요. */
 const CREST_SIZES = { sm: 16, md: 22, lg: 28 };
@@ -38,33 +40,39 @@ export function Avatar({
   id,
   nickname,
   team,
+  frame,
   size = "md",
 }: {
   id: string;
   nickname: string;
   team?: FanTeam | null;
+  /** 상점에서 산 테두리 아이템 */
+  frame?: string | null;
   size?: keyof typeof SIZES;
 }) {
-  if (team) {
-    return (
-      <span
-        role="img"
-        aria-label={fanLabel(team)}
-        title={fanLabel(team)}
-        className={`flex shrink-0 items-center justify-center rounded-full bg-white ring-1 ring-zinc-950/10 dark:ring-white/15 ${SIZES[size]}`}
-      >
-        <Crest src={team.crest} size={CREST_SIZES[size]} />
-      </span>
-    );
-  }
-  return (
+  const ring = frameClass(frame);
+  // 테두리가 있으면 같은 크기 안에서 테두리 두께만큼 안을 줄여서, 줄 맞춤이 흔들리지 않게 해요.
+  const box = ring ? "size-full" : SIZES[size];
+  const inner = team ? (
+    <span
+      role="img"
+      aria-label={fanLabel(team)}
+      title={fanLabel(team)}
+      className={`flex shrink-0 items-center justify-center rounded-full bg-white ${ring ? "" : "ring-1 ring-zinc-950/10 dark:ring-white/15"} ${box}`}
+    >
+      <Crest src={team.crest} size={ring ? CREST_SIZES[size] - 2 : CREST_SIZES[size]} />
+    </span>
+  ) : (
     <span
       aria-hidden
-      className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${SIZES[size]} ${colorFor(id || nickname)}`}
+      className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${box} ${TEXT_SIZES[size]} ${colorFor(id || nickname)}`}
     >
       {nickname.slice(0, 1).toUpperCase()}
     </span>
   );
+
+  if (!ring) return inner;
+  return <span className={`flex shrink-0 rounded-full p-[2px] ${SIZES[size]} ${ring}`}>{inner}</span>;
 }
 
 /** 프로필 동그라미가 없는 글 목록에서 닉네임 앞에 붙이는 작은 응원팀 엠블럼. */

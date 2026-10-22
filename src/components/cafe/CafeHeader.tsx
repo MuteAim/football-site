@@ -28,7 +28,13 @@ async function ViewerChip() {
     <Link href="/cafe/me" className={`relative ${chipClass} ${viewer.profile ? "pl-1.5" : ""}`}>
       {viewer.profile ? (
         <>
-          <Avatar id={viewer.id} nickname={viewer.profile.nickname} team={viewer.profile.team} size="sm" />
+          <Avatar
+            id={viewer.id}
+            nickname={viewer.profile.nickname}
+            team={viewer.profile.team}
+            frame={viewer.profile.frame}
+            size="sm"
+          />
           <span className="truncate">{viewer.profile.nickname}</span>
         </>
       ) : (
