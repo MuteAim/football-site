@@ -1,7 +1,7 @@
 "use server";
 
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
-import { refresh, revalidatePath } from "next/cache";
+import { refresh } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getBoard, isWritableBoard, postHref } from "./boards";
@@ -14,6 +14,7 @@ import {
   safeNext,
 } from "./config";
 import { createSessionClient } from "./supabase-server";
+import { findTeamChoice } from "./teams";
 import type { FormState, Talk, TalkSide } from "./types";
 
 // 카페의 모든 쓰기 동작이에요.
@@ -94,11 +95,12 @@ export async function signOut(): Promise<void> {
 }
 
 /**
- * 로그인 상태나 닉네임이 바뀌면 카페 머리의 닉네임처럼 여러 화면이 같이 쓰는 부분도 다시 그려요.
- * 카페 화면에는 저장해 둔 데이터가 없어서 다시 그려도 경기 API를 부르지 않아요.
+ * 로그인 상태나 프로필이 바뀌면 카페 머리의 닉네임처럼 여러 화면이 같이 쓰는 부분도 다시 그려요.
+ * revalidatePath는 내 정보 화면의 응원팀 목록(순위표 캐시)까지 버려서 API를 다시 부르게 하니,
+ * 저장해 둔 데이터는 그대로 두고 화면만 다시 그리는 refresh를 써요.
  */
 function refreshViewer() {
-  revalidatePath("/cafe", "layout");
+  refresh();
 }
 
 /** 처음 가입할 때 닉네임을 정하고, 나중에 바꿀 때도 같은 폼을 써요. */
@@ -124,6 +126,29 @@ export async function saveProfile(_prev: FormState, formData: FormData): Promise
   refreshViewer();
   if (!existing) redirect(safeNext(formData.get("next")));
   return { error: null, message: "닉네임을 바꿨어요." };
+}
+
+/** 응원팀 고르기. teamId가 비어 있으면 응원팀을 지워요. */
+export async function saveTeam(_prev: FormState, formData: FormData): Promise<FormState> {
+  const raw = text(formData, "teamId");
+  const teamId = raw ? positiveInt(raw) : null;
+  if (raw && !teamId) return { error: "팀을 다시 골라 주세요." };
+
+  const member = await requireMember();
+  if (typeof member === "string") return { error: member };
+
+  // 팀 이름과 엠블럼은 화면이 보낸 값을 믿지 않고 순위표에서 다시 찾아 저장해요.
+  const team = teamId ? await findTeamChoice(teamId) : null;
+  if (teamId && !team) return { error: "팀을 확인하지 못했어요. 잠시 후 다시 골라 주세요." };
+
+  const { error } = await member.supabase
+    .from("profiles")
+    .update({ team_id: team?.id ?? null, team_name: team?.name ?? null, team_crest: team?.crest ?? null })
+    .eq("id", member.userId);
+  if (error) return { error: describe(error, "응원팀을 저장할 수 없어요.") };
+
+  refreshViewer();
+  return { error: null, message: team ? "응원팀을 저장했어요." : "응원팀을 지웠어요." };
 }
 
 // ---------- 게시글 ----------

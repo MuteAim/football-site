@@ -50,7 +50,7 @@ function CommentItem({
   const canDelete = viewer?.id === comment.author.id || viewer?.profile?.isManager === true;
   return (
     <li className="flex gap-2.5 py-3">
-      <Avatar id={comment.author.id} nickname={comment.author.nickname} />
+      <Avatar id={comment.author.id} nickname={comment.author.nickname} team={comment.author.team} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-xs">
           <span className="truncate text-sm font-semibold">{comment.author.nickname}</span>
@@ -151,7 +151,7 @@ async function PostContent({ params }: { params: Params }) {
         <header className="border-b border-zinc-100 px-5 pt-5 pb-4 dark:border-white/[0.07]">
           <h1 className="text-xl leading-snug font-bold tracking-tight break-words">{post.title}</h1>
           <div className="mt-3 flex items-center gap-2.5">
-            <Avatar id={post.author.id} nickname={post.author.nickname} size="lg" />
+            <Avatar id={post.author.id} nickname={post.author.nickname} team={post.author.team} size="lg" />
             <div className="min-w-0">
               <p className="flex items-center gap-1.5 text-sm font-semibold">
                 <span className="truncate">{post.author.nickname}</span>

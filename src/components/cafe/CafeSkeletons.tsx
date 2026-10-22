@@ -101,3 +101,30 @@ export function MatchSummarySkeleton() {
     </div>
   );
 }
+
+/** 응원팀 고르기 뼈대. 한 리그 20팀 자리를 같은 칸 크기로 잡아 둬요. */
+export function TeamPickerSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="불러오는 중" className="animate-pulse">
+      <div className="flex gap-1.5 py-0.5">
+        {Array.from({ length: 5 }, (_, i) => (
+          <div key={i} className={`h-8 w-14 rounded-full ${bar}`} />
+        ))}
+      </div>
+      <div className="mt-3 grid grid-cols-4 gap-1 sm:grid-cols-5">
+        {Array.from({ length: 20 }, (_, i) => (
+          <div key={i} className="flex flex-col items-center gap-1.5 px-1 pt-2.5 pb-2">
+            <div className={`size-11 rounded-full ${bar}`} />
+            <div className="flex h-[16.5px] items-center">
+              <div className={`h-2.5 w-10 ${bar}`} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex items-center justify-between">
+        <div className={`h-3.5 w-24 ${bar}`} />
+        <div className={`h-10 w-16 rounded-full ${bar}`} />
+      </div>
+    </div>
+  );
+}

@@ -2,15 +2,15 @@ import "server-only";
 import { connection } from "next/server";
 import { cache } from "react";
 import { BEST_LIKES, PAGE_SIZE } from "./config";
+import { PROFILE_COLUMNS, type RawProfile, toAuthor as profileToAuthor } from "./profile";
 import { createSessionClient, publicClient } from "./supabase-server";
 import type { Author, Comment, Post, PostSummary, Talk, TalkSide } from "./types";
 
 // 카페 글 읽기예요. 글은 올라오자마자 보여야 해서 저장해 두지 않고 요청 때마다 Supabase에서 읽어요.
 // 그래서 이 함수들을 부르는 화면 조각은 꼭 Suspense 안에 둬야 해요.
 
-type RawAuthor = { id: string; nickname: string; is_manager: boolean };
 // 글쓴이는 한 명이라 실제로는 객체로 오지만, DB 구조를 모르는 타입 추론은 배열로 봐서 둘 다 받아요.
-type RawAuthorField = RawAuthor | RawAuthor[] | null;
+type RawAuthorField = RawProfile | RawProfile[] | null;
 
 type RawPostSummary = {
   id: number;
@@ -37,13 +37,13 @@ type RawTalk = {
 };
 
 // 글과 회원은 작성자(user_id) 말고 추천(post_likes)으로도 이어져 있어서, 어느 쪽으로 이을지 꼭 적어 줘야 해요.
-const AUTHOR = "author:profiles!user_id(id, nickname, is_manager)";
+const AUTHOR = `author:profiles!user_id(${PROFILE_COLUMNS})`;
 const POST_SUMMARY = `id, board, title, view_count, like_count, comment_count, created_at, ${AUTHOR}`;
 
 function toAuthor(field: RawAuthorField): Author {
   const raw = Array.isArray(field) ? field[0] : field;
-  if (!raw) return { id: "", nickname: "알 수 없음", isManager: false };
-  return { id: raw.id, nickname: raw.nickname, isManager: raw.is_manager };
+  if (!raw) return { id: "", nickname: "알 수 없음", isManager: false, team: null };
+  return profileToAuthor(raw);
 }
 
 function toPostSummary(raw: RawPostSummary): PostSummary {

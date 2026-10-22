@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useEffectEvent, useRef, useState, useTransition, type FormEvent } from "react";
 import { deleteTalk, sendTalk } from "@/lib/cafe/actions";
 import { LIMITS } from "@/lib/cafe/config";
+import { PROFILE_COLUMNS, type RawProfile, toAuthor } from "@/lib/cafe/profile";
 import { getBrowserClient } from "@/lib/cafe/supabase-browser";
 import type { Author, Talk, TalkSide } from "@/lib/cafe/types";
 import { formatKickoff } from "@/lib/time";
@@ -117,15 +118,12 @@ export function TalkRoom({
     requestedAuthors.current.add(userId);
     void getBrowserClient()
       .from("profiles")
-      .select("id, nickname, is_manager")
+      .select(PROFILE_COLUMNS)
       .eq("id", userId)
-      .maybeSingle<{ id: string; nickname: string; is_manager: boolean }>()
+      .maybeSingle<RawProfile>()
       .then(({ data }) => {
         if (!data) return;
-        setAuthors((prev) => ({
-          ...prev,
-          [data.id]: { id: data.id, nickname: data.nickname, isManager: data.is_manager },
-        }));
+        setAuthors((prev) => ({ ...prev, [data.id]: toAuthor(data) }));
       });
   }
 
@@ -259,7 +257,7 @@ export function TalkRoom({
             const mine = viewer?.id === talk.userId;
             return (
               <div key={talk.id} className="group flex gap-2.5">
-                <Avatar id={talk.userId} nickname={nickname} size="md" />
+                <Avatar id={talk.userId} nickname={nickname} team={author?.team} size="md" />
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1.5 text-xs">
                     <span className={`truncate font-semibold ${mine ? "text-emerald-700 dark:text-emerald-400" : ""}`}>

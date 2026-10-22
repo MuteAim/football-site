@@ -15,6 +15,20 @@ create table if not exists public.profiles (
 -- 대소문자만 다른 닉네임도 같은 닉네임으로 봐요.
 create unique index if not exists profiles_nickname_key on public.profiles (lower(nickname));
 
+-- 응원팀. 고를 때 팀 이름과 엠블럼 주소를 같이 적어 둬서, 글 목록을 보여 줄 때 경기 API를 부르지 않아요.
+-- 나중에 생긴 칸이라 이미 만든 DB에도 붙도록 따로 추가해요.
+alter table public.profiles add column if not exists team_id integer;
+alter table public.profiles add column if not exists team_name text;
+alter table public.profiles add column if not exists team_crest text;
+-- 세 칸은 다 같이 비우거나 다 같이 채워요. 엠블럼은 football-data.org 그림만 받아요.
+alter table public.profiles drop constraint if exists profiles_team_check;
+alter table public.profiles add constraint profiles_team_check check (
+  num_nulls(team_id, team_name, team_crest) in (0, 3)
+  and team_id > 0
+  and char_length(team_name) between 1 and 30
+  and team_crest ~ '^https://crests\.football-data\.org/[A-Za-z0-9_.-]+$'
+);
+
 -- 게시글. 추천·댓글 수는 아래 트리거가 알아서 세요.
 create table if not exists public.posts (
   id bigint generated always as identity primary key,
@@ -120,7 +134,7 @@ revoke all on public.profiles, public.posts, public.comments, public.post_likes,
 grant select on public.profiles, public.posts, public.comments, public.match_talks to anon, authenticated;
 grant select on public.post_likes to authenticated;
 
-grant insert (nickname), update (nickname) on public.profiles to authenticated;
+grant insert (nickname), update (nickname, team_id, team_name, team_crest) on public.profiles to authenticated;
 grant insert (board, title, body), update (title, body, updated_at), delete on public.posts to authenticated;
 grant insert (post_id, body), delete on public.comments to authenticated;
 grant insert (post_id), delete on public.post_likes to authenticated;

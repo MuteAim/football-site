@@ -2,6 +2,7 @@ import "server-only";
 import { connection } from "next/server";
 import { cache } from "react";
 import { isCafeConfigured } from "./config";
+import { PROFILE_COLUMNS, type RawProfile, toAuthor } from "./profile";
 import { createSessionClient } from "./supabase-server";
 import type { Viewer } from "./types";
 
@@ -22,12 +23,9 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("nickname, is_manager")
+    .select(PROFILE_COLUMNS)
     .eq("id", id)
-    .maybeSingle<{ nickname: string; is_manager: boolean }>();
+    .maybeSingle<RawProfile>();
 
-  return {
-    id,
-    profile: profile ? { nickname: profile.nickname, isManager: profile.is_manager } : null,
-  };
+  return { id, profile: profile ? toAuthor(profile) : null };
 });
