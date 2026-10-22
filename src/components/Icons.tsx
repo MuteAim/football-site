@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 // 화면에 쓰는 작은 아이콘들이에요. 글자 색을 따라가도록 currentColor로 그려요.
 type IconProps = { className?: string };
 
@@ -62,5 +64,87 @@ export function ChevronRightIcon({ className = "size-5" }: IconProps) {
         clipRule="evenodd"
       />
     </svg>
+  );
+}
+
+// ---------- 카페 아이콘 ----------
+// 축구공 아이콘과 같은 굵기의 선으로 그려요.
+
+function LineIcon({ className, children }: IconProps & { children: ReactNode }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinejoin="round"
+      strokeLinecap="round"
+      aria-hidden
+      className={className}
+    >
+      {children}
+    </svg>
+  );
+}
+
+/** 말풍선. 카페 메뉴와 댓글·응원톡에 써요. */
+export function ChatIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H12l-4 3.5V16H6.5A2.5 2.5 0 0 1 4 13.5v-7A2.5 2.5 0 0 1 6.5 4z" />
+    </LineIcon>
+  );
+}
+
+export function PencilIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M4 20h4L19 9a2.83 2.83 0 0 0-4-4L4 16v4z" />
+      <path d="M13.5 6.5l4 4" />
+    </LineIcon>
+  );
+}
+
+/** 추천. filled면 속을 채워서 이미 누른 상태를 보여 줘요. */
+export function HeartIcon({ className = "size-4", filled = false }: IconProps & { filled?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinejoin="round"
+      aria-hidden
+      className={className}
+    >
+      <path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7a4.3 4.3 0 0 1 7.5 2.8C19.5 15.4 12 20 12 20z" />
+    </svg>
+  );
+}
+
+export function EyeIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
+      <circle cx="12" cy="12" r="2.5" />
+    </LineIcon>
+  );
+}
+
+export function SendIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M20 4L4 11l6.5 2.5L13 20l7-16z" />
+      <path d="M10.5 13.5L20 4" />
+    </LineIcon>
+  );
+}
+
+export function UserIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <circle cx="12" cy="8" r="3.75" />
+      <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+    </LineIcon>
   );
 }

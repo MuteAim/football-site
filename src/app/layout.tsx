@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { LogoMark } from "@/components/Icons";
-import { ActiveNavLinks, NavLinks } from "@/components/SiteNav";
+import { ActiveCafeNavLink, ActiveNavLinks, CafeNavLink, NavLinks } from "@/components/SiteNav";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -35,6 +35,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               <LogoMark />
               해외축구
             </Link>
+            <Suspense fallback={<CafeNavLink />}>
+              <ActiveCafeNavLink />
+            </Suspense>
             <Suspense fallback={<NavLinks />}>
               <ActiveNavLinks />
             </Suspense>

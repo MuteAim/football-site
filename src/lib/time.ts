@@ -123,6 +123,31 @@ export function takeWholeDays<T extends { utcDate: string }>(items: T[], count: 
   return items.slice(0, end);
 }
 
+// ---------- 카페 글 시각 ----------
+
+/** 예: 2026.10.22 14:03 */
+export function formatDateTime(iso: string): string {
+  return `${toKstDateKey(iso).replaceAll("-", ".")} ${formatKickoff(iso)}`;
+}
+
+/** 글 목록용. 오늘 글은 14:03, 올해 글은 10.21, 그 전 글은 25.10.21처럼 보여 줘요. */
+export function formatPostTime(iso: string, now: Date): string {
+  const key = toKstDateKey(iso);
+  const today = toKstDateKey(now);
+  if (key === today) return formatKickoff(iso);
+  if (key.slice(0, 4) === today.slice(0, 4)) return key.slice(5).replace("-", ".");
+  return key.slice(2).replaceAll("-", ".");
+}
+
+/** 댓글용. 하루 안이면 "3분 전"처럼, 그보다 오래되면 날짜와 시각을 보여 줘요. */
+export function formatRelativeTime(iso: string, now: Date): string {
+  const minutes = Math.floor((now.getTime() - Date.parse(iso)) / 60_000);
+  if (minutes < 1) return "방금";
+  if (minutes < 60) return `${minutes}분 전`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}시간 전`;
+  return formatDateTime(iso);
+}
+
 export function seasonLabel(season: { startDate: string; endDate: string }): string {
   const start = season.startDate.slice(0, 4);
   const end = season.endDate.slice(0, 4);
