@@ -1,8 +1,7 @@
-import { cardClass, cardHeadingClass, cardListClass } from "./ui";
+import { cardClass, cardHeadingClass, cardListClass, skeletonClass as bar } from "./ui";
 
 // 첫 방문 때 데이터가 오기 전까지 보이는 뼈대 화면이에요.
 // 실제 화면과 높이를 맞춰 두어서 내용이 들어올 때 화면이 밀리지 않게 했어요.
-const bar = "rounded-md bg-zinc-200/80 dark:bg-white/[0.07]";
 
 function MatchRowSkeleton() {
   return (

@@ -2,23 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { COMPETITIONS } from "@/lib/competitions";
 import { LinkPending } from "./LinkPending";
+import { useCenterActive } from "./useCenterActive";
 
 export function NavLinks({ activeCode = null }: { activeCode?: string | null }) {
   const navRef = useRef<HTMLElement>(null);
 
   // 휴대폰에서는 뒤쪽 대회가 화면 밖에 있어서, 지금 보는 대회가 가려져 있으면 가운데로 끌어와요.
-  useEffect(() => {
-    const nav = navRef.current;
-    const active = nav?.querySelector<HTMLElement>('[aria-current="page"]');
-    if (!nav || !active) return;
-    const start = active.offsetLeft;
-    const end = start + active.offsetWidth;
-    if (start >= nav.scrollLeft && end <= nav.scrollLeft + nav.clientWidth) return;
-    nav.scrollTo({ left: start - (nav.clientWidth - active.offsetWidth) / 2, behavior: "smooth" });
-  }, [activeCode]);
+  useCenterActive(navRef, activeCode);
 
   return (
     <nav
@@ -57,3 +50,4 @@ export function ActiveNavLinks() {
   const activeCode = /^\/league\/([^/]+)/.exec(pathname)?.[1] ?? null;
   return <NavLinks activeCode={activeCode} />;
 }
+
