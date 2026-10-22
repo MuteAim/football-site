@@ -177,3 +177,21 @@ export function CheckIcon({ className = "size-4" }: IconProps) {
     </LineIcon>
   );
 }
+
+export function ChevronDownIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M6 9l6 6 6-6" />
+    </LineIcon>
+  );
+}
+
+/** 골 상점. 쇼핑백 모양이에요. */
+export function BagIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M5 8h14l-1 12H6L5 8z" />
+      <path d="M9 10V7a3 3 0 0 1 6 0v3" />
+    </LineIcon>
+  );
+}
