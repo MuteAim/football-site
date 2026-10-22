@@ -36,7 +36,8 @@ type RawTalk = {
   author: RawAuthorField;
 };
 
-const AUTHOR = "author:profiles(id, nickname, is_manager)";
+// 글과 회원은 작성자(user_id) 말고 추천(post_likes)으로도 이어져 있어서, 어느 쪽으로 이을지 꼭 적어 줘야 해요.
+const AUTHOR = "author:profiles!user_id(id, nickname, is_manager)";
 const POST_SUMMARY = `id, board, title, view_count, like_count, comment_count, created_at, ${AUTHOR}`;
 
 function toAuthor(field: RawAuthorField): Author {
