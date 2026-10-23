@@ -91,10 +91,18 @@ try {
   await command("Input.insertText", { text: "테스트맨" });
   await evaluate(`Array.from(document.querySelectorAll('input[name="career-pos"]')).find((input) => input.value === 'WG').click()`);
   await evaluate(`document.querySelectorAll('input[name="career-pick"]')[1].click()`);
+  // 다시 뽑기를 누르면 고른 자리(빅클럽·중위권·하위권)는 그대로 두고 새 후보 세 명이 나와요.
+  const candidateText = `Array.from(document.querySelectorAll('input[name="career-pick"]')).map((input) => input.closest('label').innerText).join('|')`;
+  const beforeRoll = await evaluate(candidateText);
+  assert.ok(await clickText("다시 뽑기"));
+  await waitFor(`${candidateText} !== ${JSON.stringify(beforeRoll)}`);
+  assert.ok(await evaluate(`document.querySelectorAll('input[name="career-pick"]')[1].checked`), "다시 뽑아도 고른 자리는 그대로예요");
+  await noOverflow("다시 뽑기 후");
   await screenshot("career-create.png");
   assert.ok(await clickText("테스트맨의 커리어 시작"));
   await waitFor(`document.querySelector('section[aria-labelledby="career-decision"] button')`);
   assert.ok(await evaluate(`document.body.innerText.includes('테스트맨') && document.body.innerText.includes('프리시즌')`));
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('football-career-v1')).setup.reroll`), 1, "다시 뽑은 횟수가 저장돼요");
 
   // 실제로 선택 버튼까지 내려간 뒤 연출 전·중·후의 스크롤 위치를 매 프레임 비교해요.
   // 시즌 리포트를 펼쳐 둔 상태와 가장 아래 선택지도 검사해요.

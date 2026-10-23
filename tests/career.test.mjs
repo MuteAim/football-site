@@ -76,6 +76,34 @@ test("후보 선수는 시드마다 고정이고, 시작 능력치와 스카우�
   assert.notDeepEqual(E.scoutCandidates(99, "ENG", "ENG", "ST"), E.scoutCandidates(100, "ENG", "ENG", "ST"));
 });
 
+test("후보를 다시 뽑으면 새 세 명이 나오고, 다시 뽑은 커리어도 같은 결과로 다시 계산된다", () => {
+  const first = E.scoutCandidates(77, "KOR", "ENG", "WG");
+  assert.deepEqual(E.scoutCandidates(77, "KOR", "ENG", "WG", 0), first, "다시 뽑지 않은 후보는 예전과 같아요");
+  const rolls = [1, 2, 3].map((reroll) => E.scoutCandidates(77, "KOR", "ENG", "WG", reroll));
+  for (const roll of rolls) {
+    assert.notDeepEqual(roll, first);
+    assert.deepEqual(roll.map((candidate) => D.CLUBS[candidate.club].league), ["ENG", "ENG", "ENG"]);
+  }
+  assert.deepEqual(E.scoutCandidates(77, "KOR", "ENG", "WG", 2), rolls[1]);
+
+  const setup = { ...baseSetup, league: "ENG", pick: 1, reroll: 3 };
+  const { state, choices } = play(77, setup, (s, step) => (step * 5 + 1) % s.pending.options.length);
+  assert.equal(state.setup.reroll, 3);
+  assert.equal(state.history[0].club, rolls[2][1].club, "고른 후보의 구단에서 시작해요");
+  const replayed = E.replayCareer({ v: E.CAREER_VERSION, seed: 77, startYear: 2026, setup, choices });
+  assert.deepEqual(JSON.parse(JSON.stringify(replayed)), JSON.parse(JSON.stringify(state)));
+  let other = null;
+  try { other = E.replayCareer({ v: E.CAREER_VERSION, seed: 77, startYear: 2026, setup: { ...setup, reroll: 2 }, choices }); } catch {}
+  assert.ok(!other || JSON.stringify(other) !== JSON.stringify(state), "다른 횟수로 다시 계산하면 다른 커리어예요");
+
+  assert.equal("reroll" in E.createCareer(77, 2026, { ...baseSetup, reroll: 0 }).setup, false, "0번은 예전 저장 모양 그대로예요");
+  assert.deepEqual(E.createCareer(77, 2026, { ...baseSetup, reroll: 0 }), E.createCareer(77, 2026, baseSetup));
+  for (const reroll of [-1, 1.5, E.CAREER_RULES.maxRerolls + 1, "1", null]) {
+    assert.throws(() => E.createCareer(77, 2026, { ...baseSetup, reroll }), E.CareerError, String(reroll));
+  }
+  assert.ok(E.CAREER_RULES.rankedRerolls < E.CAREER_RULES.maxRerolls);
+});
+
 /** "이에요"는 받침 뒤에, "예요"는 받침 없는 말 뒤에 와요. */
 function copulaOk(text) {
   for (const [, before, ending] of text.matchAll(/([가-힣])(이에요|예요)/g)) {

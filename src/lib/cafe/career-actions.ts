@@ -54,6 +54,11 @@ export async function finishCareerRun(runId: string, setup: CareerSetup, choices
     || !Array.isArray(choices) || choices.length > CAREER_RULES.maxChoices || choices.some((choice) => !Number.isInteger(choice) || choice < 0 || choice > 9)) {
     return { error: "기록 형식이 맞지 않아요." };
   }
+  // 순위 도전은 스카우트 후보를 정해진 횟수까지만 다시 뽑을 수 있어요.
+  const reroll = setup.reroll ?? 0;
+  if (!Number.isInteger(reroll) || reroll < 0 || reroll > CAREER_RULES.rankedRerolls) {
+    return { error: `순위 도전은 후보를 ${CAREER_RULES.rankedRerolls}번까지만 다시 뽑을 수 있어요.` };
+  }
   const admin = adminClient();
   if (!admin) return { error: "지금은 순위에 기록할 수 없어요." };
   try {
@@ -67,7 +72,7 @@ export async function finishCareerRun(runId: string, setup: CareerSetup, choices
     // 화면이 보낸 결과는 믿지 않고 서버가 같은 규칙으로 다시 계산해요.
     const state = replayCareer({
       v: CAREER_VERSION, seed: Number(run.seed), startYear: run.start_year, choices,
-      setup: { name: setup.name, nation: setup.nation, league: setup.league, pos: setup.pos, pick: setup.pick },
+      setup: { name: setup.name, nation: setup.nation, league: setup.league, pos: setup.pos, pick: setup.pick, ...(reroll ? { reroll } : {}) },
     });
     if (state.phase !== "retired") return { error: "은퇴한 커리어만 순위에 올릴 수 있어요." };
     const summary = summarizeCareer(state);

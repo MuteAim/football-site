@@ -3,8 +3,10 @@
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { CLUBS, LEAGUES, NATION_ORDER, NATIONS, POSITION_ORDER, POSITIONS, YOUTH_LEAGUES, type LeagueCode, type NationCode, type Pos } from "@/lib/career/data";
 import { CAREER_RULES, cleanName, clubName, NAME_PATTERN, scoutCandidates, seasonLabel, type CareerSetup } from "@/lib/career/engine";
+import { DiceIcon } from "../Icons";
 import { cardClass, errorTextClass, inputClass, mutedClass, secondaryButtonClass } from "../ui";
 import { AttrBars, ClubBadge, Stars } from "./CareerParts";
+import styles from "./career.module.css";
 
 const TIERS = [
   { label: "빅클럽 유스", hint: "훈련 시설 최고 · 1군 경쟁 치열" },
@@ -23,9 +25,12 @@ export function CareerCreate({ seed, startYear, ranked, onCreate, onCancel }: {
   const [league, setLeague] = useState<LeagueCode>("KOR");
   const [pos, setPos] = useState<Pos>("ST");
   const [pick, setPick] = useState(0);
+  // 다시 뽑은 횟수. 연습은 사실상 무제한이고, 순위 도전은 정해진 횟수까지만 돼요.
+  const [reroll, setReroll] = useState(0);
   const [touched, setTouched] = useState(false);
   const nameInput = useRef<HTMLInputElement>(null);
-  const candidates = useMemo(() => scoutCandidates(seed, nation, league, pos), [seed, nation, league, pos]);
+  const candidates = useMemo(() => scoutCandidates(seed, nation, league, pos, reroll), [seed, nation, league, pos, reroll]);
+  const rerollsLeft = (ranked ? CAREER_RULES.rankedRerolls : CAREER_RULES.maxRerolls) - reroll;
   const clean = cleanName(name);
   const nameError = !clean ? "선수 이름을 지어 주세요." : !NAME_PATTERN.test(clean) ? `한글·영문·숫자로 ${CAREER_RULES.nameLength}자까지 지을 수 있어요.` : "";
 
@@ -36,7 +41,7 @@ export function CareerCreate({ seed, startYear, ranked, onCreate, onCancel }: {
       nameInput.current?.focus();
       return;
     }
-    onCreate({ name: clean, nation, league, pos, pick });
+    onCreate({ name: clean, nation, league, pos, pick, ...(reroll ? { reroll } : {}) });
   }
 
   return (
@@ -96,8 +101,20 @@ export function CareerCreate({ seed, startYear, ranked, onCreate, onCancel }: {
 
       <fieldset className="mt-7">
         <legend className="text-sm font-bold">스카우트 리포트</legend>
-        <p className={`mt-1 text-xs ${mutedClass}`}>세 명 중 한 명을 골라요. 별점은 스카우트의 예상이라 실제 잠재력과 다를 수 있어요.</p>
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <p className={`min-w-0 flex-1 basis-56 text-xs leading-relaxed ${mutedClass}`}>
+            세 명 중 한 명을 골라요. 별점은 스카우트의 예상이라 실제 잠재력과 다를 수 있어요.
+            {ranked ? ` 순위 도전은 ${CAREER_RULES.rankedRerolls}번까지 다시 뽑을 수 있어요.` : " 마음에 드는 팀이 없으면 다시 뽑아 보세요."}
+          </p>
+          <button type="button" disabled={rerollsLeft <= 0} onClick={() => setReroll((count) => count + 1)}
+            aria-describedby="career-reroll-status"
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-white px-3 text-xs font-bold text-zinc-700 ring-1 ring-zinc-950/10 transition hover:bg-zinc-50 active:scale-[0.98] disabled:opacity-50 dark:bg-[#24252a] dark:text-zinc-200 dark:ring-white/10 dark:hover:bg-zinc-800">
+            <DiceIcon className="size-4" />
+            {ranked ? (rerollsLeft > 0 ? `다시 뽑기 · ${rerollsLeft}회 남음` : "다시 뽑기 끝") : "다시 뽑기"}
+          </button>
+        </div>
+        <p id="career-reroll-status" role="status" className="sr-only">{reroll ? `새 유망주 세 명을 데려왔어요. ${reroll}번 다시 뽑았어요.` : ""}</p>
+        <div key={reroll} className={`mt-3 grid gap-3 md:grid-cols-3 ${reroll ? styles.swap : ""}`}>
           {candidates.map((candidate, index) => {
             const club = CLUBS[candidate.club];
             return (

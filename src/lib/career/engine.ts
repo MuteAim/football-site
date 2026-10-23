@@ -20,6 +20,10 @@ export const CAREER_RULES = {
   /** 선택 수 상한. 최대 24시즌에 시즌마다 3번 이하라 넉넉해요. */
   maxChoices: 120,
   nameLength: 10,
+  /** 연습 커리어에서 후보를 다시 뽑을 수 있는 상한. 사실상 제한이 없어요. */
+  maxRerolls: 999,
+  /** 순위 도전 커리어는 후보를 이만큼만 다시 뽑을 수 있어요. 순위가 다시 뽑기 경쟁이 되지 않게 해요. */
+  rankedRerolls: 5,
 } as const;
 
 /** 선수 이름. 한글·영문·숫자로 시작하고 끝나며 가운데에는 띄어쓰기와 점을 쓸 수 있어요. */
@@ -29,7 +33,8 @@ export class CareerError extends Error {}
 
 export type Role = "starter" | "rotation" | "bench" | "reserve";
 export type Tone = "good" | "risk" | "neutral";
-export type CareerSetup = { name: string; nation: NationCode; league: LeagueCode; pos: Pos; pick: number };
+/** reroll은 스카우트 후보를 다시 뽑은 횟수예요. 없거나 0이면 처음 후보예요. */
+export type CareerSetup = { name: string; nation: NationCode; league: LeagueCode; pos: Pos; pick: number; reroll?: number };
 export type Traits = {
   /** 전성기 나이 */
   peak: number;
@@ -329,9 +334,12 @@ function scoutNote(r: Rng, traits: Traits, pos: Pos): string {
   return notes.length ? pick(r, notes) : "눈에 띄진 않지만 기본기가 탄탄해요.";
 }
 
-/** 같은 시드·국적·리그·포지션이면 언제나 같은 세 명이 나와요. 빅클럽·중위권·하위권 유스에서 한 명씩이에요. */
-export function scoutCandidates(seed: number, nation: NationCode, league: LeagueCode, pos: Pos): Candidate[] {
-  const r: Rng = { rng: (seed ^ hash(`${nation}|${league}|${pos}`)) >>> 0 };
+/**
+ * 같은 시드·국적·리그·포지션·다시 뽑은 횟수면 언제나 같은 세 명이 나와요. 빅클럽·중위권·하위권 유스에서 한 명씩이에요.
+ * 다시 뽑지 않은 후보(reroll 0)는 다시 뽑기가 생기기 전과 똑같아서 예전 커리어도 그대로 다시 계산돼요.
+ */
+export function scoutCandidates(seed: number, nation: NationCode, league: LeagueCode, pos: Pos, reroll = 0): Candidate[] {
+  const r: Rng = { rng: (seed ^ hash(`${nation}|${league}|${pos}${reroll ? `|r${reroll}` : ""}`)) >>> 0 };
   for (let i = 0; i < 4; i++) next(r);
   const clubs = clubsIn(league).filter((club) => club.id !== MILITARY_CLUB).sort((a, b) => b.rating - a.rating);
   const third = Math.ceil(clubs.length / 3);
@@ -356,18 +364,20 @@ export function cleanName(raw: string): string {
 function validSetup(setup: CareerSetup): boolean {
   return !!setup && typeof setup.name === "string" && NAME_PATTERN.test(setup.name)
     && Object.hasOwn(NATIONS, setup.nation) && Object.hasOwn(LEAGUES, setup.league) && LEAGUES[setup.league].youth
-    && Object.hasOwn(POSITIONS, setup.pos) && Number.isInteger(setup.pick) && setup.pick >= 0 && setup.pick <= 2;
+    && Object.hasOwn(POSITIONS, setup.pos) && Number.isInteger(setup.pick) && setup.pick >= 0 && setup.pick <= 2
+    && (setup.reroll === undefined || (Number.isInteger(setup.reroll) && setup.reroll >= 0 && setup.reroll <= CAREER_RULES.maxRerolls));
 }
 
 export function createCareer(seed: number, startYear: number, setup: CareerSetup): CareerState {
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) throw new CareerError("커리어 번호가 올바르지 않아요.");
   if (!Number.isInteger(startYear) || startYear < 2020 || startYear > 2100) throw new CareerError("시작 시즌이 올바르지 않아요.");
   if (!validSetup(setup)) throw new CareerError("선수 정보가 올바르지 않아요.");
-  const candidate = scoutCandidates(seed, setup.nation, setup.league, setup.pos)[setup.pick];
+  const reroll = setup.reroll ?? 0;
+  const candidate = scoutCandidates(seed, setup.nation, setup.league, setup.pos, reroll)[setup.pick];
   const s: CareerState = {
     v: CAREER_VERSION, seed, startYear,
-    setup: { name: setup.name, nation: setup.nation, league: setup.league, pos: setup.pos, pick: setup.pick },
-    rng: (seed ^ hash(`${setup.nation}|${setup.league}|${setup.pos}|${setup.pick}|career`)) >>> 0, steps: 0,
+    setup: { name: setup.name, nation: setup.nation, league: setup.league, pos: setup.pos, pick: setup.pick, ...(reroll ? { reroll } : {}) },
+    rng: (seed ^ hash(`${setup.nation}|${setup.league}|${setup.pos}|${setup.pick}|career${reroll ? `|r${reroll}` : ""}`)) >>> 0, steps: 0,
     name: setup.name, nation: setup.nation, pos: setup.pos, style: POSITIONS[setup.pos].styles[candidate.style].name,
     attrs: [...candidate.attrs], potential: candidate.potential, traits: { ...candidate.traits }, revealed: [],
     age: CAREER_RULES.startAge, year: startYear, club: candidate.club, parent: null, contract: 3, trust: 0, form: 0, injury: 0,

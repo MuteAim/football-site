@@ -278,3 +278,19 @@ export function SlidersIcon({ className = "size-4" }: IconProps) {
     </LineIcon>
   );
 }
+
+/** 다시 뽑기. 주사위 모양이에요. */
+export function DiceIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <rect x="4" y="4" width="16" height="16" rx="3.5" />
+      <g fill="currentColor" stroke="none">
+        <circle cx="8.75" cy="8.75" r="1.25" />
+        <circle cx="15.25" cy="8.75" r="1.25" />
+        <circle cx="12" cy="12" r="1.25" />
+        <circle cx="8.75" cy="15.25" r="1.25" />
+        <circle cx="15.25" cy="15.25" r="1.25" />
+      </g>
+    </LineIcon>
+  );
+}

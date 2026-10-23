@@ -26,8 +26,19 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* 후보를 다시 뽑으면 자리는 그대로 두고 새 카드만 살짝 밝아지며 나타나요. */
+.swap {
+  animation: swap 180ms ease-out both;
+}
+
+@keyframes swap {
+  from { opacity: 0.2; }
+  to { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .progress { animation-duration: 1ms; }
   .ball { animation: none; }
   .reveal { animation: none; }
+  .swap { animation: none; }
 }
