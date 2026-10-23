@@ -29,7 +29,7 @@ export function BoardTabs({ active }: { active: string | null }) {
             aria-current={isActive ? "page" : undefined}
             className={`relative flex h-10 shrink-0 items-center gap-1.5 rounded-xl px-3.5 text-sm font-semibold transition active:scale-[0.98] ${
               isActive
-                ? "bg-emerald-700 text-white shadow-sm dark:bg-[#d4f77d] dark:text-emerald-950"
+                ? "bg-emerald-700 text-white shadow-sm dark:bg-zinc-100 dark:text-zinc-950"
                 : "bg-white text-zinc-600 ring-1 ring-zinc-950/5 hover:text-zinc-900 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-white/10 dark:hover:text-white"
             }`}
           >

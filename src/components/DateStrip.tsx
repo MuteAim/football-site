@@ -87,7 +87,7 @@ export function DateStrip({ selected, today }: { selected: string; today: string
             const weekday = formatWeekday(date);
             const relative = relativeDayLabel(date, today);
             let labelColor = weekdayColor(weekday);
-            if (active) labelColor = "text-emerald-100";
+            if (active) labelColor = "text-emerald-100 dark:text-zinc-600";
             else if (date === today) labelColor = "text-emerald-600 dark:text-emerald-400";
 
             return (
@@ -99,7 +99,7 @@ export function DateStrip({ selected, today }: { selected: string; today: string
                 aria-current={active ? "date" : undefined}
                 className={`relative flex h-14 flex-col items-center justify-center gap-1 rounded-xl transition active:scale-95 ${
                   active
-                    ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/15"
+                    ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/15 dark:bg-zinc-100 dark:text-zinc-950 dark:shadow-none"
                     : "hover:bg-zinc-950/5 dark:hover:bg-white/10"
                 }`}
               >

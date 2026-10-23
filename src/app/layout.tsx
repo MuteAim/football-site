@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#10251c" },
-    { media: "(prefers-color-scheme: dark)", color: "#10251c" },
+    { media: "(prefers-color-scheme: dark)", color: "#111214" },
   ],
 };
 
@@ -31,14 +31,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         {/* 화면 전환 때 머리글은 제자리에 두고 내용만 움직이도록 이름을 붙여 둬요. */}
         <header
           style={{ viewTransitionName: "site-header" }}
-          className="sticky top-0 z-30 border-b border-white/10 bg-[#10251c]/95 text-white backdrop-blur-xl"
+          className="sticky top-0 z-30 border-b border-white/10 bg-[#10251c]/95 text-white backdrop-blur-xl dark:bg-[#111214]/95"
         >
           <div className="mx-auto flex h-18 max-w-5xl items-center gap-3 px-4 sm:gap-10 sm:px-6">
             <Link href="/" aria-label="해외축구 홈" className="flex shrink-0 items-center gap-2.5">
               <LogoMark />
               <span className="hidden min-[400px]:block">
                 <span className="block text-base leading-5 font-extrabold tracking-tight sm:text-lg">해외축구</span>
-                <span className="sport-eyebrow mt-0.5 block text-[#d4f77d]">MATCHDAY</span>
+                <span className="sport-eyebrow mt-0.5 block text-[#d4f77d] dark:text-zinc-400">MATCHDAY</span>
               </span>
             </Link>
             <Suspense fallback={<MainNav />}>
@@ -51,7 +51,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
 
         <footer className="border-t border-emerald-950/10 dark:border-white/[0.07]">
           <div className="mx-auto max-w-5xl space-y-1 px-4 pt-6 pb-10 text-xs leading-relaxed text-zinc-500 sm:px-6 dark:text-zinc-400">
-            <p className="mb-3 text-sm font-bold text-emerald-900 dark:text-emerald-300">경기장 밖에서도, 축구는 계속.</p>
+            <p className="mb-3 text-sm font-bold text-emerald-900 dark:text-zinc-300">경기장 밖에서도, 축구는 계속.</p>
             <p>모든 시간은 한국 시간 기준이에요. 무료 플랜 데이터라 실제 경기보다 몇 분 늦게 반영될 수 있어요.</p>
             <p>
               경기 데이터 제공{" "}

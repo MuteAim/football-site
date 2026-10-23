@@ -25,11 +25,12 @@ export function CafeBanner({
 }) {
   const title = "block truncate text-xl font-extrabold tracking-tight sm:text-3xl";
   return (
-    <div className={`relative min-h-36 rounded-3xl bg-linear-to-br px-5 py-5 text-white shadow-sm sm:px-7 sm:py-6 ${bannerLook(color).banner}`}>
+    <div className={`relative min-h-36 rounded-3xl bg-linear-to-br px-5 py-5 text-white shadow-sm sm:px-7 sm:py-6 ${bannerLook(color).banner} dark:from-[#24262b] dark:to-[#18191d] dark:ring-1 dark:ring-white/[0.08]`}>
       {/* 장식만 둥근 모서리 안에 잘라 두고, 계정 메뉴는 배너 밖으로 펼쳐질 수 있게 해요. */}
       <div aria-hidden className="absolute inset-0 overflow-hidden rounded-3xl">
+        <span className={`absolute top-0 left-7 hidden h-0.5 w-10 rounded-b-full dark:block ${bannerLook(color).swatch}`} />
         <div className="absolute inset-0 bg-linear-to-r from-black/35 to-transparent" />
-        <PitchLines className="absolute top-1/2 -right-12 h-60 w-96 -translate-y-1/2 -rotate-12 text-white/10" />
+        <PitchLines className="absolute top-1/2 -right-12 h-60 w-96 -translate-y-1/2 -rotate-12 text-white/10 dark:text-white/[0.06]" />
       </div>
       <div className="relative">
         <p className="sport-eyebrow mb-3 text-white/70">THE SUPPORTERS CLUB</p>

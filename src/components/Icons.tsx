@@ -26,7 +26,7 @@ export function BallIcon({ className = "size-4" }: IconProps) {
 /** 사이트 로고. 초록 바탕 위에 축구공이 있어요. */
 export function LogoMark() {
   return (
-    <span className="flex size-9 shrink-0 -rotate-6 items-center justify-center rounded-xl bg-[#d4f77d] text-[#132b1e] ring-1 ring-white/10">
+    <span className="flex size-9 shrink-0 -rotate-6 items-center justify-center rounded-xl bg-[#d4f77d] text-[#132b1e] ring-1 ring-white/10 dark:bg-zinc-100 dark:text-zinc-950">
       <BallIcon className="size-6 rotate-6" />
     </span>
   );

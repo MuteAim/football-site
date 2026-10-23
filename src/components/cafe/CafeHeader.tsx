@@ -50,7 +50,7 @@ async function ViewerChip({ badgeRing }: { badgeRing: string }) {
  */
 export async function CafeHeader() {
   const settings = await getCafeSettings();
-  const badgeRing = bannerLook(settings.bannerColor).ring;
+  const badgeRing = `${bannerLook(settings.bannerColor).ring} dark:ring-[#1c1d21]`;
   return (
     <div className="mb-5">
       <CafeBanner name={settings.cafeName} tagline={settings.tagline} color={settings.bannerColor}>

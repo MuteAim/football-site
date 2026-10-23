@@ -26,7 +26,7 @@ export function MainNav({ activeHref }: { activeHref?: string }) {
           aria-current={activeHref === href ? "page" : undefined}
           className={`relative flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-xl text-[13px] font-bold transition sm:text-sm ${
             activeHref === href
-              ? "bg-[#d4f77d] text-[#132b1e] shadow-sm"
+              ? "bg-[#d4f77d] text-[#132b1e] shadow-sm dark:bg-white/10 dark:text-white dark:after:absolute dark:after:bottom-1.5 dark:after:left-1/2 dark:after:h-0.5 dark:after:w-4 dark:after:-translate-x-1/2 dark:after:rounded-full dark:after:bg-emerald-400"
               : "text-white/65 hover:bg-white/10 hover:text-white"
           }`}
         >

@@ -58,7 +58,7 @@ export function MatchSummary({ match }: { match: Match }) {
           )}
           <p className="mt-1.5 text-xs font-semibold">
             {live ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-[#d4f77d]/10 px-2 py-1 text-[#d4f77d]">
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#d4f77d]/10 px-2 py-1 text-[#d4f77d] dark:bg-emerald-400/10 dark:text-emerald-300">
                 <span className="size-1.5 rounded-full bg-current" />
                 진행 중
               </span>

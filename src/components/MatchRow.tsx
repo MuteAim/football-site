@@ -38,7 +38,7 @@ function TeamLine({
           {penalties != null ? (
             <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">({penalties})</span>
           ) : null}
-          <span className={`flex h-6 min-w-7 items-center justify-center rounded-md text-base ${outcome === "won" ? "bg-emerald-700 font-extrabold text-white dark:bg-emerald-500 dark:text-emerald-950" : "bg-zinc-100 font-bold dark:bg-white/5"}`}>
+          <span className={`flex h-6 min-w-7 items-center justify-center rounded-md text-base ${outcome === "won" ? "bg-emerald-700 font-extrabold text-white dark:bg-white/15" : "bg-zinc-100 font-bold dark:bg-white/5"}`}>
             {score}
           </span>
         </span>
@@ -125,7 +125,7 @@ export function MatchRow({
       <Link
         href={href}
         prefetch={false}
-        className={`group relative -mx-4 flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-emerald-50/60 dark:hover:bg-emerald-400/[0.04] ${live ? "bg-emerald-500/[0.04] before:absolute before:inset-y-3 before:left-0 before:w-0.5 before:rounded-r-full before:bg-emerald-500" : ""}`}
+        className={`group relative -mx-4 flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-emerald-50/60 dark:hover:bg-white/[0.03] ${live ? "bg-emerald-500/[0.04] before:absolute before:inset-y-3 before:left-0 before:w-0.5 before:rounded-r-full before:bg-emerald-500 dark:bg-transparent" : ""}`}
       >
         {content}
         {/* 누르면 응원톡으로 간다는 표시 */}

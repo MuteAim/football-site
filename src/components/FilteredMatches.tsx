@@ -96,16 +96,16 @@ export function FilteredMatches({ matches, today, teamControl }: { matches: Matc
   return (
     <TeamFilterContext.Provider value={{ teamId, select: setTeamId }}>
       <div className="mb-5 space-y-3">
-        <div role="group" aria-label="경기 상태" className="grid grid-cols-4 gap-1 rounded-2xl bg-white p-1.5 ring-1 ring-emerald-950/[0.08] dark:bg-[#131e18] dark:ring-white/[0.08]">
+        <div role="group" aria-label="경기 상태" className="grid grid-cols-4 gap-1 rounded-2xl bg-white p-1.5 ring-1 ring-emerald-950/[0.08] dark:bg-[#191a1e] dark:ring-white/[0.08]">
           {FILTERS.map(({ value, label }) => (
             <button
               key={value}
               type="button"
               aria-pressed={status === value}
               onClick={() => setStatus(value)}
-              className={`flex min-h-11 min-w-0 flex-wrap items-center justify-center gap-x-1.5 rounded-xl px-1 text-[13px] font-bold transition ${status === value ? "bg-[#173d2c] text-white shadow-sm dark:bg-[#d4f77d] dark:text-[#132b1e]" : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"}`}
+              className={`flex min-h-11 min-w-0 flex-wrap items-center justify-center gap-x-1.5 rounded-xl px-1 text-[13px] font-bold transition ${status === value ? "bg-[#173d2c] text-white shadow-sm dark:bg-zinc-100 dark:text-zinc-950" : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"}`}
             >
-              {label}<span className={`text-[11px] tabular-nums ${status === value ? "text-white/70 dark:text-emerald-950/65" : value === "live" ? "text-red-600 dark:text-red-400" : "text-zinc-400 dark:text-zinc-500"}`}>{filterMatches(scoped, value, "", null).length}</span>
+              {label}<span className={`text-[11px] tabular-nums ${status === value ? "text-white/70 dark:text-zinc-600" : value === "live" ? "text-red-600 dark:text-red-400" : "text-zinc-400 dark:text-zinc-500"}`}>{filterMatches(scoped, value, "", null).length}</span>
             </button>
           ))}
         </div>

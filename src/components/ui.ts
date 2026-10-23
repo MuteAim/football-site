@@ -1,6 +1,6 @@
 // 경기·카페·스쿼드가 공유하는 표면과 버튼이에요.
 export const cardClass =
-  "overflow-hidden rounded-2xl bg-white shadow-[0_2px_8px_-4px_rgb(16_37_28/0.12)] ring-1 ring-emerald-950/[0.08] dark:bg-[#131e18] dark:shadow-none dark:ring-white/[0.08]";
+  "overflow-hidden rounded-2xl bg-white shadow-[0_2px_8px_-4px_rgb(16_37_28/0.12)] ring-1 ring-emerald-950/[0.08] dark:bg-[#191a1e] dark:shadow-none dark:ring-white/[0.08]";
 
 /** 카드 맨 위 제목 줄. 높이를 고정해 두어서 뼈대 화면과 높이가 맞아요. */
 export const cardHeadingClass =
@@ -19,11 +19,11 @@ export const skeletonClass = "rounded-md bg-zinc-200/80 dark:bg-white/[0.07]";
 
 /** 글쓰기, 등록처럼 화면에서 가장 중요한 버튼 */
 export const primaryButtonClass =
-  "inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-emerald-700 px-4 text-sm font-bold text-white shadow-sm shadow-emerald-900/10 transition hover:bg-emerald-800 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 dark:bg-emerald-500 dark:text-emerald-950 dark:hover:bg-emerald-400";
+  "inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-emerald-700 px-4 text-sm font-bold text-white shadow-sm shadow-emerald-900/10 transition hover:bg-emerald-800 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-950 dark:shadow-none dark:hover:bg-white";
 
 /** 취소, 수정처럼 덜 중요한 버튼 */
 export const secondaryButtonClass =
-  "inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-white px-4 text-sm font-semibold text-zinc-700 ring-1 ring-zinc-950/10 transition hover:bg-zinc-50 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 dark:bg-[#19271f] dark:text-zinc-200 dark:ring-white/10 dark:hover:bg-zinc-800";
+  "inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-white px-4 text-sm font-semibold text-zinc-700 ring-1 ring-zinc-950/10 transition hover:bg-zinc-50 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 dark:bg-[#24252a] dark:text-zinc-200 dark:ring-white/10 dark:hover:bg-zinc-800";
 
 /** 글 옆의 작은 글자 버튼 (삭제 등) */
 export const textButtonClass =

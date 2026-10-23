@@ -18,7 +18,7 @@ export function LeagueTabs({ code }: { code: string }) {
   return (
     <nav
       aria-label="대회 메뉴"
-      className="mt-3 grid h-13 grid-cols-4 gap-1 rounded-2xl bg-white p-1.5 ring-1 ring-emerald-950/[0.08] dark:bg-[#131e18] dark:ring-white/[0.08]"
+      className="mt-3 grid h-13 grid-cols-4 gap-1 rounded-2xl bg-white p-1.5 ring-1 ring-emerald-950/[0.08] dark:bg-[#191a1e] dark:ring-white/[0.08]"
     >
       {TABS.map((tab) => {
         const active = segment === tab.segment;
@@ -29,7 +29,7 @@ export function LeagueTabs({ code }: { code: string }) {
             aria-current={active ? "page" : undefined}
             className={`relative flex items-center justify-center rounded-xl text-sm font-medium transition active:scale-95 ${
               active
-                ? "bg-[#173d2c] font-bold text-white dark:bg-[#d4f77d] dark:text-emerald-950"
+                ? "bg-[#173d2c] font-bold text-white dark:bg-zinc-100 dark:text-zinc-950"
                 : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
             }`}
           >
