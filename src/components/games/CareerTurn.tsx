@@ -1,5 +1,6 @@
 import { clubName, legacyScore, overall, seasonLabel, type CareerState } from "@/lib/career/engine";
 import { mutedClass } from "../ui";
+import type { ReactNode } from "react";
 
 export type TurnResult = { label: string; summary: string; changes: string[]; moment: string | null };
 
@@ -25,8 +26,8 @@ export function turnResult(before: CareerState, after: CareerState, index: numbe
   return { label: before.pending!.options[index].label, summary, changes, moment: before.pending?.id === "moment" ? after.lastMoment : null };
 }
 
-export function TurnHeader({ state, result, quick, onQuick }: {
-  state: CareerState; result: TurnResult | null; quick: boolean; onQuick: (value: boolean) => void;
+export function TurnHeader({ state, result, quick, onQuick, children }: {
+  state: CareerState; result: TurnResult | null; quick: boolean; onQuick: (value: boolean) => void; children: ReactNode;
 }) {
   const step = state.phase === "training" ? 0 : state.phase === "event" ? 1 : 2;
   return (
@@ -45,6 +46,7 @@ export function TurnHeader({ state, result, quick, onQuick }: {
           빠른 진행
         </label>
       </div>
+      {children}
       <div id="career-turn-result" role="status" aria-live="polite" aria-atomic="true" className="min-h-24 rounded-2xl bg-emerald-500/[0.07] px-4 py-3 text-xs leading-relaxed dark:bg-emerald-400/[0.07]">
         {result ? (
           <>

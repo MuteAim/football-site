@@ -340,20 +340,18 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
             ) : (
               <div className="relative" aria-busy={!!busy}>
                 <div inert={!!busy} aria-hidden={busy ? true : undefined} className={`space-y-3 ${busy ? "opacity-25" : ""}`}>
-                  <TurnHeader state={displayed} result={busy ? busy.result : result} quick={quick} onQuick={changeQuick} />
-                  {displayed.phase === "offseason" && last ? (
-                    <div id="career-season-result"><SeasonReport key={last.year} season={last} previous={displayed.history.at(-2)} journal={lastJournal} /></div>
-                  ) : null}
-                  {displayed.pending ? <DecisionCard key={displayed.steps} decision={displayed.pending} onPick={pick} disabled={!!busy} /> : null}
+                  <TurnHeader state={displayed} result={busy ? busy.result : result} quick={quick} onQuick={changeQuick}>
+                    {displayed.pending ? <DecisionCard key={displayed.steps} decision={displayed.pending} onPick={pick} disabled={!!busy} /> : null}
+                  </TurnHeader>
                   {displayed.phase === "event" ? <HalfSeason state={displayed} /> : null}
-                  {last && displayed.phase !== "offseason" ? (
-                    <details key={last.year} id="career-report" className={`${cardClass} group/report`}>
+                  {last ? (
+                    <details key={last.year} id="career-report" open className={`${cardClass} group/report`}>
                       <summary className="flex cursor-pointer items-center justify-between gap-3 px-5 py-4 text-sm font-bold">
                         {seasonLabel(last.year)} 시즌 리포트
                         <span className={`shrink-0 text-xs ${mutedClass} group-open/report:hidden`}>펼치기</span>
                         <span className={`hidden shrink-0 text-xs ${mutedClass} group-open/report:inline`}>접기</span>
                       </summary>
-                      <SeasonReport season={last} previous={displayed.history.at(-2)} journal={lastJournal} />
+                      <div id="career-season-result"><SeasonReport season={last} previous={displayed.history.at(-2)} journal={lastJournal} /></div>
                     </details>
                   ) : null}
                   <RivalCard state={displayed} />

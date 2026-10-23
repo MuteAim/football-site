@@ -121,14 +121,25 @@ try {
     const metrics = await evaluate(`new Promise((resolve) => {
       const button = [...document.querySelectorAll('section[aria-labelledby="career-decision"] button')].at(-1);
       const before = JSON.parse(localStorage.getItem('football-career-v1')).choices.length;
-      let y = window.scrollY;
+      const headingTop = document.getElementById('career-decision').getBoundingClientRect().top;
+      const panelTop = document.getElementById('career-decision').closest('[aria-busy]').getBoundingClientRect().top;
+      const initialY = window.scrollY;
+      let y = initialY;
+      const oldReport = document.getElementById('career-report');
+      const oldYear = oldReport?.querySelector('[data-season-stats]')?.dataset.seasonStats;
+      const oldOpen = oldReport?.open;
       const started = performance.now();
       let delta = 0, busy = false;
       function sample() {
         delta = Math.max(delta, Math.abs(window.scrollY - y));
         busy ||= !!document.querySelector('[aria-busy="true"]');
         if (performance.now() - started < 1050) requestAnimationFrame(sample);
-        else resolve({ delta, busy, count: JSON.parse(localStorage.getItem('football-career-v1')).choices.length - before, focus: document.activeElement.id });
+        else {
+          const heading = document.getElementById('career-decision');
+          const report = document.getElementById('career-report');
+          const sameYear = oldYear && report?.querySelector('[data-season-stats]')?.dataset.seasonStats === oldYear;
+          resolve({ delta, busy, reportPreserved: !sameYear || (report === oldReport && report.open === oldOpen), headingShift: heading.getBoundingClientRect().top - headingTop + (window.scrollY - initialY), panelShift: heading.getBoundingClientRect().top - heading.closest('[aria-busy]').getBoundingClientRect().top - (headingTop - panelTop), count: JSON.parse(localStorage.getItem('football-career-v1')).choices.length - before, focus: document.activeElement.id });
+        }
       }
       requestAnimationFrame(sample);
       button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: ${keyboard ? 0 : 1} }));
@@ -137,6 +148,9 @@ try {
       if (${moveDuringAnimation}) setTimeout(() => { window.scrollBy(0, 100); y = window.scrollY; }, 180);
     })`);
     assert.ok(metrics.delta <= 2, `선택 중 스크롤이 ${metrics.delta}px 이동했어요`);
+    assert.ok(Math.abs(metrics.headingShift) <= 64, `리포트 전환 후 선택지 제목이 ${metrics.headingShift}px 밀렸어요`);
+    assert.ok(Math.abs(metrics.panelShift) <= 1, `선택 영역 안에서 제목이 ${metrics.panelShift}px 밀렸어요`);
+    assert.ok(metrics.reportPreserved, "다음 선택에서 지난 리포트의 펼침 상태가 바뀌었어요");
     assert.equal(metrics.count, 1, "빠른 연속 클릭으로 두 번 선택됐어요");
     if (quick) assert.equal(metrics.busy, false, "빠른 진행인데 연출을 기다렸어요");
     sawAnimation ||= metrics.busy;
@@ -155,6 +169,24 @@ try {
     await screenshot(`career-play-${width}.png`);
     console.log(`${width}px: 선택·시즌 연출·리포트 전환 중 스크롤 위치 유지`);
   }
+  // 펼친 리포트를 닫거나 다시 열어도 그 위의 선택 영역은 움직이지 않아요.
+  const reportToggle = await evaluate(`(() => {
+    const report = document.getElementById('career-report');
+    const heading = document.getElementById('career-decision');
+    const before = heading.getBoundingClientRect().top + window.scrollY;
+    report.open = false;
+    const closed = heading.getBoundingClientRect().top + window.scrollY;
+    report.open = true;
+    const opened = heading.getBoundingClientRect().top + window.scrollY;
+    return { delta: Math.max(Math.abs(closed - before), Math.abs(opened - before)), below: report.getBoundingClientRect().top >= heading.closest('section').getBoundingClientRect().bottom };
+  })()`);
+  assert.equal(reportToggle.delta, 0, "리포트를 펼치거나 접으면 선택지가 밀려요");
+  assert.ok(reportToggle.below, "시즌 리포트는 항상 선택지 뒤에 있어야 해요");
+  for (let step = 0; step < 6 && !await evaluate(`document.querySelector('section[aria-labelledby="career-decision"]').textContent.includes('TRANSFER WINDOW')`); step++) await stablePick();
+  assert.ok(await evaluate(`document.querySelector('section[aria-labelledby="career-decision"]').textContent.includes('TRANSFER WINDOW')`));
+  await evaluate(`document.getElementById('career-report').open = false`);
+  await stablePick();
+  assert.equal(await evaluate(`document.getElementById('career-report').open`), false, "다음 시즌에도 직접 접은 리포트는 접혀 있어야 해요");
   // 연출을 보는 도중 직접 스크롤하면 그 위치를 유지해야 해요.
   await stablePick({ moveDuringAnimation: true });
   await evaluate(`document.querySelector('input[type="checkbox"]').click()`);
