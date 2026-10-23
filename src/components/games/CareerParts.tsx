@@ -6,6 +6,8 @@ import {
 } from "@/lib/career/engine";
 import { BallIcon, TrophyIcon } from "../Icons";
 import { cardClass, mutedClass } from "../ui";
+import type { SeasonJournal } from "@/lib/career/journal";
+import { SeasonStats } from "./CareerSeasonStats";
 import styles from "./career.module.css";
 
 // 레전드 로드 화면 조각이에요. 상태는 CareerGame이 들고, 여기서는 그리기만 해요.
@@ -292,21 +294,19 @@ function competitionLine(season: SeasonRecord): [string, string][] {
   return parts;
 }
 
-export function SeasonReport({ season }: { season: SeasonRecord }) {
+export function SeasonReport({ season, previous, journal, expandedDetails = false }: {
+  season: SeasonRecord; previous?: SeasonRecord; journal?: SeasonJournal; expandedDetails?: boolean;
+}) {
+  const heading = useId();
   const keeper = season.pos === "GK";
-  const tiles: [string, string][] = keeper
-    ? [["경기", `${season.apps}`], ["무실점", `${season.cleanSheets}`], ["평점", season.apps ? (season.rating / 10).toFixed(1) : "-"], ["출전", `${season.minutes.toLocaleString("ko-KR")}분`]]
-    : [["경기", `${season.apps}`], ["골", `${season.goals}`], ["도움", `${season.assists}`], ["평점", season.apps ? (season.rating / 10).toFixed(1) : "-"]];
   const grade = seasonGrade(season);
-  const growth = season.growth.map((value, i) => [attrLabels(season.pos)[i], value] as const).filter(([, value]) => value !== 0);
-  const ovrDelta = season.ovrEnd - season.ovrBefore;
   const national = [season.caps ? `A매치 ${season.caps}경기 ${season.intlGoals}골` : "", ...season.tournaments].filter(Boolean);
   return (
-    <section className={`${cardClass} ${styles.reveal}`} aria-labelledby={`season-${season.year}`}>
+    <section className={cardClass} aria-labelledby={heading}>
       <div className="flex items-start justify-between gap-3 border-b border-zinc-100 px-5 py-4 sm:px-6 dark:border-white/[0.07]">
         <div className="min-w-0">
           <p className="sport-eyebrow text-emerald-700 dark:text-emerald-400">SEASON REPORT</p>
-          <h2 id={`season-${season.year}`} className="mt-1 text-lg font-black tracking-tight">{seasonLabel(season.year)} 시즌 · {season.age}세</h2>
+          <h2 id={heading} className="mt-1 text-lg font-black tracking-tight">{seasonLabel(season.year)} 시즌 · {season.age}세</h2>
           <p className={`mt-1 flex min-w-0 items-center gap-1.5 text-sm ${mutedClass}`}>
             <ClubBadge name={clubName(season.club)} className="size-5 text-[10px]" />
             <span className="truncate">{clubName(season.club)}{season.loan ? " (임대)" : season.military ? " (군 복무)" : ""} · {roleName(season.role, season.age)}</span>
@@ -316,37 +316,51 @@ export function SeasonReport({ season }: { season: SeasonRecord }) {
           <span className="sr-only">시즌 평가 </span>{grade}
         </span>
       </div>
-      <dl className="grid grid-cols-4 divide-x divide-zinc-100 py-3 text-center dark:divide-white/[0.07]">
-        {tiles.map(([label, value]) => <div key={label}><dt className={`text-[11px] ${mutedClass}`}>{label}</dt><dd className="mt-0.5 text-xl font-extrabold tabular-nums">{value}</dd></div>)}
-      </dl>
-      <div className="space-y-3 border-t border-zinc-100 px-5 py-4 text-sm sm:px-6 dark:border-white/[0.07]">
-        <p className={mutedClass}>
-          {competitionLine(season).map(([name, stage], index) => (
-            <span key={name}>{index ? " · " : ""}{name} <strong className="font-bold text-zinc-800 dark:text-zinc-100">{stage}</strong></span>
-          ))}
-        </p>
-        {season.reserve ? <p className={mutedClass}>{reserveText(season.reserve)} · 1군 기회가 적을 때 경기 감각을 쌓았어요</p> : null}
-        {season.trophies.length || season.awards.length ? (
-          <ul className="flex flex-wrap gap-1.5" aria-label="트로피와 수상">
-            {season.trophies.map((honor) => <li key={honor.label} className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-900 dark:bg-amber-300/15 dark:text-amber-200"><TrophyIcon className="size-3.5" />{honor.label}</li>)}
-            {season.awards.map((honor) => <li key={honor.label} className={`rounded-full px-2.5 py-1 text-xs font-bold ${honor.label.endsWith("발롱도르") ? "bg-amber-300 text-amber-950" : "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"}`}>{honor.label}</li>)}
-          </ul>
-        ) : null}
-        {season.ballon > 10 ? <p className={`text-xs ${mutedClass}`}>발롱도르 최종 후보 {season.ballon}위</p> : null}
-        {national.length ? <p>{national.join(" · ")}</p> : null}
-        {season.rival ? <p className={`text-xs ${mutedClass}`}><strong className="font-bold text-rose-600 dark:text-rose-400">라이벌</strong> {rivalLine(season.rival, keeper)}</p> : null}
-        {season.highlights.length ? (
-          <ul className="space-y-1.5">
-            {season.highlights.map((text, i) => <li key={`${i}-${text}`} className="flex gap-2"><span aria-hidden="true" className="mt-2 size-1.5 shrink-0 rounded-full bg-emerald-500" /><span>{text}</span></li>)}
-          </ul>
-        ) : null}
-        {season.event ? <p className={`rounded-xl bg-zinc-50 px-3 py-2 text-xs leading-relaxed dark:bg-white/[0.04] ${mutedClass}`}>{season.event}</p> : null}
-        <p className="text-xs">
-          <span className="font-bold">오버롤 {season.ovrBefore} → {season.ovrEnd}</span>
-          <span className={`ml-1 font-black ${ovrDelta > 0 ? "text-emerald-600 dark:text-emerald-400" : ovrDelta < 0 ? "text-rose-500" : mutedClass}`}>{ovrDelta > 0 ? `▲${ovrDelta}` : ovrDelta < 0 ? `▼${-ovrDelta}` : "–"}</span>
-          {growth.length ? <span className={`ml-2 ${mutedClass}`}>{growth.map(([label, value]) => `${label} ${value > 0 ? "+" : ""}${value}`).join(" · ")}</span> : null}
-        </p>
-      </div>
+      <SeasonStats season={season} previous={previous} journal={journal} />
+      <details open={expandedDetails || undefined} className="border-t border-zinc-100 dark:border-white/[0.07]">
+        <summary className="cursor-pointer px-5 py-4 text-sm font-bold sm:px-6">대회·이벤트 상세 기록{journal ? ` · 선택 ${journal.entries.length}회` : ""}</summary>
+        <div className="space-y-3 px-5 pb-5 text-sm sm:px-6">
+          <p className={mutedClass}>
+            {competitionLine(season).map(([name, stage], index) => (
+              <span key={name}>{index ? " · " : ""}{name} <strong className="font-bold text-zinc-800 dark:text-zinc-100">{stage}</strong></span>
+            ))}
+          </p>
+          {season.reserve ? <p className={mutedClass}>{reserveText(season.reserve)} · 1군 기회가 적을 때 경기 감각을 쌓았어요</p> : null}
+          {season.trophies.length || season.awards.length ? (
+            <ul className="flex flex-wrap gap-1.5" aria-label="트로피와 수상">
+              {season.trophies.map((honor) => <li key={honor.label} className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-900 dark:bg-amber-300/15 dark:text-amber-200"><TrophyIcon className="size-3.5" />{honor.label}</li>)}
+              {season.awards.map((honor) => <li key={honor.label} className={`rounded-full px-2.5 py-1 text-xs font-bold ${honor.label.endsWith("발롱도르") ? "bg-amber-300 text-amber-950" : "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"}`}>{honor.label}</li>)}
+            </ul>
+          ) : null}
+          {season.ballon > 10 ? <p className={`text-xs ${mutedClass}`}>발롱도르 최종 후보 {season.ballon}위</p> : null}
+          {national.length ? <p>{national.join(" · ")}</p> : null}
+          {season.rival ? <p className={`text-xs ${mutedClass}`}><strong className="font-bold text-rose-600 dark:text-rose-400">라이벌</strong> {rivalLine(season.rival, keeper)}</p> : null}
+          {season.highlights.length ? (
+            <ul className="space-y-1.5">
+              {season.highlights.map((text, i) => <li key={`${i}-${text}`} className="flex gap-2"><span aria-hidden="true" className="mt-2 size-1.5 shrink-0 rounded-full bg-emerald-500" /><span>{text}</span></li>)}
+            </ul>
+          ) : null}
+          {season.event ? <p className={`rounded-xl bg-zinc-50 px-3 py-2 text-xs leading-relaxed dark:bg-white/[0.04] ${mutedClass}`}>{season.event}</p> : null}
+          {journal?.entries.length ? (
+            <div className="border-t border-zinc-100 pt-4 dark:border-white/[0.07]">
+              <h3 className="font-extrabold">내 선택과 그 결과</h3>
+              <ol className="mt-3 space-y-3" aria-label="시즌 선택 기록">
+                {journal.entries.map((entry) => (
+                  <li key={entry.step} data-choice-step={entry.step} className="border-l-2 border-emerald-600/25 pl-3">
+                    <p className={`text-[10px] font-bold ${mutedClass}`}>{entry.kind === "training" ? "프리시즌" : entry.kind === "offseason" ? "시즌 종료 후" : "시즌 중"}</p>
+                    <p className="mt-0.5 text-sm font-extrabold">{entry.title}</p>
+                    <p className={`mt-1 text-xs leading-relaxed ${mutedClass}`}>{entry.body}</p>
+                    <p className="mt-2 text-xs font-bold text-emerald-800 dark:text-emerald-200">선택 · {entry.choice}</p>
+                    <p className={`mt-0.5 text-xs ${mutedClass}`}>{entry.detail}</p>
+                    {entry.outcome ? <p className="mt-1 text-xs leading-relaxed">결과 · {entry.outcome}</p> : null}
+                    {entry.ovrBefore !== entry.ovrAfter ? <p className={`mt-1 text-[11px] ${mutedClass}`}>경기·성장 포함 진행 후 OVR {entry.ovrBefore} → {entry.ovrAfter}</p> : null}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
+        </div>
+      </details>
     </section>
   );
 }

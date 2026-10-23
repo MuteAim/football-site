@@ -192,9 +192,11 @@ try {
   for (let guard = 0; guard < 140; guard++) {
     if (await evaluate(`document.body.innerText.includes('LEGEND SCORE')`)) break;
     await waitFor(`document.querySelector('section[aria-labelledby="career-decision"] button') || document.body.innerText.includes('LEGEND SCORE')`);
-    if (!sawReport && await evaluate(`Boolean(document.getElementById('career-report'))`)) {
+    if (!sawReport && await evaluate(`Boolean(document.getElementById('career-season-result'))`)) {
       sawReport = true;
-      await evaluate(`document.getElementById('career-report').open = true`);
+      assert.ok(await evaluate(`document.getElementById('career-season-result').innerText.includes('시즌 능력치 변화')`), "시즌 종료 능력치가 펼치기 없이 보여야 해요");
+      assert.equal(await evaluate(`document.querySelectorAll('#career-season-result [data-season-stats] dl:last-child > div').length`), 6, "여섯 능력치 표시");
+      await evaluate(`document.getElementById('career-season-result').scrollIntoView({ block: 'start', behavior: 'instant' })`);
       await noOverflow("시즌 리포트 390px");
       await screenshot("career-season.png");
     }
@@ -219,11 +221,35 @@ try {
   assert.equal(hall[0].name, "테스트맨");
   console.log(`은퇴까지 ${picks}번 선택 · 레전드 점수 ${hall[0].score} · ${hall[0].title} · ${hall[0].grade}`);
 
+  // 은퇴 기록집에는 모든 시즌과 실제 선택이 남고, 직접 펼치거나 한꺼번에 볼 수 있어요.
+  const seasonCount = await evaluate(`document.querySelectorAll('[data-journal-season]').length`);
+  assert.ok(seasonCount >= 15, "은퇴 기록집의 시즌 누락");
+  await evaluate(`document.querySelector('[data-journal-season] > summary').click()`);
+  await waitFor(`document.querySelector('#career-journal [data-choice-step]')`);
+  assert.ok(await evaluate(`document.querySelector('#career-journal').innerText.includes('내 선택과 그 결과')`));
+  await clickText("모든 시즌 펼치기");
+  await waitFor(`document.querySelectorAll('#career-journal [data-choice-step]').length === JSON.parse(localStorage.getItem('football-career-v1')).choices.length`);
+  const journalText = await evaluate(`document.getElementById('career-journal').innerText`);
+  assert.ok(journalText.includes("은퇴하기"), "마지막 은퇴 선택 기록");
+  for (const width of [320, 390, 1280]) {
+    await command("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
+    await noOverflow(`상세 기록집 ${width}px`);
+  }
+  await evaluate(`document.getElementById('career-journal').scrollIntoView({ block: 'start', behavior: 'instant' })`);
+  await screenshot("career-journal.png");
+  await clickText("모두 접기");
+  await waitFor(`document.querySelectorAll('[data-journal-season][open]').length === 0`);
+
   // 새로 고쳐도 시드와 선택으로 같은 은퇴 화면이 다시 계산돼요.
   const score = await evaluate(`document.querySelector('.text-6xl').textContent`);
   await command("Page.reload");
   await waitFor(`document.body.innerText.includes('LEGEND SCORE')`);
   assert.equal(await evaluate(`document.querySelector('.text-6xl').textContent`), score);
+  assert.equal(await evaluate(`document.querySelectorAll('[data-journal-season]').length`), seasonCount);
+  await clickText("모든 시즌 펼치기");
+  await waitFor(`document.querySelectorAll('#career-journal [data-choice-step]').length === JSON.parse(localStorage.getItem('football-career-v1')).choices.length`);
+  assert.equal(await evaluate(`document.getElementById('career-journal').innerText`), journalText, "새로고침 후 전체 기록집 복원");
+  await clickText("모두 접기");
   await command("Emulation.setDeviceMetricsOverride", { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false });
   await sleep(150);
   await noOverflow("은퇴 화면 1280px");

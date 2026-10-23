@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { finishCareerRun, getCareerSnapshot, startCareerRun } from "@/lib/cafe/career-actions";
 import { careerDay, type CareerSnapshot } from "@/lib/career/board";
 import { NATIONS, POSITIONS } from "@/lib/career/data";
@@ -16,6 +16,8 @@ import { CareerBoard } from "./CareerBoard";
 import { CareerCreate } from "./CareerCreate";
 import { DecisionCard, HalfSeason, HistoryTable, OvrChart, PlayerCard, RivalCard, ScoreBreakdown, SeasonReport, SimulationCard } from "./CareerParts";
 import { TurnHeader, turnResult, type TurnResult } from "./CareerTurn";
+import { buildCareerJournal } from "@/lib/career/journal";
+import { CareerJournal } from "./CareerJournal";
 import styles from "./career.module.css";
 
 /** 브라우저에 남기는 커리어. 상태 대신 시드와 선택만 저장하고 불러올 때 다시 계산해요. */
@@ -106,6 +108,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   const focusDecision = useRef(false);
   const gameRoot = useRef<HTMLDivElement>(null);
   const ranked = snapshot.member && snapshot.available;
+  const journal = useMemo(() => stored ? buildCareerJournal(stored) : [], [stored]);
 
   const restore = useCallback((value: Stored) => {
     const state = replayCareer(value);
@@ -310,6 +313,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
 
   const displayed = busy?.previous ?? career;
   const last = displayed?.history.at(-1);
+  const lastJournal = last ? journal.find((entry) => entry.season.year === last.year) : undefined;
   const summary = displayed?.phase === "retired" ? summarizeCareer(displayed) : null;
 
   return (
@@ -337,16 +341,19 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
               <div className="relative" aria-busy={!!busy}>
                 <div inert={!!busy} aria-hidden={busy ? true : undefined} className={`space-y-3 ${busy ? "opacity-25" : ""}`}>
                   <TurnHeader state={displayed} result={busy ? busy.result : result} quick={quick} onQuick={changeQuick} />
+                  {displayed.phase === "offseason" && last ? (
+                    <div id="career-season-result"><SeasonReport key={last.year} season={last} previous={displayed.history.at(-2)} journal={lastJournal} /></div>
+                  ) : null}
                   {displayed.pending ? <DecisionCard key={displayed.steps} decision={displayed.pending} onPick={pick} disabled={!!busy} /> : null}
                   {displayed.phase === "event" ? <HalfSeason state={displayed} /> : null}
-                  {last ? (
+                  {last && displayed.phase !== "offseason" ? (
                     <details key={last.year} id="career-report" className={`${cardClass} group/report`}>
                       <summary className="flex cursor-pointer items-center justify-between gap-3 px-5 py-4 text-sm font-bold">
                         {seasonLabel(last.year)} 시즌 리포트
                         <span className={`shrink-0 text-xs ${mutedClass} group-open/report:hidden`}>펼치기</span>
                         <span className={`hidden shrink-0 text-xs ${mutedClass} group-open/report:inline`}>접기</span>
                       </summary>
-                      <SeasonReport season={last} />
+                      <SeasonReport season={last} previous={displayed.history.at(-2)} journal={lastJournal} />
                     </details>
                   ) : null}
                   <RivalCard state={displayed} />
@@ -354,7 +361,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
                 {busy ? <div className="absolute inset-0 flex flex-col justify-center p-2"><div className="sticky top-24 bottom-4"><SimulationCard {...busy} /></div></div> : null}
               </div>
             )}
-            <HistoryTable history={displayed.history} />
+            {summary ? <CareerJournal seasons={journal} /> : <HistoryTable history={displayed.history} />}
             {!summary ? (
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => void copyCode()} className={secondaryButtonClass}>커리어 코드 복사</button>
@@ -459,6 +466,7 @@ function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked
         <p className="mt-5 text-[11px] font-bold tracking-widest text-lime-200/70">LEGEND SCORE</p>
         <p className="mt-1 text-6xl font-black tracking-tighter text-[#d4f77d] tabular-nums">{summary.score.toLocaleString("ko-KR")}<span className="ml-2 text-lg tracking-normal">점</span></p>
         <p className="mt-2 text-sm font-bold">{summary.grade}</p>
+        <a href="#career-journal" className="mt-4 inline-flex min-h-11 items-center rounded-xl border border-white/25 px-4 text-sm font-bold hover:bg-white/10">시즌별 기록·이벤트 보기 ↓</a>
         {challenge ? (
           <p className="mt-2 text-sm text-lime-100">
             {summary.score > challenge.score ? "친구의 기록을 넘어섰어요!" : summary.score === challenge.score ? "친구와 동점! 다음엔 역전을 노려 보세요." : `친구 기록까지 ${(challenge.score - summary.score + 1).toLocaleString("ko-KR")}점!`}

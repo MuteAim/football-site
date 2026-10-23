@@ -24,6 +24,7 @@ const load = async (path) => import(await moduleUrl(resolve(root, path)));
 const E = await load("src/lib/career/engine.ts");
 const D = await load("src/lib/career/data.ts");
 const B = await load("src/lib/career/board.ts");
+const J = await load("src/lib/career/journal.ts");
 
 /** 테스트용 결정적 난수. 같은 순서로 같은 커리어를 만들어요. */
 function lcg(seed) {
@@ -44,6 +45,52 @@ function play(seed, setup, pickChoice) {
 
 const baseSetup = { name: "손흥민2", nation: "KOR", league: "KOR", pos: "WG", pick: 0 };
 
+test("기록집은 기존 저장에서 성적·능력치·모든 선택을 복원하고 은퇴와 이적도 해당 시즌에 남긴다", () => {
+  let moments = 0, transfers = 0;
+  for (const pos of ["WG", "GK"]) for (let seed = 1; seed <= 24; seed++) {
+    const setup = { ...baseSetup, pos, reroll: seed % 3 };
+    const save = { v: E.CAREER_VERSION, seed, startYear: 2026, setup, choices: [] };
+    let state = E.createCareer(seed, 2026, setup);
+    const expected = [];
+    let beforeAttrs;
+    const momentResults = [];
+    while (state.pending) {
+      if (state.phase === "training") beforeAttrs = [...state.attrs];
+      const index = (save.choices.length + seed) % state.pending.options.length;
+      const decision = state.pending;
+      const next = E.choose(state, index);
+      save.choices.push(index);
+      if (next.history.length > state.history.length) expected.push({ season: next.history.at(-1), before: beforeAttrs, after: [...next.attrs] });
+      if (decision.id === "moment") { moments++; momentResults.push([next.steps, next.lastMoment]); }
+      if (decision.kind === "offseason" && next.club !== state.club) transfers++;
+      state = next;
+    }
+    const snapshot = JSON.stringify(save);
+    const journal = J.buildCareerJournal(save);
+    assert.equal(JSON.stringify(save), snapshot, "저장 입력을 변경하면 안 돼요");
+    assert.deepEqual(journal.map((entry) => entry.season), state.history);
+    for (const [index, entry] of journal.entries()) {
+      assert.deepEqual(entry.attrsBefore, expected[index].before);
+      assert.deepEqual(entry.attrsAfter, expected[index].after);
+      assert.equal(entry.entries[0].kind, "training");
+      assert.ok(entry.entries.every((event) => event.choice && event.body));
+    }
+    const entries = journal.flatMap((entry) => entry.entries);
+    assert.deepEqual(entries.map((entry) => entry.step), save.choices.map((_, i) => i + 1), "선택이 누락되거나 중복되면 안 돼요");
+    for (const [step, result] of momentResults) assert.equal(entries.find((entry) => entry.step === step).outcome, result);
+    assert.equal(entries.at(-1).choice, "은퇴하기");
+    assert.ok(entries.at(-1).outcome);
+    assert.deepEqual(J.buildCareerJournal(JSON.parse(snapshot)), journal, "새로고침·코드 가져오기도 같은 기록이어야 해요");
+    // 다음 시즌 훈련을 이미 시작했어도 지난 시즌의 능력치로 돌아볼 수 있어요.
+    const cutoff = journal[1].entries[0].step;
+    const partial = J.buildCareerJournal({ ...save, choices: save.choices.slice(0, cutoff) });
+    assert.deepEqual(partial[0], journal[0]);
+  }
+  assert.ok(moments > 0, "결승 선택 결과 복원도 검사해야 해요");
+  assert.ok(transfers > 0, "이적 기록도 검사해야 해요");
+  assert.throws(() => J.buildCareerJournal({ v: -1, seed: 1, startYear: 2026, setup: baseSetup, choices: [] }));
+});
+
 test("같은 시드와 선택이면 커리어가 똑같이 다시 계산되고, 고르기는 원래 상태를 바꾸지 않는다", () => {
   const { state, choices } = play(20261023, baseSetup, (s, step) => (step * 7 + 3) % s.pending.options.length);
   const replayed = E.replayCareer({ v: E.CAREER_VERSION, seed: 20261023, startYear: 2026, setup: baseSetup, choices });
@@ -54,6 +101,23 @@ test("같은 시드와 선택이면 커리어가 똑같이 다시 계산되고, 
   const snapshot = JSON.stringify(start);
   E.choose(start, 0);
   assert.equal(JSON.stringify(start), snapshot);
+});
+
+test("은퇴하는 순간 받은 영구 결번도 마지막 시즌 기록집에 남는다", () => {
+  const setup = { ...baseSetup, nation: "ENG", league: "ENG", pick: 2 };
+  for (let seed = 1; seed <= 60; seed++) {
+    const { state, choices } = play(seed, setup, (s) => {
+      const stay = s.pending.options.findIndex((option) => option.value === "stay" || option.value === "renew");
+      return stay >= 0 ? stay : 0;
+    });
+    const honor = state.history.at(-1).trophies.find((entry) => entry.label.endsWith("영구 결번"));
+    if (!honor) continue;
+    const journal = J.buildCareerJournal({ v: E.CAREER_VERSION, seed, startYear: 2026, setup, choices });
+    assert.ok(journal.at(-1).season.trophies.some((entry) => entry.label === honor.label));
+    assert.deepEqual(journal.map((entry) => entry.season), state.history);
+    return;
+  }
+  assert.fail("영구 결번 커리어를 검사하지 못했어요");
 });
 
 test("후보 선수는 시드마다 고정이고, 시작 능력치와 스카우트 별점이 범위 안이다", () => {
