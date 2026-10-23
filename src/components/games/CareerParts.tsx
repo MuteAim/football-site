@@ -167,15 +167,28 @@ const TONE_CLASS: Record<Choice["tone"], string> = {
 };
 const KIND_LABEL: Record<Decision["kind"], string> = { training: "PRE-SEASON · 훈련 선택", event: "MID-SEASON · 시즌 중 사건", offseason: "TRANSFER WINDOW · 이적 시장" };
 
+/** 결승의 결정적 순간은 금색 테두리로 다른 결정과 구분해요. */
+const momentCardClass = "overflow-hidden rounded-2xl bg-amber-50 ring-2 ring-amber-400/70 dark:bg-amber-300/[0.06] dark:ring-amber-300/40";
+
 export function DecisionCard({ decision, onPick, disabled }: { decision: Decision; onPick: (index: number, time: number, keyboard: boolean) => void; disabled: boolean }) {
   const list = decision.kind === "offseason";
+  const moment = decision.id === "moment";
+  // 결정적 순간의 스카우팅 리포트는 본문과 떼어 눈에 띄게 보여 줘요.
+  const [story, report] = moment ? decision.body.split(" 스카우팅 리포트: ") : [decision.body];
   // 남는 것 말고는 고를 게 없으면 결정 대신 다음 시즌으로 넘어가는 버튼으로 보여 줘요.
   const only = list && decision.options.length === 1 && decision.options[0].value === "stay" ? decision.options[0] : null;
   return (
-    <section className={`${cardClass} p-5 sm:p-6`} aria-labelledby="career-decision">
-      <p className="sport-eyebrow text-emerald-700 dark:text-emerald-400">{KIND_LABEL[decision.kind]}</p>
+    <section className={`${moment ? momentCardClass : cardClass} p-5 sm:p-6`} aria-labelledby="career-decision">
+      <p className={`sport-eyebrow flex items-center gap-1.5 ${moment ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-400"}`}>
+        {moment ? <><TrophyIcon className="size-3.5" />BIG MOMENT · 결정적 순간</> : KIND_LABEL[decision.kind]}
+      </p>
       <h2 id="career-decision" tabIndex={-1} className="mt-1 text-xl font-black tracking-tight outline-none">{decision.title}</h2>
-      <p className={`mt-2 text-sm leading-relaxed ${mutedClass}`}>{decision.body}</p>
+      <p className={`mt-2 text-sm leading-relaxed ${mutedClass}`}>{story}</p>
+      {report ? (
+        <p className="mt-3 rounded-xl bg-white/80 px-3 py-2 text-[13px] leading-relaxed ring-1 ring-amber-400/40 dark:bg-black/20 dark:ring-amber-300/25">
+          <strong className="font-black text-amber-800 dark:text-amber-200">스카우팅 리포트</strong> · {report}
+        </p>
+      ) : null}
       {only ? (
         <>
           <button type="button" disabled={disabled} onClick={(event) => onPick(0, event.timeStamp, event.detail === 0)}
@@ -203,6 +216,49 @@ export function DecisionCard({ decision, onPick, disabled }: { decision: Decisio
   );
 }
 
+/** 라이벌 카드. 지금 소속과 통산 기록, 나와의 맞대결 전적, 지난 시즌 성적을 보여 줘요. */
+export function RivalCard({ state }: { state: CareerState }) {
+  const rv = state.rival;
+  const last = state.history.at(-1)?.rival ?? null;
+  const gap = overall(state.attrs, state.pos) - rv.ovr;
+  const retired = rv.retiredAge !== null;
+  return (
+    <section className={`${cardClass} px-4 py-3.5 sm:px-5`} aria-label="라이벌">
+      <div className="flex items-center gap-3">
+        <span className="flex size-11 shrink-0 flex-col items-center justify-center rounded-xl bg-zinc-900 text-white dark:bg-white/10">
+          <span className="sr-only">라이벌 오버롤 </span>
+          <span className="text-lg leading-none font-black tabular-nums">{rv.ovr}</span>
+          <span aria-hidden="true" className="text-[8px] font-bold text-zinc-300">OVR</span>
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="sport-eyebrow text-rose-600 dark:text-rose-400">RIVAL · 평생의 라이벌</p>
+          <p className="truncate text-sm font-extrabold">{rv.name} <span className={`text-xs font-semibold ${mutedClass}`}>{NATIONS[rv.nation].name} · {POSITIONS[rv.pos].name}</span></p>
+          <p className={`truncate text-xs ${mutedClass}`}>
+            {retired ? `${rv.retiredAge}세에 은퇴` : clubName(rv.club)} · {rv.pos === "GK" ? `트로피 ${rv.trophies}` : `통산 ${rv.goals}골 · 트로피 ${rv.trophies}`}{rv.ballonDor ? ` · 발롱도르 ${rv.ballonDor}회` : ""}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className={`text-[10px] ${mutedClass}`}>맞대결</p>
+          <p className="text-sm font-black tabular-nums">{rv.h2h.won}승 {rv.h2h.drawn}무 {rv.h2h.lost}패</p>
+          {!retired ? <p className={`text-[10px] font-bold ${gap > 0 ? "text-emerald-600 dark:text-emerald-400" : gap < 0 ? "text-rose-500" : mutedClass}`}>{gap > 0 ? `오버롤 ${gap} 앞섬` : gap < 0 ? `오버롤 ${-gap} 뒤짐` : "오버롤 동률"}</p> : null}
+        </div>
+      </div>
+      {last ? <p className={`mt-2 border-t border-zinc-100 pt-2 text-xs dark:border-white/[0.07] ${mutedClass}`}>지난 시즌 · {rivalLine(last, rv.pos === "GK")}</p> : null}
+    </section>
+  );
+}
+
+function rivalLine(season: NonNullable<SeasonRecord["rival"]>, keeper: boolean): string {
+  return [
+    `${clubName(season.club)} ${season.apps}경기${keeper ? "" : ` ${season.goals}골 ${season.assists}도움`}`,
+    ...season.trophies,
+    season.ballon ? `발롱도르 ${season.ballon === 1 ? "수상" : `${season.ballon}위`}` : "",
+    season.meeting ? `맞대결 ${season.meeting}` : "",
+    season.moved ?? "",
+    season.retired ? "은퇴" : "",
+  ].filter(Boolean).join(" · ");
+}
+
 function reserveText(reserve: { apps: number; goals: number; assists: number }): string {
   return `2군 ${reserve.apps}경기${reserve.goals || reserve.assists ? ` ${reserve.goals}골 ${reserve.assists}도움` : ""}`;
 }
@@ -214,7 +270,7 @@ export function HalfSeason({ state }: { state: CareerState }) {
   const rating = draft.apps ? (draft.ratingSum / draft.apps / 10).toFixed(1) : "-";
   return (
     <p id="career-half" className={`${cardClass} flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm`}>
-      <span className="font-bold">{seasonLabel(draft.year)} 전반기</span>
+      <span className="font-bold">{seasonLabel(draft.year)} {state.pending?.id === "moment" ? "결승 전까지" : "전반기"}</span>
       <span className={mutedClass}>
         {draft.apps}경기 · {state.pos === "GK" ? `무실점 ${draft.cleanSheets}` : `${draft.goals}골 ${draft.assists}도움`} · 평점 {rating} · {roleName(draft.role, draft.age)}
         {draft.reserveApps ? ` · ${reserveText({ apps: draft.reserveApps, goals: draft.reserveGoals, assists: draft.reserveAssists })}` : ""}
@@ -278,6 +334,7 @@ export function SeasonReport({ season }: { season: SeasonRecord }) {
         ) : null}
         {season.ballon > 10 ? <p className={`text-xs ${mutedClass}`}>발롱도르 최종 후보 {season.ballon}위</p> : null}
         {national.length ? <p>{national.join(" · ")}</p> : null}
+        {season.rival ? <p className={`text-xs ${mutedClass}`}><strong className="font-bold text-rose-600 dark:text-rose-400">라이벌</strong> {rivalLine(season.rival, keeper)}</p> : null}
         {season.highlights.length ? (
           <ul className="space-y-1.5">
             {season.highlights.map((text, i) => <li key={`${i}-${text}`} className="flex gap-2"><span aria-hidden="true" className="mt-2 size-1.5 shrink-0 rounded-full bg-emerald-500" /><span>{text}</span></li>)}
@@ -441,13 +498,13 @@ export function HistoryTable({ history }: { history: SeasonRecord[] }) {
 }
 
 const BREAKDOWN_LABELS: [keyof LegacyBreakdown, string][] = [
-  ["trophies", "트로피"], ["awards", "개인상"], ["ballon", "발롱도르"], ["records", "통산 기록"], ["national", "대표팀"], ["peak", "최고 오버롤"],
+  ["trophies", "트로피"], ["awards", "개인상"], ["ballon", "발롱도르"], ["records", "통산 기록"], ["national", "대표팀"], ["peak", "최고 오버롤"], ["rival", "라이벌"],
 ];
 
 /** 레전드 점수가 어디서 왔는지 보여 줘요. 다 더하면 레전드 점수예요. */
 export function ScoreBreakdown({ parts }: { parts: LegacyBreakdown }) {
   return (
-    <dl className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+    <dl className="grid grid-cols-4 gap-2 sm:grid-cols-7">
       {BREAKDOWN_LABELS.map(([key, label]) => (
         <div key={key} className="rounded-xl bg-white/[0.05] px-2 py-2.5 text-center">
           <dt className="text-[10px] text-white/55">{label}</dt>

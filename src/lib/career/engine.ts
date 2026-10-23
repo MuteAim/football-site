@@ -2,14 +2,14 @@
 // 커리어는 시드와 선택 번호만으로 처음부터 다시 계산돼요. 저장도, 순위 검증도 이 성질을 이용해요.
 // 그래서 브라우저마다 결과가 달라질 수 있는 Math.random, 날짜, Math.exp 같은 실수 함수를 쓰지 않고
 // 정수 연산만 써요. 규칙을 바꾸면 CAREER_VERSION을 올리고 npm run test:career를 실행해 주세요.
-import { directionParticle, politeCopula } from "../korean";
+import { directionParticle, objectParticle, politeCopula, withParticle } from "../korean";
 import {
-  ATTR_TRAININGS, CLUBS, CONTINENTALS, INJURIES, KEEPER_ATTRS, LEAGUES, MILITARY_CLUB, NATIONS, OUTFIELD_ATTRS,
-  POSITION_MOVES, POSITIONS, SPECIAL_TRAININGS, TOURNAMENTS, tournamentIn,
+  ATTR_TRAININGS, CLUBS, CONTINENTALS, INJURIES, KEEPER_ATTRS, LEAGUES, MILITARY_CLUB, NATION_ORDER, NATIONS, OUTFIELD_ATTRS,
+  POSITION_MOVES, POSITIONS, RIVAL_NAMES, SPECIAL_TRAININGS, TOURNAMENTS, tournamentIn,
   type ClubInfo, type LeagueCode, type NationCode, type Pos,
 } from "./data";
 
-export const CAREER_VERSION = 2;
+export const CAREER_VERSION = 3;
 
 export const CAREER_RULES = {
   startAge: 17,
@@ -72,8 +72,45 @@ export type SeasonRecord = {
   caps: number; intlGoals: number; tournaments: string[];
   /** 1군 기회가 적은 어린 선수가 뛴 2군 경기. 통산 기록과 점수에는 들어가지 않아요. */
   reserve: { apps: number; goals: number; assists: number } | null;
+  /** 같은 시즌 라이벌의 성적. 라이벌이 은퇴한 뒤에는 null이에요. */
+  rival: RivalSeason | null;
   highlights: string[]; missed: number; event: string | null;
 };
+
+/** 커리어 내내 함께 성장하는 가상의 라이벌. 같은 나이·포지션이고 자기만의 난수로 움직여요. */
+export type Rival = {
+  name: string; nation: NationCode; pos: Pos;
+  ovr: number; potential: number; peakAge: number; club: string; rng: number;
+  retiredAge: number | null;
+  apps: number; goals: number; assists: number; trophies: number; ballonDor: number; best: number;
+  /** 나와의 맞대결 전적 */
+  h2h: { won: number; drawn: number; lost: number };
+};
+export type RivalSeason = {
+  club: string; ovr: number; apps: number; goals: number; assists: number; trophies: string[];
+  /** 발롱도르 순위. 30위 밖이면 0이에요. */
+  ballon: number;
+  /** 이번 시즌 맞대결 결과(나 기준). 만나지 않았으면 null이에요. */
+  meeting: string | null;
+  moved: string | null; retired: boolean;
+};
+
+/** 결승에서 승부가 내 선택에 걸린 순간. 고른 결과는 다른 선택처럼 저장돼서 다시 계산돼요. */
+type Moment = {
+  comp: "cup" | "cont" | "nt";
+  /** 대회 이름. 예: "FA컵", "챔피언스리그", "2030 월드컵" */
+  name: string;
+  opponent: string;
+  kind: "penalty" | "save" | "freekick";
+  /** 상대의 실제 성향과, 리포트로 보여 주는 성향(가끔 틀려요) */
+  style: string; hint: string;
+  /** 내 선택이 통하지 않았을 때 그래도 이길 확률(천분율). 마지막 키커는 0이에요. */
+  base: number;
+};
+
+/** 대표팀 대회를 결승 직전까지 치른 상태. 결정적 순간이 끝나면 마저 마무리해요. */
+type TournamentRun = { code: keyof typeof TOURNAMENTS; year: number; key: boolean; caps: number; goals: number; reached: number; finalScored: number };
+type NationalResult = { called: boolean; caps: number; goals: number; tournaments: string[]; trophies: Honor[]; awards: Honor[]; points: number };
 
 type Draft = {
   year: number; age: number; club: string; loan: boolean; military: boolean; pos: Pos;
@@ -87,6 +124,10 @@ type Draft = {
   cupAlive: boolean; cup: number; contOn: boolean; contAlive: boolean; cont: number;
   phaseGoals: number; tie: { goals: number; assists: number; played: boolean };
   highlights: string[]; hatTricks: number; event: string | null; extraCaps: number; olympics: boolean; youthCup: boolean;
+  /** 결정적 순간을 기다리는 중이면 그 순간, 대표팀 대회 결승에서 멈췄다면 그 대회 진행 상태예요. */
+  moment: Moment | null; tour: TournamentRun | null;
+  /** 시즌이 끝날 때 대표팀 성적. 결정적 순간이 대표팀 결승에서 나올 수 있어서 시즌 마무리 전에 따로 계산해요. */
+  nt: NationalResult | null;
 };
 
 export type CareerState = {
@@ -107,6 +148,9 @@ export type CareerState = {
   /** 다음 시즌 하이라이트 맨 앞에 붙일 이적·복귀 소식 */
   notes: string[];
   draft: Draft | null; history: SeasonRecord[];
+  rival: Rival;
+  /** 방금 끝난 결정적 순간의 결과 한 줄. 다음 선택 때 지워요. */
+  lastMoment: string | null;
   phase: "training" | "event" | "offseason" | "retired";
   pending: Decision | null;
   ending: string | null;
@@ -384,11 +428,30 @@ export function createCareer(seed: number, startYear: number, setup: CareerSetup
     continentalNext: qualifiesByRating(candidate.club), military: setup.nation === "KOR" ? "pending" : "none",
     apps: 0, goals: 0, caps: 0, intlGoals: 0, peak: candidate.ovr, peakAge: CAREER_RULES.startAge,
     flags: [], recent: [], notes: [`${clubName(candidate.club)} 유스 출신으로 프로 계약`],
-    draft: null, history: [], phase: "training", pending: null, ending: null,
+    draft: null, history: [], rival: createRival(seed, setup, candidate.club), lastMoment: null, phase: "training", pending: null, ending: null,
   };
+  s.notes.push(`평생의 라이벌 등장 · ${s.rival.name}(${NATIONS[s.rival.nation].name}) · ${clubName(s.rival.club)} 유스`);
   for (let i = 0; i < 4; i++) next(s);
   s.pending = trainingDecision(s);
   return s;
+}
+
+/** 같은 나이·포지션의 라이벌을 만들어요. 재능이 뛰어난 편이라 쉽게 따라잡히지 않아요. */
+function createRival(seed: number, setup: CareerSetup, club: string): Rival {
+  const r: Rng = { rng: (seed ^ hash(`${setup.nation}|${setup.league}|${setup.pos}|rival`)) >>> 0 };
+  for (let i = 0; i < 4; i++) next(r);
+  const nation = pick(r, NATION_ORDER);
+  const [given, family] = RIVAL_NAMES[nation];
+  const first = pick(r, given);
+  const last = pick(r, family);
+  const name = nation === "KOR" ? `${last}${first}` : nation === "JPN" ? `${last} ${first}` : `${first} ${last}`;
+  const clubs = clubsIn(NATIONS[nation].home).filter((item) => item.id !== MILITARY_CLUB && item.id !== club);
+  const ovr = 49 + int(r, 6);
+  return {
+    name, nation, pos: setup.pos, ovr, potential: 81 + int(r, 7) + int(r, 7), peakAge: 26 + int(r, 3) + (setup.pos === "GK" ? 2 : 0),
+    club: pick(r, clubs).id, rng: r.rng, retiredAge: null,
+    apps: 0, goals: 0, assists: 0, trophies: 0, ballonDor: 0, best: ovr, h2h: { won: 0, drawn: 0, lost: 0 },
+  };
 }
 
 // ---------- 프리시즌 훈련 ----------
@@ -506,6 +569,7 @@ function startSeason(s: CareerState, before: number[], ovrBefore: number, extras
     cupAlive: true, cup: 1, contOn: s.continentalNext && !!league.continental && !military, contAlive: true, cont: 0,
     phaseGoals: 0, tie: { goals: 0, assists: 0, played: false },
     highlights: [...s.notes], hatTricks: 0, event: null, extraCaps: 0, olympics: false, youthCup: false,
+    moment: null, tour: null, nt: null,
   };
   if (d.contOn) d.cont = 1;
   s.notes = [];
@@ -638,11 +702,129 @@ const REGION_LEAGUES = {
   america: ["BRA", "ARG"],
 } satisfies Record<string, LeagueCode[]>;
 
-function resolveTie(s: CareerState, d: Draft, oppRating: number, final: boolean): boolean {
+/** 토너먼트 경기를 이길 확률(천분율). 내 골·도움과 큰 경기 체질이 보태져요. */
+function finalOdds(s: CareerState, d: Draft, oppRating: number, final = true): number {
   const strength = teamStrength(s, d);
   let p = 500 + (strength - oppRating) * 35;
   if (d.tie.played) p += d.tie.goals * 110 + d.tie.assists * 50 + (final ? (s.traits.clutch + d.clutch) * 40 : 0);
-  return chance(s, clamp(p, 60, 940));
+  return clamp(p, 60, 940);
+}
+
+function resolveTie(s: CareerState, d: Draft, oppRating: number, final: boolean): boolean {
+  return chance(s, finalOdds(s, d, oppRating, final));
+}
+
+// ---------- 결정적 순간 ----------
+
+const SIDES = ["L", "C", "R"] as const;
+const SIDE_NAMES: Record<string, string> = { L: "왼쪽", C: "가운데", R: "오른쪽" };
+
+/**
+ * 결승에 뛰었다면 열에 넷쯤은 승부가 내 발끝에 걸려요. 그때는 시즌을 멈추고 결정을 기다려요.
+ * 순간이 시작되면 true예요. 결과는 resolveMoment가 정해요.
+ */
+function startMoment(s: CareerState, d: Draft, comp: Moment["comp"], name: string, opponent: string, odds: number, played = d.tie.played): boolean {
+  if (!played || !chance(s, 420)) return false;
+  const shooter = s.attrs[1] >= 72 || d.freekick;
+  const kind: Moment["kind"] = s.pos === "GK" ? "save" : shooter && chance(s, 350) ? "freekick" : "penalty";
+  const styles = kind === "penalty" ? ["L", "R", "W"] : kind === "save" ? ["L", "R", "P"] : ["curl", "low", "cross"];
+  const style = pick(s, styles);
+  // 스카우팅 리포트는 다섯 번에 한 번쯤 틀려요.
+  const hint = chance(s, 800) ? style : pick(s, styles.filter((item) => item !== style));
+  const base = kind === "penalty" ? 0 : kind === "save" ? 450 : Math.max(60, odds - 120);
+  d.moment = { comp, name, opponent, kind, style, hint, base };
+  s.pending = momentDecision(d.moment);
+  s.phase = "event";
+  return true;
+}
+
+const MOMENT_HINTS: Record<Moment["kind"], Record<string, string>> = {
+  penalty: {
+    L: "상대 키퍼는 키커가 보기에 왼쪽으로 먼저 몸을 날리는 버릇이 있어요.",
+    R: "상대 키퍼는 키커가 보기에 오른쪽으로 먼저 몸을 날리는 버릇이 있어요.",
+    W: "상대 키퍼는 끝까지 기다렸다가 반응하는 편이에요.",
+  },
+  save: {
+    L: "상대 키커는 당신의 왼쪽 구석을 즐겨 노려요.",
+    R: "상대 키커는 당신의 오른쪽 구석을 즐겨 노려요.",
+    P: "상대 키커는 가운데로 강하게 차는 편이에요.",
+  },
+  freekick: {
+    curl: "상대 골키퍼가 수비벽 쪽으로 치우쳐 서 있어요.",
+    low: "상대 수비벽은 높이 뛰어오르는 버릇이 있어요.",
+    cross: "상대 수비가 공중볼에 약해요.",
+  },
+};
+
+function momentDecision(m: Moment): Decision {
+  const report = `스카우팅 리포트: ${MOMENT_HINTS[m.kind][m.hint]}`;
+  if (m.kind === "penalty") {
+    return {
+      kind: "event", id: "moment", title: `${m.name} 결승 · 마지막 키커`,
+      body: `${m.opponent}전 승부차기, 마지막 키커로 당신이 나섰어요. 넣으면 우승이에요. ${report}`,
+      options: [
+        option("왼쪽 구석으로", "골문 구석은 막기 어렵지만 빗나갈 수 있어요", "neutral", "kick:L"),
+        option("가운데로 강하게", "키퍼가 먼저 움직이면 거의 들어가요", "neutral", "kick:C"),
+        option("오른쪽 구석으로", "골문 구석은 막기 어렵지만 빗나갈 수 있어요", "neutral", "kick:R"),
+      ],
+    };
+  }
+  if (m.kind === "save") {
+    return {
+      kind: "event", id: "moment", title: `${m.name} 결승 · 마지막 선방`,
+      body: `${m.opponent}전 승부차기, 상대의 마지막 키커가 섰어요. 막으면 바로 우승이에요. ${report}`,
+      options: [
+        option("왼쪽으로 몸을 날린다", "맞히면 막을 수 있어요", "neutral", "dive:L"),
+        option("끝까지 버틴다", "가운데로 오면 거의 막아요", "neutral", "dive:C"),
+        option("오른쪽으로 몸을 날린다", "맞히면 막을 수 있어요", "neutral", "dive:R"),
+      ],
+    };
+  }
+  return {
+    kind: "event", id: "moment", title: `${m.name} 결승 · 추가시간 프리킥`,
+    body: `${m.opponent}전 동점인 추가시간, 페널티 박스 바로 앞에서 프리킥을 얻었어요. 공 앞에 당신이 섰어요. ${report}`,
+    options: [
+      option("먼 구석으로 감아 차기", "슈팅이 정확할수록 좋아요", "neutral", "fk:curl"),
+      option("수비벽 아래로 깔아 차기", "벽이 뛰어오르는 팀에 잘 통해요", "neutral", "fk:low"),
+      option("동료 머리를 노린 크로스", "패스가 좋을수록 좋아요", "neutral", "fk:cross"),
+    ],
+  };
+}
+
+/** 고른 방향으로 결정적 순간을 마무리해요. 이기면 true예요. */
+function resolveMoment(s: CareerState, d: Draft, m: Moment, value: string): { won: boolean; text: string } {
+  const clutch = (s.traits.clutch + d.clutch) * 30;
+  if (m.kind === "penalty") {
+    const side = value.slice(5);
+    if (!value.startsWith("kick:") || !SIDES.includes(side as (typeof SIDES)[number])) throw new CareerError("결정을 다시 골라 주세요.");
+    const dive = SIDES[weightedIndex(s, m.style === "W" ? [25, 50, 25] : m.style === "L" ? [75, 10, 15] : [15, 10, 75])];
+    const where = `${SIDE_NAMES[side]}${directionParticle(SIDE_NAMES[side])}`;
+    const onTarget = side === "C" ? 960 : clamp(880 + (s.attrs[1] - 70) * 5 + clutch, 650, 985);
+    if (!chance(s, onTarget)) return { won: false, text: `${where} 찬 공이 골대를 벗어났어요` };
+    const saved = chance(s, dive === side ? (side === "C" ? 950 : 700) : side === "C" ? 150 : 0);
+    if (saved) return { won: false, text: `${where} 찼지만 키퍼에게 막혔어요` };
+    return { won: true, text: `${where} 침착하게 성공시켰어요` };
+  }
+  if (m.kind === "save") {
+    const side = value.slice(5);
+    if (!value.startsWith("dive:") || !SIDES.includes(side as (typeof SIDES)[number])) throw new CareerError("결정을 다시 골라 주세요.");
+    const shot = SIDES[weightedIndex(s, m.style === "P" ? [27, 45, 28] : m.style === "L" ? [60, 15, 25] : [25, 15, 60])];
+    if (!chance(s, 920)) return { won: true, text: "상대 키커의 슈팅이 골대를 벗어났어요" };
+    if (shot === side && chance(s, side === "C" ? 850 : clamp(550 + (s.attrs[0] - 70) * 6 + clutch, 350, 820))) {
+      return { won: true, text: `${SIDE_NAMES[side]}${objectParticle(SIDE_NAMES[side])} 읽어 낸 선방으로 승부를 끝냈어요` };
+    }
+    const won = chance(s, m.base);
+    return { won, text: won ? "막지는 못했지만 동료들이 승부차기를 마무리했어요" : "선방에 실패했고 승부차기에서 졌어요" };
+  }
+  const [, choice] = value.split(":");
+  if (!value.startsWith("fk:") || !["curl", "low", "cross"].includes(choice)) throw new CareerError("결정을 다시 골라 주세요.");
+  const skill = choice === "cross" ? s.attrs[2] : s.attrs[1];
+  const p = (choice === m.style ? 420 : 200) + (skill - 70) * 6 + (d.freekick ? 60 : 0) + clutch;
+  if (chance(s, clamp(p, 80, 720))) {
+    return { won: true, text: choice === "cross" ? "크로스가 동료 머리에 맞으며 결승골이 터졌어요" : "프리킥이 그대로 그물을 흔들며 결승골이 됐어요" };
+  }
+  const won = chance(s, m.base);
+  return { won, text: won ? "프리킥은 막혔지만 연장 끝에 이겼어요" : "프리킥이 막히고 끝내 졌어요" };
 }
 
 function cupTie(s: CareerState, d: Draft, round: number) {
@@ -654,6 +836,7 @@ function cupTie(s: CareerState, d: Draft, round: number) {
   d.tie = { goals: 0, assists: 0, played: false };
   const result = playMatch(s, d, "cup", opponent.name, opponent.rating, final);
   d.tie = { goals: result.goals, assists: result.assists, played: result.played };
+  if (final && startMoment(s, d, "cup", league.cup, opponent.name, finalOdds(s, d, target))) return;
   if (resolveTie(s, d, target, final || round === 3)) {
     d.cup = final ? 6 : round + 2;
     if (final && result.goals) note(d, `${league.cup} 결승 ${result.goals}골 · 우승을 이끌다`);
@@ -688,6 +871,7 @@ function continentalMatch(s: CareerState, d: Draft, round: number, leg: number, 
   d.tie.assists += result.assists;
   d.tie.played ||= result.played;
   if (leg < legs - 1) return;
+  if (final && startMoment(s, d, "cont", comp.name, opponent.name, finalOdds(s, d, oppRating))) return;
   if (resolveTie(s, d, oppRating, final || round === 2)) {
     d.cont = final ? 6 : round + 3;
     if (final && d.tie.goals) note(d, `${comp.name} 결승 ${d.tie.goals}골 · 정상에 서다`);
@@ -706,18 +890,21 @@ function playMatchday(s: CareerState, d: Draft) {
   playMatch(s, d, "league", opponent.name, opponent.rating);
   const cupRound = CUP_AT.findIndex((percent) => at(d, percent) === d.t);
   if (cupRound >= 0 && d.cupAlive) cupTie(s, d, cupRound);
-  if (!d.contOn || !d.contAlive) return;
+  // 결정적 순간이 시작되면 그날 남은 경기는 결정 뒤로 미뤄요.
+  if (s.pending || !d.contOn || !d.contAlive) return;
   const phase = CONT_PHASE_AT.findIndex((percent) => at(d, percent) === d.t);
   if (phase >= 0 && d.cont === 1) continentalMatch(s, d, -1, 0, 1, phase);
   CONT_KO_AT.forEach((legs, round) => legs.forEach((percent, leg) => {
-    if (d.contAlive && at(d, percent) === d.t && d.cont === round + 2) continentalMatch(s, d, round, leg, legs.length, -1);
+    if (!s.pending && d.contAlive && at(d, percent) === d.t && d.cont === round + 2) continentalMatch(s, d, round, leg, legs.length, -1);
   }));
 }
 
+/** until 경기일 전까지 치러요. 결정이 필요해지면 그 경기일까지만 치르고 멈춰요. */
 function simulateUntil(s: CareerState, d: Draft, until: number) {
   while (d.t < until) {
     playMatchday(s, d);
     d.t++;
+    if (s.pending) return;
   }
 }
 
@@ -728,6 +915,8 @@ type EventDef = {
   weight: number;
   /** 우선 사건은 조건이 맞으면 무조건 나와요. */
   priority?: boolean;
+  /** 앞선 선택이 돌아오는 사건. 조건이 맞으면 넷에 셋은 다른 사건보다 먼저 나와요. */
+  followUp?: boolean;
   when: (s: CareerState, d: Draft) => boolean;
   card: (s: CareerState, d: Draft) => EventCard;
   /** 결과를 적용하고 시즌 기록에 남길 한 줄을 돌려줘요. */
@@ -860,6 +1049,8 @@ const EVENTS: Record<string, EventDef> = {
         s.pos = target;
         d.pos = target;
         bump(s, 3);
+        // 두 시즌 동안 이 자리를 지키면 완전히 적응해요.
+        s.flags.push(`moved-${d.year}:${target}`);
         const name = POSITIONS[target].name;
         note(d, `${name}${directionParticle(name)} 포지션 변경`);
         return `${name}${directionParticle(name)} 새 출발을 했어요.`;
@@ -934,6 +1125,8 @@ const EVENTS: Record<string, EventDef> = {
       if (value === "sorry") { lift(s, -1); return "사과문을 올리고 논란을 정리했어요."; }
       if (chance(s, 500)) { lift(s, 2); note(d, "논란을 잠재운 골 세리머니"); return "멋진 활약으로 논란을 잠재웠어요."; }
       bump(s, -2);
+      // 다음 시즌에 징계위원회가 열려요.
+      s.flags.push(`scandal-${d.year}`);
       return "논란이 길어지며 출전 시간이 줄었어요.";
     },
   },
@@ -1075,7 +1268,7 @@ const EVENTS: Record<string, EventDef> = {
   },
   agent: {
     weight: 4,
-    when: (s) => s.age >= 20 && s.age <= 30 && !s.flags.includes("agent"),
+    when: (s) => s.age >= 20 && s.age <= 30 && !s.flags.some((flag) => flag.startsWith("agent")),
     card: () => ({
       title: "슈퍼 에이전트",
       body: "유명 슈퍼 에이전트가 계약을 제안했어요. 더 큰 구단과 연결해 주겠대요.",
@@ -1084,10 +1277,39 @@ const EVENTS: Record<string, EventDef> = {
         option("지금 에이전트와 의리", "폼 ↑", "neutral", "loyal"),
       ],
     }),
-    apply: (s, _d, value) => {
-      if (value === "sign") { s.flags.push("agent"); bump(s, -1); return "슈퍼 에이전트와 손을 잡았어요."; }
+    apply: (s, d, value) => {
+      if (value === "sign") {
+        // 두 시즌쯤 지나면 에이전트가 이적을 밀어붙여요.
+        s.flags.push("agent", `agent-${d.year}`);
+        bump(s, -1);
+        return "슈퍼 에이전트와 손을 잡았어요.";
+      }
       lift(s, 1);
       return "지금 에이전트와 의리를 지켰어요.";
+    },
+  },
+  agentPush: {
+    weight: 14, followUp: true,
+    when: (s, d) => s.flags.includes("agent") && !s.flags.includes("agent-push") && !d.loan && !d.military && s.age <= 32
+      && s.flags.some((flag) => /^agent-\d{4}$/.test(flag) && Number(flag.slice(6)) <= d.year - 2),
+    card: () => ({
+      title: "에이전트의 압박",
+      body: "슈퍼 에이전트가 더 큰 계약을 위해 이적을 밀어붙여요. 거절하면 관계가 끝날 수도 있어요.",
+      options: [
+        option("에이전트를 따른다", "다음 이적 시장에 거액 제안 · 감독 신뢰 ↓↓", "risk", "follow"),
+        option("에이전트와 결별한다", "이적 제안 보너스가 사라져요 · 폼 ↑", "neutral", "split"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      s.flags.push("agent-push");
+      if (value === "follow") {
+        s.flags.push(`agentdeal-${d.year}`);
+        bump(s, -3);
+        return "에이전트의 뜻에 따라 이적 시장에 나서기로 했어요.";
+      }
+      s.flags = s.flags.filter((flag) => flag !== "agent");
+      lift(s, 1);
+      return "에이전트와 결별하고 축구에만 집중하기로 했어요.";
     },
   },
   renewal: {
@@ -1210,15 +1432,18 @@ const EVENTS: Record<string, EventDef> = {
   locker: {
     weight: 5,
     when: (_s, d) => d.apps >= 3 && !d.military,
-    card: () => ({
+    card: (s, d) => ({
       title: "라커룸 불화",
       body: "선수단 일부가 감독의 훈련 방식에 반발하고 있어요. 모두가 당신의 선택을 지켜봐요.",
       options: [
         option("감독 편에 선다", "감독 신뢰 ↑↑ · 동료들과 서먹해져 폼 ↓", "neutral", "coach"),
         option("동료들 편에 선다", "팀 분위기 살아나 폼 ↑↑ · 감독 신뢰 ↓", "neutral", "team"),
+        // 주장 완장을 찼다면 중재할 수 있어요.
+        ...(s.flags.includes(`captain:${d.club}`) ? [option("주장으로서 중재한다", "감독 신뢰 ↑ · 폼 ↑", "good", "captain")] : []),
       ],
     }),
     apply: (s, _d, value) => {
+      if (value === "captain") { bump(s, 1); lift(s, 1); return "주장으로서 양쪽을 다독여 라커룸을 하나로 묶었어요."; }
       if (value === "coach") { bump(s, 3); lift(s, -1); return "감독 편에 서서 신뢰를 얻었지만 동료들과는 서먹해졌어요."; }
       lift(s, 2);
       bump(s, -2);
@@ -1240,11 +1465,212 @@ const EVENTS: Record<string, EventDef> = {
       if (value === "mentor") {
         bump(s, 2);
         d.care = true;
+        // 두 시즌 뒤 후배가 자라 돌아와요.
+        s.flags.push(`mentor-${d.year}`);
         note(d, "후배 유망주의 멘토로 활약");
         return "후배를 이끌며 라커룸의 기둥이 됐어요.";
       }
       lift(s, 1);
       return "자기 경기력 관리에 집중했어요.";
+    },
+  },
+
+  // ---------- 앞선 선택이 돌아오는 사건 ----------
+  surgery: {
+    weight: 0, priority: true,
+    when: (s, d) => d.major && s.injury >= 10,
+    card: () => ({
+      title: "수술대에 오를까?",
+      body: "큰 부상으로 오래 쉬어야 해요. 수술을 받으면 확실히 회복하지만 복귀가 늦어지고, 재활로 버티면 빨리 돌아오지만 후유증이 남을 수 있어요.",
+      options: [
+        option("수술을 받는다", "결장 5경기 더 · 후유증 없음", "good", "surgery"),
+        option("재활로 버틴다", "결장 절반 · 후유증과 재발 위험", "risk", "rehab"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      if (value === "surgery") {
+        s.injury += 5;
+        d.major = false;
+        note(d, "수술을 받고 완벽한 회복을 택했어요");
+        return "수술로 확실한 회복을 택했어요.";
+      }
+      s.injury = Math.trunc(s.injury / 2);
+      d.risk += 5;
+      note(d, "재활로 버티며 빠른 복귀를 택했어요");
+      return "재활로 버티며 빠른 복귀를 택했어요.";
+    },
+  },
+  discipline: {
+    weight: 20, followUp: true,
+    when: (s, d) => s.flags.includes(`scandal-${d.year - 1}`) && !d.military,
+    card: () => ({
+      title: "징계위원회",
+      body: "지난 시즌 SNS 논란으로 구단 징계위원회가 열렸어요. 태도에 따라 징계 수위가 달라져요.",
+      options: [
+        option("공개 사과한다", "징계 경감 · 감독 신뢰 조금 ↑", "neutral", "sorry"),
+        option("끝까지 버틴다", "3경기 출전 정지 · 팬들이 편들 수도", "risk", "resist"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      if (value === "sorry") { bump(s, 1); return "공개 사과로 징계를 줄이고 논란을 마무리했어요."; }
+      d.away += 3;
+      if (chance(s, 400)) {
+        lift(s, 2);
+        note(d, "출전 정지 속에서도 팬들의 응원 걸개");
+        return "출전 정지를 받았지만 팬들이 끝까지 편을 들어 줬어요.";
+      }
+      bump(s, -2);
+      return "출전 정지에 감독과의 사이까지 틀어졌어요.";
+    },
+  },
+  fanAnger: {
+    weight: 16, followUp: true,
+    when: (s, d) => s.flags.includes(`bigclub-${d.year - 1}`) && s.history.at(-1)?.club === d.club && !d.military,
+    card: () => ({
+      title: "등 돌린 팬들",
+      body: "이적을 원한다고 했던 당신이 팀에 남자 홈 팬들의 야유가 쏟아져요.",
+      options: [
+        option("실력으로 마음을 돌린다", "폼이 좋으면 신뢰 회복 · 아니면 폼 ↓", "risk", "prove"),
+        option("팬들에게 사과한다", "감독 신뢰 조금 ↑", "neutral", "sorry"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      if (value === "sorry") { bump(s, 1); return "팬들 앞에서 고개를 숙이고 다시 시작했어요."; }
+      if (s.form >= 1) {
+        bump(s, 2);
+        note(d, "야유를 환호로 바꾼 활약");
+        return "멋진 활약으로 야유를 환호로 바꿨어요.";
+      }
+      lift(s, -1);
+      return "야유 속에 부담감이 커졌어요.";
+    },
+  },
+  loyalLegend: {
+    weight: 10,
+    when: (s, d) => !d.loan && !d.military && !s.flags.some((flag) => flag.startsWith("legend:"))
+      && (seasonsAt(s, d.club) >= 6 || (seasonsAt(s, d.club) >= 4 && s.flags.some((flag) => flag.startsWith("loyal-")))),
+    card: (s, d) => ({
+      title: "클럽의 상징",
+      body: `오랫동안 ${clubName(d.club)}의 유니폼을 입은 당신에게 구단이 특별한 대우를 약속해요.`,
+      options: [
+        option("이 팀에서 은퇴하겠다고 약속한다", "감독 신뢰 ↑↑ · 여기서 은퇴하면 영구 결번", "good", "promise"),
+        option("더 큰 도전을 남겨 둔다", "폼 ↑", "neutral", "open"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      if (value === "promise") {
+        bump(s, 3);
+        s.flags.push(`legend:${d.club}`);
+        note(d, `${clubName(d.club)} 영구 결번 약속`);
+        return "이 팀에서 커리어를 마치겠다고 약속했어요.";
+      }
+      lift(s, 1);
+      return "아직 더 큰 무대를 꿈꾸기로 했어요.";
+    },
+  },
+
+  // ---------- 라이벌 ----------
+  rivalClash: {
+    weight: 10,
+    when: (s, d) => s.rival.retiredAge === null && s.rival.club !== d.club && CLUBS[s.rival.club].league === CLUBS[d.club].league
+      && (d.role === "starter" || d.role === "rotation"),
+    card: (s) => ({
+      title: "라이벌 맞대결",
+      body: `다음 경기는 라이벌 ${s.rival.name}의 ${clubName(s.rival.club)}전이에요. 언론은 '세기의 맞대결'이라며 떠들썩해요.`,
+      options: [
+        option("정면 승부를 건다", "이기면 폼 ↑↑ · 지면 폼 ↓", "risk", "duel"),
+        option("팀 승리에 집중한다", "감독 신뢰 ↑", "neutral", "team"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      const rv = s.rival;
+      if (value === "duel") {
+        if (chance(s, clamp(450 + s.traits.clutch * 100 + (overall(s.attrs, s.pos) - rv.ovr) * 15, 150, 850))) {
+          rv.h2h.won++;
+          lift(s, 2);
+          note(d, `라이벌 ${rv.name}${withParticle(rv.name)}의 정면 승부 완승`);
+          return `라이벌 ${rv.name}${withParticle(rv.name)}의 맞대결에서 완승했어요.`;
+        }
+        rv.h2h.lost++;
+        lift(s, -1);
+        return `라이벌 ${rv.name}에게 판정패했어요.`;
+      }
+      bump(s, 1);
+      return "개인 대결보다 팀 승리에 집중했어요.";
+    },
+  },
+  rivalPress: {
+    weight: 6,
+    when: (s) => s.rival.retiredAge === null && s.age >= 20 && !!s.history.at(-1)?.rival
+      && (s.history.at(-1)!.rival!.ovr > overall(s.attrs, s.pos) || s.history.at(-1)!.rival!.goals > s.history.at(-1)!.goals),
+    card: (s) => {
+      const last = s.history.at(-1)!.rival!;
+      return {
+        title: "라이벌과의 비교",
+        body: `언론이 매주 당신과 라이벌 ${s.rival.name}${objectParticle(s.rival.name)} 비교해요. 지난 시즌 ${s.rival.name}: ${clubName(last.club)} · ${s.rival.pos === "GK" ? `${last.apps}경기` : `${last.goals}골`} · 오버롤 ${last.ovr}.`,
+        options: [
+          option("실력으로 답하겠다", "핵심 능력치 +1 · 부상 위험 조금 ↑", "good", "answer"),
+          option("내 길을 간다", "폼 ↑", "neutral", "own"),
+        ],
+      };
+    },
+    apply: (s, d, value) => {
+      if (value === "answer") {
+        addAttr(s, keyAttr(s), 1);
+        d.risk += 2;
+        return "비교 기사를 오려 붙여 두고 훈련량을 늘렸어요.";
+      }
+      lift(s, 1);
+      return "비교에 흔들리지 않고 내 길을 가기로 했어요.";
+    },
+  },
+  rivalBallon: {
+    weight: 14, followUp: true,
+    when: (s) => s.history.at(-1)?.rival?.ballon === 1 && s.history.at(-1)?.ballon !== 1,
+    card: (s) => ({
+      title: "라이벌의 발롱도르",
+      body: `라이벌 ${s.rival.name}의 발롱도르 수상 소식이 들려와요. 마음이 복잡해요.`,
+      options: [
+        option("이를 악물고 훈련한다", "핵심 능력치 +2 · 부상 위험 ↑", "good", "grind"),
+        option("진심으로 축하를 건넨다", "폼 ↑ · 감독 신뢰 ↑", "neutral", "cheer"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      if (value === "grind") {
+        addAttr(s, keyAttr(s), 2);
+        d.risk += 3;
+        return "라이벌의 트로피를 자극 삼아 이를 악물었어요.";
+      }
+      lift(s, 1);
+      bump(s, 1);
+      return "라이벌에게 축하를 건네며 마음을 다잡았어요.";
+    },
+  },
+  rivalTeammate: {
+    weight: 20, followUp: true,
+    // 처음 한 팀이 된 시즌에만 나와요.
+    when: (s, d) => s.rival.retiredAge === null && s.rival.club === d.club && !d.military
+      && !(s.history.at(-1)?.club === d.club && s.history.at(-1)?.rival?.club === d.club),
+    card: (s, d) => ({
+      title: "라이벌과 한 팀",
+      body: s.history.at(-1)?.club === d.club
+        ? `라이벌 ${s.rival.name}의 이적이 확정됐어요. 이제 같은 팀이에요.`
+        : `새 팀의 라커룸에서 라이벌 ${s.rival.name}${objectParticle(s.rival.name)} 마주쳤어요. 이제 같은 팀이에요.`,
+      options: [
+        option("주전 경쟁을 선언한다", "실력이 앞서면 신뢰 ↑↑ · 아니면 신뢰 ↓", "risk", "compete"),
+        option("최고의 파트너가 된다", "폼 ↑ · 팀 전력 ↑", "good", "partner"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      if (value === "compete") {
+        if (overall(s.attrs, s.pos) >= s.rival.ovr) { bump(s, 3); return "라이벌과의 주전 경쟁에서 앞서 나갔어요."; }
+        bump(s, -2);
+        return "라이벌에게 주전 자리를 내줬어요.";
+      }
+      lift(s, 1);
+      d.teamForm += 2;
+      note(d, `라이벌 ${s.rival.name}${withParticle(s.rival.name)} 환상의 호흡`);
+      return "라이벌과 손을 잡고 팀을 끌어올렸어요.";
     },
   },
 };
@@ -1268,6 +1694,10 @@ function midSeasonEvent(s: CareerState, d: Draft): Decision | null {
   const priority = ids.find((id) => EVENTS[id].priority && EVENTS[id].when(s, d));
   let id: string | undefined = priority;
   if (!id) {
+    const followUps = ids.filter((key) => EVENTS[key].followUp && EVENTS[key].when(s, d));
+    if (followUps.length && chance(s, 750)) id = pick(s, followUps);
+  }
+  if (!id) {
     // 첫 시즌에는 늘 사건이 있어서 처음부터 고를 거리가 생겨요.
     if (s.history.length > 0 && !chance(s, 720)) return null;
     const eligible = ids.filter((key) => !EVENTS[key].priority && !s.recent.includes(key) && EVENTS[key].when(s, d));
@@ -1280,22 +1710,70 @@ function midSeasonEvent(s: CareerState, d: Draft): Decision | null {
   return { kind: "event", id, title: card.title, body: card.body, options: card.options };
 }
 
-function secondHalf(s: CareerState, d: Draft) {
+/** 시즌 중반에 출전 시간을 다시 정해요. 사건으로 바뀐 감독 신뢰와 폼이 바로 반영돼요. */
+function halfTime(s: CareerState, d: Draft) {
   const ovr = overall(s.attrs, s.pos);
   const before = d.role;
   d.role = betterRole(roleFor(s, ovr, CLUBS[d.club].rating), d.roleFloor);
   const role = roleName(d.role, d.age);
   if (ROLE_RANK[d.role] > ROLE_RANK[before]) note(d, `시즌 중반 ${role}${directionParticle(role)} 도약`);
   else if (ROLE_RANK[d.role] < ROLE_RANK[before] && d.role !== "reserve") note(d, `시즌 중반 ${role}${directionParticle(role)} 밀려남`);
+}
+
+/**
+ * 지금 경기일부터 시즌을 이어서 진행해요. 전반기 → 시즌 중 사건 → 후반기 → 대표팀 → 시즌 마무리 순서이고,
+ * 결정이 필요하면(사건, 결정적 순간) 그 자리에서 멈췄다가 고른 뒤 다시 불려요.
+ */
+function advance(s: CareerState, d: Draft) {
+  const half = Math.floor(d.games / 2);
+  if (d.t < half) {
+    simulateUntil(s, d, half);
+    if (s.pending) return;
+    const event = midSeasonEvent(s, d);
+    if (event) {
+      s.phase = "event";
+      s.pending = event;
+      return;
+    }
+    halfTime(s, d);
+  }
   simulateUntil(s, d, d.games);
+  if (s.pending) return;
+  if (!d.nt) nationalStage(s, d);
+  if (s.pending) return;
   endSeason(s, d);
+}
+
+/** 결정적 순간의 선택을 반영하고 결과를 시즌 기록에 남겨요. */
+function settleMoment(s: CareerState, d: Draft, value: string) {
+  const m = d.moment;
+  if (!m) throw new CareerError("진행 중인 결정적 순간이 없어요.");
+  const { won, text } = resolveMoment(s, d, m, value);
+  d.moment = null;
+  const headline = `${m.name} 결승 · ${text} · ${won ? "우승!" : "준우승"}`;
+  d.highlights.push(headline);
+  s.lastMoment = headline;
+  if (m.comp === "cup") {
+    d.cup = won ? 6 : 5;
+    if (!won) d.cupAlive = false;
+  } else if (m.comp === "cont") {
+    d.cont = won ? 6 : 5;
+    if (!won) d.contAlive = false;
+  } else if (d.tour && d.nt) {
+    addTournament(d.nt, finishTournament(s, d.tour, won));
+    d.tour = null;
+  }
 }
 
 // ---------- 시즌 마무리 ----------
 
 type TournamentResult = { label: string; trophy: Honor | null; awards: Honor[]; points: number; caps: number; goals: number };
 
-function playTournament(s: CareerState, code: keyof typeof TOURNAMENTS, key: boolean, ovr: number, year: number): TournamentResult {
+/**
+ * 대표팀 대회를 치러요. d를 넘기면 결승에서 결정적 순간이 나올 수 있고, 그때는 d.tour에 진행 상태를 남기고 null을 돌려줘요.
+ * 남은 결승은 finishTournament가 마무리해요.
+ */
+function playTournament(s: CareerState, d: Draft | null, code: keyof typeof TOURNAMENTS, key: boolean, ovr: number, year: number): TournamentResult | null {
   const tournament = TOURNAMENTS[code];
   const nation = NATIONS[s.nation];
   // U-20 월드컵은 또래끼리 겨뤄서 전력과 골 기준을 낮춰 봐요.
@@ -1303,44 +1781,179 @@ function playTournament(s: CareerState, code: keyof typeof TOURNAMENTS, key: boo
   const base = youth ? nation.rating - 2 : nation.rating;
   const strength = base + (key ? clamp(Math.trunc((ovr - (youth ? 60 : nation.rating)) / 3), 0, 4) : 0) + between(s, -3, 3);
   const quality = Math.max(250, 1000 + (ovr - (youth ? 68 : 75)) * 30);
-  let caps = 0;
-  let goals = 0;
+  const run: TournamentRun = { code, year, key, caps: 0, goals: 0, reached: -1, finalScored: 0 };
+  let played = false;
   const match = (oppRating: number) => {
-    if (!chance(s, key ? 950 : 500)) return 0;
-    caps++;
+    played = chance(s, key ? 950 : 500);
+    if (!played) return 0;
+    run.caps++;
     const edge = clamp(1000 + (strength - oppRating) * 15, 500, 1500);
     const scored = count(s, Math.trunc(((POSITIONS[s.pos].goal * quality) / 1000) * edge / 1000), 4);
-    goals += scored;
+    run.goals += scored;
     return scored;
   };
   let groupGoals = 0;
   for (let i = 0; i < 3; i++) groupGoals += match(tournament.group);
-  const isWorldCup = code === "worldcup";
-  const name = `${year} ${tournament.name}`;
-  if (!chance(s, clamp(450 + (strength - tournament.group) * 45 + groupGoals * 40, 100, 960))) {
-    return { label: `${name} 조별리그 탈락`, trophy: null, awards: [], points: 0, caps, goals };
-  }
-  let reached = 0;
+  if (!chance(s, clamp(450 + (strength - tournament.group) * 45 + groupGoals * 40, 100, 960))) return finishTournament(s, run, false);
   let won = false;
   for (let round = 0; round < tournament.opp.length; round++) {
-    reached = round;
+    run.reached = round;
     const scored = match(tournament.opp[round]);
     const final = round === tournament.opp.length - 1;
-    const p = 500 + (strength - tournament.opp[round]) * 35 + scored * 110 + (final ? s.traits.clutch * 40 : 0);
-    if (!chance(s, clamp(p, 60, 940))) break;
+    const p = clamp(500 + (strength - tournament.opp[round]) * 35 + scored * 110 + (final ? s.traits.clutch * 40 : 0), 60, 940);
+    if (final && d && !youth && key) {
+      run.finalScored = scored;
+      const opponent = NATIONS[pick(s, NATION_ORDER.filter((code) => code !== s.nation))].name;
+      if (startMoment(s, d, "nt", `${year} ${tournament.name}`, opponent, p, played)) {
+        d.tour = run;
+        return null;
+      }
+    }
+    if (!chance(s, p)) break;
     if (final) won = true;
   }
+  return finishTournament(s, run, won);
+}
+
+/** 대회 성적을 이름표·트로피·개인상으로 정리해요. reached가 -1이면 조별리그 탈락이에요. */
+function finishTournament(s: CareerState, run: TournamentRun, won: boolean): TournamentResult {
+  const tournament = TOURNAMENTS[run.code];
+  const youth = run.code === "youth";
+  const isWorldCup = run.code === "worldcup";
+  const name = `${run.year} ${tournament.name}`;
+  if (run.reached < 0) return { label: `${name} 조별리그 탈락`, trophy: null, awards: [], points: 0, caps: run.caps, goals: run.goals };
   const finalRound = tournament.opp.length - 1;
-  const label = won ? `${name} 우승` : reached === finalRound ? `${name} 준우승` : `${name} ${tournament.rounds[reached]}`;
+  const label = won ? `${name} 우승` : run.reached === finalRound ? `${name} 준우승` : `${name} ${tournament.rounds[run.reached]}`;
   const awards: Honor[] = [];
-  if (key && (won || reached === finalRound) && chance(s, (won ? 280 : 110) + goals * 60)) {
+  if (run.key && (won || run.reached === finalRound) && chance(s, (won ? 280 : 110) + run.goals * 60)) {
     awards.push({ label: `${name} 골든볼`, points: isWorldCup ? 150 : youth ? 30 : 70 });
   }
-  if (goals >= (isWorldCup ? 5 : 4) + int(s, 3)) awards.push({ label: `${name} 득점왕`, points: isWorldCup ? 90 : youth ? 20 : 40 });
-  const trophyPoints = isWorldCup ? 300 : youth ? 40 : code === "asia" ? 90 : 140;
+  if (run.goals >= (isWorldCup ? 5 : 4) + int(s, 3)) awards.push({ label: `${name} 득점왕`, points: isWorldCup ? 90 : youth ? 20 : 40 });
+  const trophyPoints = isWorldCup ? 300 : youth ? 40 : run.code === "asia" ? 90 : 140;
   // 발롱도르 평가에 더하는 값. 유소년 대회는 넣지 않아요.
-  const points = youth ? 0 : won ? (isWorldCup ? 120 : 50) : reached === finalRound ? (isWorldCup ? 50 : 20) : reached >= finalRound - 1 ? (isWorldCup ? 25 : 10) : 0;
-  return { label, trophy: won ? { label: `${name} 우승`, points: trophyPoints } : null, awards, points, caps, goals };
+  const points = youth ? 0 : won ? (isWorldCup ? 120 : 50) : run.reached === finalRound ? (isWorldCup ? 50 : 20) : run.reached >= finalRound - 1 ? (isWorldCup ? 25 : 10) : 0;
+  return { label, trophy: won ? { label: `${name} 우승`, points: trophyPoints } : null, awards, points, caps: run.caps, goals: run.goals };
+}
+
+function addTournament(result: NationalResult, tournament: TournamentResult) {
+  result.caps += tournament.caps;
+  result.goals += tournament.goals;
+  result.tournaments.push(tournament.label);
+  if (tournament.trophy) result.trophies.push(tournament.trophy);
+  result.awards.push(...tournament.awards);
+  result.points += tournament.points;
+}
+
+/** 나이별 기본 성장. 전성기 몇 해 전까지는 빠르게 크고, 전성기가 지나면 조금씩 떨어져요. */
+function growthByAge(yearsToPeak: number): number {
+  return yearsToPeak >= 8 ? 6 : yearsToPeak >= 6 ? 5 : yearsToPeak >= 4 ? 4 : yearsToPeak >= 2 ? 3 : yearsToPeak >= 0 ? 1
+    : yearsToPeak >= -2 ? 0 : yearsToPeak >= -4 ? -1 : yearsToPeak >= -6 ? -2 : -3 + (yearsToPeak + 7);
+}
+
+/**
+ * 라이벌의 한 시즌. 라이벌만의 난수로 출전·골·우승·성장·이적·은퇴를 정하고, 발롱도르 평가 점수를 돌려줘요.
+ * 내 선택이 라이벌의 운을 바꾸지 않도록 난수를 따로 써요.
+ */
+function rivalSeason(d: Draft, rv: Rival): { season: RivalSeason; score: number } | null {
+  if (rv.retiredAge !== null) return null;
+  const r: Rng = { rng: rv.rng };
+  const club = CLUBS[rv.club];
+  const league = LEAGUES[club.league];
+  const gap = rv.ovr - club.rating;
+  const share = gap >= -1 ? 88 : gap >= -5 ? 58 : gap >= -10 ? 28 : 6;
+  const minutes = gap >= -1 ? 82 : gap >= -5 ? 62 : 38;
+  const games = league.games + 8;
+  const apps = clamp(Math.trunc((games * share) / 100) + between(r, -3, 3), 0, games);
+  const info = POSITIONS[rv.pos];
+  const quality = Math.max(250, 1000 + (rv.ovr - 75) * 30);
+  const edge = clamp(1000 + (club.rating - leagueAverage(club.league)) * 15, 600, 1400);
+  const expect = (base: number) => Math.trunc(((((base * quality) / 1000) * edge) / 1000) * apps * minutes / 90 / 1000);
+  const goals = Math.max(0, expect(info.goal) + between(r, -2, 2));
+  const assists = Math.max(0, expect(info.assist) + between(r, -2, 2));
+
+  // 팀 성적. 리그에서 전력이 높은 구단일수록, 라이벌이 주전으로 활약할수록 우승에 가까워요.
+  const above = clubsIn(club.league).filter((other) => other.id !== MILITARY_CLUB && other.rating > club.rating).length;
+  const starter = share >= 58;
+  const trophies: string[] = [];
+  let teamPoints = 0;
+  if (apps >= 8 && chance(r, clamp((above === 0 ? 380 : above <= 2 ? 150 : 30) + (starter ? clamp(gap, -2, 6) * 20 : 0), 10, 700))) {
+    trophies.push(`${league.name} 우승`);
+    teamPoints += Math.trunc((60 * league.prestige) / 100);
+  }
+  if (chance(r, above <= 2 ? 120 : 50)) {
+    trophies.push(`${league.cup} 우승`);
+    teamPoints += 15;
+  }
+  if (league.continental && qualifiesByRating(club.id)) {
+    const comp = CONTINENTALS[league.continental];
+    const base = league.continental === "ucl" ? (club.rating >= 88 ? 140 : club.rating >= 85 ? 70 : club.rating >= 82 ? 25 : 5) : 150;
+    if (chance(r, base + (starter ? clamp(gap, 0, 6) * 10 : 0))) {
+      trophies.push(`${comp.name} 우승`);
+      teamPoints += comp.weight;
+    }
+  }
+
+  // 발롱도르 평가. 나와 같은 기준이고, 폼(+2)과 빅클럽 주전의 화제성을 더해 진짜 경쟁자가 돼요.
+  const rating = 68 + clamp(Math.trunc(gap / 3), -4, 5) + clamp(Math.trunc((rv.ovr - 70) / 6), -3, 5) + Math.trunc((goals * 8 + assists * 5) / Math.max(apps, 1));
+  const output = ["ST", "WG", "AM"].includes(rv.pos) ? goals * 4 + assists * 3 : rv.pos === "GK" ? 0 : goals * 5 + assists * 4;
+  const played = Math.trunc(((Math.max(0, rating - 60) * 6 + output) * Math.min(apps, 30)) / 30);
+  const hype = starter && club.rating >= 84 ? between(r, 20, 150) : 0;
+  const score = apps >= 15 ? Math.trunc((played * (100 + league.prestige)) / 200) + teamPoints + hype : 0;
+
+  // 성장과 노쇠
+  let growth = growthByAge(rv.peakAge - d.age);
+  if (growth > 0) {
+    growth = Math.trunc((growth * (60 + Math.trunc(share / 2)) + 50) / 100) + between(r, -1, 1);
+    const room = rv.potential - rv.ovr;
+    growth = room <= 0 ? Math.min(growth, 0) : Math.min(growth, room);
+  } else growth = Math.min(growth + between(r, -1, 1), 0);
+  rv.ovr = clamp(rv.ovr + growth, 40, 99);
+  rv.best = Math.max(rv.best, rv.ovr);
+  rv.apps += apps;
+  rv.goals += goals;
+  rv.assists += assists;
+  rv.trophies += trophies.length;
+
+  // 실력이 구단을 넘어서면 더 큰 구단으로, 한참 처지면 작은 구단으로 옮겨요.
+  let moved: string | null = null;
+  const pool = d.age <= 30 && rv.ovr >= club.rating + 3
+    ? Object.values(CLUBS).filter((item) => item.rating >= rv.ovr - 4 && item.rating <= rv.ovr + 1 && (rv.ovr < 75 || LEAGUES[item.league].region === "europe"))
+    : rv.ovr <= club.rating - 7 ? Object.values(CLUBS).filter((item) => item.rating >= rv.ovr - 2 && item.rating <= rv.ovr + 3) : [];
+  const targets = pool.filter((item) => item.id !== club.id && item.id !== MILITARY_CLUB);
+  if (targets.length) {
+    const target = targets[weightedIndex(r, targets.map((item) => Math.max(1, item.rating - rv.ovr + 6)))];
+    rv.club = target.id;
+    moved = `${target.name} 이적`;
+  }
+  let retired = false;
+  if (d.age + 1 >= 38 || (d.age + 1 >= 34 && rv.ovr < 76 && chance(r, 500))) {
+    rv.retiredAge = d.age + 1;
+    retired = true;
+  }
+  rv.rng = r.rng;
+  return { season: { club: club.id, ovr: rv.ovr, apps, goals, assists, trophies, ballon: 0, meeting: null, moved, retired }, score };
+}
+
+/**
+ * 시즌이 끝날 때 대표팀 일정을 치러요. 결과는 d.nt에 담고, 대회 결승에서 결정적 순간이 나오면 멈춰요.
+ * 시즌 마무리(endSeason)는 d.nt를 그대로 옮겨 적어요.
+ */
+function nationalStage(s: CareerState, d: Draft) {
+  const nation = NATIONS[s.nation];
+  const ovr = overall(s.attrs, s.pos);
+  const called = ovr >= nation.callup - (s.age <= 21 ? 2 : 0) && d.missed * 3 < d.games * 2;
+  const result: NationalResult = { called, caps: 0, goals: 0, tournaments: [], trophies: [], awards: [], points: 0 };
+  d.nt = result;
+  if (!called) return;
+  const key = ovr >= nation.callup + 5;
+  result.caps = (key ? between(s, 5, 8) : between(s, 2, 5)) + d.extraCaps;
+  const quality = Math.max(250, 1000 + (ovr - 75) * 30);
+  for (let i = 0; i < result.caps; i++) result.goals += count(s, Math.trunc((POSITIONS[s.pos].goal * quality * 85) / 100000), 4);
+  // 한 해에 열리는 성인 대표팀 대회는 하나예요(월드컵과 대륙 대회는 서로 다른 해).
+  const [code] = tournamentIn(d.year + 1, nation.region);
+  if (!code) return;
+  const tournament = playTournament(s, d, code, key, ovr, d.year + 1);
+  if (tournament) addTournament(result, tournament);
 }
 
 function endSeason(s: CareerState, d: Draft) {
@@ -1368,31 +1981,18 @@ function endSeason(s: CareerState, d: Draft) {
   if (continental && d.cont === 6 && d.contApps >= 2) trophies.push({ label: `${continental.name} 우승`, points: league.continental === "ucl" ? 180 : league.continental === "lib" ? 70 : 50 });
   s.continentalNext = !!league.continental && rank <= league.spots && !d.military;
 
-  // 대표팀
+  // 대표팀 성적은 nationalStage가 미리 계산해 뒀어요.
   const nation = NATIONS[s.nation];
-  const callLine = nation.callup - (s.age <= 21 ? 2 : 0);
-  const called = ovr >= callLine && d.missed * 3 < d.games * 2;
   const key = ovr >= nation.callup + 5;
-  let caps = 0;
-  let intlGoals = 0;
-  const tournaments: string[] = [];
-  let intlPoints = 0;
-  if (called) {
-    caps = (key ? between(s, 5, 8) : between(s, 2, 5)) + d.extraCaps;
-    const quality = Math.max(250, 1000 + (ovr - 75) * 30);
-    for (let i = 0; i < caps; i++) intlGoals += count(s, Math.trunc((POSITIONS[s.pos].goal * quality * 85) / 100000), 4);
-    for (const code of tournamentIn(d.year + 1, nation.region)) {
-      const result = playTournament(s, code, key, ovr, d.year + 1);
-      caps += result.caps;
-      intlGoals += result.goals;
-      tournaments.push(result.label);
-      if (result.trophy) trophies.push(result.trophy);
-      awards.push(...result.awards);
-      intlPoints += result.points;
-    }
-    if (s.caps === 0 && caps > 0) note(d, `${nation.name} 국가대표 데뷔`);
-    if (s.intlGoals === 0 && intlGoals > 0) note(d, "A매치 데뷔골");
-  }
+  const nt = d.nt ?? { called: false, caps: 0, goals: 0, tournaments: [], trophies: [], awards: [], points: 0 };
+  const caps = nt.caps;
+  const intlGoals = nt.goals;
+  const tournaments = [...nt.tournaments];
+  const intlPoints = nt.points;
+  trophies.push(...nt.trophies);
+  awards.push(...nt.awards);
+  if (s.caps === 0 && caps > 0) note(d, `${nation.name} 국가대표 데뷔`);
+  if (s.intlGoals === 0 && intlGoals > 0) note(d, "A매치 데뷔골");
   if (d.olympics) {
     const medal = chance(s, 170 + (key ? 120 : 40) + s.traits.clutch * 30) ? pick(s, ["금메달", "은메달", "동메달"]) : null;
     if (medal) {
@@ -1404,7 +2004,7 @@ function endSeason(s: CareerState, d: Draft) {
   if (s.flags.includes(`ag-gold-${d.year}`)) trophies.push({ label: `${d.year} 아시안게임 금메달`, points: 30 });
   let youthBoost = 0;
   if (d.youthCup) {
-    const result = playTournament(s, "youth", ovr >= 62, ovr, d.year + 1);
+    const result = playTournament(s, null, "youth", ovr >= 62, ovr, d.year + 1)!;
     tournaments.push(result.label);
     if (result.trophy) trophies.push(result.trophy);
     awards.push(...result.awards);
@@ -1430,22 +2030,62 @@ function endSeason(s: CareerState, d: Draft) {
   if (d.age <= 21 && d.leagueApps >= 15 && domestic > 90 + int(s, 80)) awards.push({ label: `${league.name} 영플레이어상`, points: scale(40) });
   if (d.leagueApps >= 22 && domestic > 150 + int(s, 90)) awards.push({ label: `${league.name} 올해의 팀`, points: scale(25) });
 
-  const rival = 330 + int(s, 140);
+  // 라이벌도 같은 시즌을 보내요. 라이벌만의 난수를 써서 내 운에 영향을 주지 않아요.
+  const rv = s.rival;
+  const rivalResult = rivalSeason(d, rv);
+
+  // 발롱도르: 다른 후보 가운데 최고 점수(field)·라이벌과 겨뤄요. 15경기 미만이면 1위가 될 수 없고, 동점이면 내가 앞서요.
+  const field = 330 + int(s, 140);
+  const rivalScore = rivalResult?.score ?? 0;
+  const eligible = d.apps >= 15;
+  const othersAbove = (score: number) => (field > score ? 1 + Math.trunc((field - score) / 15) : 0);
   let ballon = 0;
-  if (seasonScore > rival && d.apps >= 15) ballon = 1;
-  else if (seasonScore >= 150) {
-    const place = 2 + Math.trunc((rival - seasonScore) / 15);
-    ballon = place <= 30 ? Math.max(2, place) : 0;
+  if (seasonScore >= 150) {
+    const place = 1 + othersAbove(seasonScore) + (rivalScore > seasonScore ? 1 : 0);
+    ballon = !eligible && place === 1 ? 2 : place <= 30 ? place : 0;
   }
+  if (rivalResult && rivalScore >= 150) {
+    const place = 1 + othersAbove(rivalScore) + (eligible && seasonScore >= rivalScore ? 1 : 0);
+    rivalResult.season.ballon = place <= 30 ? place : 0;
+    if (place === 1) {
+      rv.ballonDor++;
+      note(d, `라이벌 ${rv.name}의 발롱도르 수상`);
+    }
+  }
+  if (ballon === 1 && rivalResult?.season.ballon === 2) note(d, `라이벌 ${rv.name}${objectParticle(rv.name)} 제치고 발롱도르`);
+
+  // 같은 리그 다른 팀이면 시즌에 두 번 맞붙어요.
+  if (rivalResult && rivalResult.season.club !== d.club && CLUBS[rivalResult.season.club].league === club.league && d.apps >= 5 && rivalResult.season.apps >= 5) {
+    const theirs = CLUBS[rivalResult.season.club].rating + clamp(Math.trunc((rivalResult.season.ovr - CLUBS[rivalResult.season.club].rating) / 3), -2, 4);
+    const tally = { won: 0, drawn: 0, lost: 0 };
+    for (let game = 0; game < 2; game++) {
+      const roll = int(s, 1000);
+      const win = clamp(400 + (strength - theirs) * 40, 100, 800);
+      const result = roll < win ? "won" : roll < win + 250 ? "drawn" : "lost";
+      tally[result]++;
+      rv.h2h[result]++;
+    }
+    rivalResult.season.meeting = [tally.won ? `${tally.won}승` : "", tally.drawn ? `${tally.drawn}무` : "", tally.lost ? `${tally.lost}패` : ""].filter(Boolean).join(" ");
+  }
+  if (rivalResult?.season.retired) note(d, `라이벌 ${rv.name} ${d.age + 1}세에 은퇴`);
   if (ballon === 1) awards.unshift({ label: `${d.year + 1} 발롱도르`, points: 500 });
   else if (ballon > 0 && ballon <= 3) awards.push({ label: `발롱도르 ${ballon}위`, points: 80 });
   else if (ballon > 0 && ballon <= 10) awards.push({ label: `발롱도르 ${ballon}위`, points: 20 });
 
+  // 두 시즌 전의 선택이 돌아와요.
+  if (s.flags.includes(`mentor-${d.year - 2}`)) {
+    bump(s, 2);
+    note(d, "멘토로 이끌던 후배가 국가대표에 뽑혔어요 · 라커룸의 존경");
+  }
+  if (s.flags.includes(`moved-${d.year - 2}:${s.pos}`)) {
+    const index = keyAttr(s);
+    addAttr(s, index, 1);
+    note(d, `${POSITIONS[s.pos].name} 완전 적응 · ${attrLabels(s.pos)[index]} +1`);
+  }
+
   // 성장과 노쇠. 2군 출전 시간은 절반만 쳐요.
   const share = clamp(Math.trunc(((d.minutes + Math.trunc(d.reserveMinutes / 2)) * 100) / (d.games * 90)), 0, 100);
-  const yearsToPeak = s.traits.peak - d.age;
-  let growth = yearsToPeak >= 8 ? 6 : yearsToPeak >= 6 ? 5 : yearsToPeak >= 4 ? 4 : yearsToPeak >= 2 ? 3 : yearsToPeak >= 0 ? 1
-    : yearsToPeak >= -2 ? 0 : yearsToPeak >= -4 ? -1 : yearsToPeak >= -6 ? -2 : -3 + (yearsToPeak + 7);
+  let growth = growthByAge(s.traits.peak - d.age);
   if (growth > 0) {
     const factor = 50 + Math.trunc(share / 2) + s.traits.pro * 5 + (d.age <= 20 && club.rating >= 82 ? 10 : 0) - (d.military ? 20 : 0);
     growth = Math.trunc((growth * factor + 50) / 100);
@@ -1489,6 +2129,7 @@ function endSeason(s: CareerState, d: Draft) {
     apps: d.apps, starts: d.starts, minutes: d.minutes, goals: d.goals, assists: d.assists, cleanSheets: d.cleanSheets, rating,
     rank, cup: d.cup, continental: d.cont, trophies, awards, ballon, caps, intlGoals, tournaments,
     reserve: d.reserveApps ? { apps: d.reserveApps, goals: d.reserveGoals, assists: d.reserveAssists } : null,
+    rival: rivalResult?.season ?? null,
     highlights: d.highlights, missed: d.missed, event: d.event,
   });
   s.apps += d.apps;
@@ -1541,7 +2182,8 @@ function offseasonDecision(s: CareerState): Decision {
   const ovr = overall(s.attrs, s.pos);
   const last = s.history.at(-1)!;
   const options: Choice[] = [];
-  const retire = option("은퇴하기", `${s.age}세 · 통산 ${s.apps}경기 ${s.goals}골 · 지금 은퇴하면 레전드 점수 ${comma(legacyScore(s))}점`, "neutral", "retire");
+  const legend = retiresAsLegend(s);
+  const retire = option("은퇴하기", `${s.age}세 · 통산 ${s.apps}경기 ${s.goals}골 · 지금 은퇴하면 ${legend ? "영구 결번과 함께 " : ""}레전드 점수 ${comma(legacyScore(s) + (legend ? LEGEND_POINTS : 0))}점`, "neutral", "retire");
   const title = `${seasonLabel(s.year)} 이적 시장`;
   if (s.age >= CAREER_RULES.maxAge) {
     return { kind: "offseason", id: "offseason", title: "작별의 시간", body: `${s.age}세. 이제는 축구화를 벗을 때예요.`, options: [retire] };
@@ -1592,10 +2234,14 @@ function offseasonDecision(s: CareerState): Decision {
     if (index < 0) break;
     offers.push(pool[index]);
   }
-  // 시즌 중에 해외 진출이나 빅클럽 이적을 원한다고 밝혔다면 그런 제안이 하나는 와요.
+  // 시즌 중에 해외 진출·빅클럽 이적을 원한다고 밝혔거나 에이전트를 따랐다면 그런 제안이 하나는 와요.
+  // 에이전트는 큰 구단이나 거액을 주는 사우디 구단을 데려와요.
   const wish = s.flags.includes(`abroad-${last.year}`)
     ? Object.values(CLUBS).filter((club) => LEAGUES[club.league].region === "europe" && club.rating >= ovr - 8 && club.rating <= ovr + 6)
-    : s.flags.includes(`bigclub-${last.year}`) ? biggerClubs(s, owner ?? s.club) : [];
+    : s.flags.includes(`bigclub-${last.year}`) ? biggerClubs(s, owner ?? s.club)
+      : s.flags.includes(`agentdeal-${last.year}`)
+        ? [...biggerClubs(s, owner ?? s.club), ...Object.values(CLUBS).filter((club) => club.league === "KSA" && club.rating <= ovr + 6)]
+        : [];
   const wishes = wish.filter((club) => club.id !== s.club && club.id !== owner && !offers.includes(club));
   if (wishes.length && !offers.some((club) => wish.includes(club))) {
     const choice = wishes[weightedIndex(s, wishes.map((club) => Math.max(1, club.rating - 60)))];
@@ -1643,6 +2289,13 @@ function offseasonDecision(s: CareerState): Decision {
   return { kind: "offseason", id: "offseason", title, body, options };
 }
 
+const LEGEND_POINTS = 60;
+
+/** 약속대로 그 팀에서 은퇴하면 등번호가 영구 결번돼요. 임대 중이거나 군 복무 중이면 아니에요. */
+function retiresAsLegend(s: CareerState): boolean {
+  return !s.parent && s.history.at(-1)?.club === s.club && s.flags.includes(`legend:${s.club}`);
+}
+
 function applyOffseason(s: CareerState, choice: Choice) {
   const ovr = overall(s.attrs, s.pos);
   switch (choice.value) {
@@ -1650,6 +2303,7 @@ function applyOffseason(s: CareerState, choice: Choice) {
       s.phase = "retired";
       s.pending = null;
       s.ending = `${s.age}세에 은퇴`;
+      if (retiresAsLegend(s)) s.history.at(-1)!.trophies.push({ label: `${clubName(s.club)} 영구 결번`, points: LEGEND_POINTS });
       return;
     case "military":
       if (s.contract > 0) s.parent = s.parent ?? s.club;
@@ -1709,25 +2363,23 @@ function applyChoice(s: CareerState, index: number) {
   if (s.steps >= CAREER_RULES.maxChoices) throw new CareerError("선택이 너무 많아요.");
   const choice = decision.options[index];
   s.pending = null;
+  s.lastMoment = null;
   s.steps++;
   if (decision.kind === "training") {
-    const d = applyTraining(s, choice.value);
-    simulateUntil(s, d, Math.floor(d.games / 2));
-    const event = midSeasonEvent(s, d);
-    if (event) {
-      s.phase = "event";
-      s.pending = event;
-      return;
-    }
-    secondHalf(s, d);
+    advance(s, applyTraining(s, choice.value));
     return;
   }
   if (decision.kind === "event") {
     const d = s.draft;
     if (!d) throw new CareerError("진행 중인 시즌이 없어요.");
-    const summary = EVENTS[decision.id].apply(s, d, choice.value);
-    d.event = `${decision.title} · ${summary}`;
-    secondHalf(s, d);
+    if (decision.id === "moment") {
+      settleMoment(s, d, choice.value);
+    } else {
+      const summary = EVENTS[decision.id].apply(s, d, choice.value);
+      d.event = `${decision.title} · ${summary}`;
+      halfTime(s, d);
+    }
+    advance(s, d);
     return;
   }
   applyOffseason(s, choice);
@@ -1759,7 +2411,21 @@ export type CareerSummary = {
   peakOvr: number; peakAge: number; ballonDor: number; awards: number; trophies: number;
   honors: { label: string; count: number }[];
   clubs: string[]; score: number; grade: string; title: string; lastClub: string;
+  rival: { name: string; nation: NationCode; best: number; goals: number; assists: number; trophies: number; ballonDor: number;
+    h2h: Rival["h2h"]; retiredAge: number | null; lastClub: string; beat: boolean };
 };
+
+/**
+ * 라이벌을 넘어섰는지. 발롱도르 수 → 최고 오버롤 → 트로피 수 순서로 비교해요.
+ * 은퇴할 때 라이벌은 아직 뛰고 있을 수도 있어서 그때까지의 기록으로 비교해요.
+ */
+export function beatRival(s: CareerState): boolean {
+  const totals = careerTotals(s.history);
+  const rv = s.rival;
+  if (totals.ballonDor !== rv.ballonDor) return totals.ballonDor > rv.ballonDor;
+  if (s.peak !== rv.best) return s.peak > rv.best;
+  return totals.trophies > rv.trophies;
+}
 
 export function careerTotals(history: SeasonRecord[]) {
   const totals = { apps: 0, goals: 0, assists: 0, cleanSheets: 0, caps: 0, intlGoals: 0, ballonDor: 0, awards: 0, trophies: 0 };
@@ -1780,7 +2446,7 @@ export function careerTotals(history: SeasonRecord[]) {
 }
 
 /** 레전드 점수의 출처. 다 더하면 레전드 점수예요. */
-export type LegacyBreakdown = { trophies: number; awards: number; ballon: number; records: number; national: number; peak: number };
+export type LegacyBreakdown = { trophies: number; awards: number; ballon: number; records: number; national: number; peak: number; rival: number };
 
 export function legacyBreakdown(s: CareerState): LegacyBreakdown {
   const totals = careerTotals(s.history);
@@ -1790,6 +2456,8 @@ export function legacyBreakdown(s: CareerState): LegacyBreakdown {
     records: totals.goals * 3 + totals.assists * 2 + totals.cleanSheets * sheets,
     national: totals.caps * 3 + totals.intlGoals * 4,
     peak: Math.max(0, s.peak - 60) * 25,
+    // 라이벌: 맞대결 1승마다 10점, 커리어로 라이벌을 넘어서면 150점
+    rival: s.rival.h2h.won * 10 + (s.history.length && beatRival(s) ? 150 : 0),
   };
   for (const season of s.history) {
     for (const trophy of season.trophies) parts.trophies += trophy.points;
@@ -1803,7 +2471,7 @@ export function legacyBreakdown(s: CareerState): LegacyBreakdown {
 
 export function legacyScore(s: CareerState): number {
   const parts = legacyBreakdown(s);
-  return parts.trophies + parts.awards + parts.ballon + parts.records + parts.national + parts.peak;
+  return parts.trophies + parts.awards + parts.ballon + parts.records + parts.national + parts.peak + parts.rival;
 }
 
 export function legacyGrade(score: number): string {
@@ -1815,9 +2483,12 @@ export function legacyGrade(score: number): string {
 function careerTitle(s: CareerState, totals: ReturnType<typeof careerTotals>, clubs: string[]): string {
   const honors = s.history.flatMap((season) => season.trophies.map((trophy) => trophy.label));
   const ucl = honors.filter((label) => label.endsWith("챔피언스리그 우승") && !label.startsWith("AFC")).length;
+  const legend = honors.find((label) => label.endsWith(" 영구 결번"));
   if (totals.ballonDor >= 3) return `발롱도르 ${totals.ballonDor}회의 전설`;
   if (honors.some((label) => /^\d{4} 월드컵 우승$/.test(label))) return "월드컵 챔피언";
-  if (totals.ballonDor) return "발롱도르 위너";
+  if (totals.ballonDor) return s.rival.ballonDor && beatRival(s) ? "라이벌을 넘어선 발롱도르 위너" : "발롱도르 위너";
+  if (legend) return `${legend.replace(" 영구 결번", "")}의 영원한 레전드`;
+  if (s.rival.ballonDor >= 2) return "영원한 2인자";
   if (ucl >= 2) return "빅이어 수집가";
   if (clubs.length === 1 && s.history.length >= 12) return "원클럽맨";
   if (totals.goals >= 400) return "골 머신";
@@ -1856,5 +2527,10 @@ export function summarizeCareer(s: CareerState): CareerSummary {
     honors: [...counts].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count),
     clubs, score, grade: legacyGrade(score), title: careerTitle(s, totals, unique),
     lastClub: clubName(s.history.at(-1)?.club ?? s.club),
+    rival: {
+      name: s.rival.name, nation: s.rival.nation, best: s.rival.best, goals: s.rival.goals, assists: s.rival.assists,
+      trophies: s.rival.trophies, ballonDor: s.rival.ballonDor, h2h: { ...s.rival.h2h }, retiredAge: s.rival.retiredAge,
+      lastClub: clubName(s.rival.club), beat: beatRival(s),
+    },
   };
 }

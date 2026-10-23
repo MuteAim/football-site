@@ -1,7 +1,7 @@
 import { clubName, legacyScore, overall, seasonLabel, type CareerState } from "@/lib/career/engine";
 import { mutedClass } from "../ui";
 
-export type TurnResult = { label: string; summary: string; changes: string[] };
+export type TurnResult = { label: string; summary: string; changes: string[]; moment: string | null };
 
 /** 선택 직후 치른 경기와 성장까지 포함한 실제 진행 결과예요. */
 export function turnResult(before: CareerState, after: CareerState, index: number): TurnResult {
@@ -15,11 +15,14 @@ export function turnResult(before: CareerState, after: CareerState, index: numbe
   if (trust) changes.push(`감독 신뢰 ${trust > 0 ? "+" : ""}${trust}`);
   const score = legacyScore(after) - legacyScore(before);
   if (score) changes.push(`레전드 점수 ${score > 0 ? "+" : ""}${score.toLocaleString("ko-KR")}`);
+  // 결승의 결정적 순간에서 멈췄다면 시즌 중간이라도 '결승 진출'로 알려요.
+  const final = after.pending?.id === "moment" ? after.draft?.moment?.name : null;
+  const stage = season ? "시즌 종료" : final ? `${final} 결승 진출` : "전반기 종료";
   const summary = after.phase === "retired" ? `${after.age}세에 은퇴했어요. 나의 최종 기록을 확인해 보세요.`
     : before.pending?.kind === "offseason" ? `${clubName(after.club)}에서 ${seasonLabel(after.year)} 시즌을 준비해요.`
-      : period ? `${seasonLabel(period.year)} ${season ? "시즌 종료" : "전반기 종료"} · ${period.apps}경기 · ${after.pos === "GK" ? `무실점 ${period.cleanSheets}` : `${period.goals}골 ${period.assists}도움`}`
+      : period ? `${seasonLabel(period.year)} ${stage} · ${period.apps}경기 · ${after.pos === "GK" ? `무실점 ${period.cleanSheets}` : `${period.goals}골 ${period.assists}도움`}`
         : "선택이 커리어에 반영됐어요.";
-  return { label: before.pending!.options[index].label, summary, changes };
+  return { label: before.pending!.options[index].label, summary, changes, moment: before.pending?.id === "moment" ? after.lastMoment : null };
 }
 
 export function TurnHeader({ state, result, quick, onQuick }: {
@@ -46,6 +49,7 @@ export function TurnHeader({ state, result, quick, onQuick }: {
         {result ? (
           <>
             <p className="font-bold text-emerald-800 dark:text-emerald-200">지난 선택 · {result.label}</p>
+            {result.moment ? <p className="mt-1 text-sm font-black text-amber-700 dark:text-amber-300">{result.moment}</p> : null}
             <p className={`mt-1 ${mutedClass}`}>{result.summary}</p>
             {result.changes.length ? <p className="mt-1 font-bold">{result.changes.join(" · ")}</p> : null}
           </>

@@ -14,7 +14,7 @@ import { TrophyIcon } from "../Icons";
 import { cardClass, mutedClass, primaryButtonClass, secondaryButtonClass } from "../ui";
 import { CareerBoard } from "./CareerBoard";
 import { CareerCreate } from "./CareerCreate";
-import { DecisionCard, HalfSeason, HistoryTable, OvrChart, PlayerCard, ScoreBreakdown, SeasonReport, SimulationCard } from "./CareerParts";
+import { DecisionCard, HalfSeason, HistoryTable, OvrChart, PlayerCard, RivalCard, ScoreBreakdown, SeasonReport, SimulationCard } from "./CareerParts";
 import { TurnHeader, turnResult, type TurnResult } from "./CareerTurn";
 import styles from "./career.module.css";
 
@@ -349,6 +349,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
                       <SeasonReport season={last} />
                     </details>
                   ) : null}
+                  <RivalCard state={displayed} />
                 </div>
                 {busy ? <div className="absolute inset-0 flex flex-col justify-center p-2"><div className="sticky top-24 bottom-4"><SimulationCard {...busy} /></div></div> : null}
               </div>
@@ -492,6 +493,7 @@ function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked
             <div className="mt-2"><OvrChart history={state.history} dark /></div>
           </div>
         ) : null}
+        <RivalCompare summary={summary} />
         <div>
           <h3 className="text-xs font-bold text-white/60">커리어 발자취</h3>
           <p className="mt-1 leading-relaxed">{summary.clubs.join(" → ")}</p>
@@ -506,5 +508,46 @@ function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked
         </button>
       </div>
     </section>
+  );
+}
+
+/** 은퇴할 때 평생의 라이벌과 커리어를 나란히 비교해요. 앞선 쪽 숫자를 강조해요. */
+function RivalCompare({ summary }: { summary: CareerSummary }) {
+  const rival = summary.rival;
+  const rows: [string, number, number][] = [
+    ["최고 OVR", summary.peakOvr, rival.best],
+    ...(summary.pos === "GK" ? [] : [["골", summary.goals, rival.goals] as [string, number, number]]),
+    ["트로피", summary.trophies, rival.trophies],
+    ["발롱도르", summary.ballonDor, rival.ballonDor],
+  ];
+  const { won, drawn, lost } = rival.h2h;
+  return (
+    <div>
+      <h3 className="text-xs font-bold text-white/60">평생의 라이벌 · {rival.name} ({NATIONS[rival.nation].name})</h3>
+      <p className={`mt-1 font-extrabold ${rival.beat ? "text-[#d4f77d]" : "text-white/85"}`}>
+        {rival.beat ? "라이벌을 넘어섰어요! 레전드 점수 +150" : "이번에는 라이벌이 한 발 앞섰어요."}
+      </p>
+      <table className="mt-2 w-full rounded-xl bg-white/[0.05] text-center text-sm tabular-nums">
+        <thead>
+          <tr className="text-[10px] text-white/55">
+            <th scope="col" className="py-2 font-semibold"><span className="sr-only">항목</span></th>
+            <th scope="col" className="py-2 font-semibold">나</th>
+            <th scope="col" className="py-2 font-semibold">{rival.name}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([label, mine, theirs]) => (
+            <tr key={label} className="border-t border-white/[0.06]">
+              <th scope="row" className="py-1.5 text-xs font-semibold text-white/60">{label}</th>
+              <td className={`py-1.5 ${mine > theirs ? "font-black text-[#d4f77d]" : "text-white/80"}`}>{mine.toLocaleString("ko-KR")}</td>
+              <td className={`py-1.5 ${theirs > mine ? "font-black text-rose-300" : "text-white/80"}`}>{theirs.toLocaleString("ko-KR")}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-2 text-xs text-white/65">
+        맞대결 {won}승 {drawn}무 {lost}패 · {rival.retiredAge === null ? `라이벌은 ${rival.lastClub}에서 아직 뛰고 있어요` : `라이벌은 ${rival.retiredAge}세에 ${rival.lastClub}에서 은퇴`}
+      </p>
+    </div>
   );
 }

@@ -103,6 +103,7 @@ try {
   await waitFor(`document.querySelector('section[aria-labelledby="career-decision"] button')`);
   assert.ok(await evaluate(`document.body.innerText.includes('테스트맨') && document.body.innerText.includes('프리시즌')`));
   assert.equal(await evaluate(`JSON.parse(localStorage.getItem('football-career-v1')).setup.reroll`), 1, "다시 뽑은 횟수가 저장돼요");
+  assert.ok(await evaluate(`document.querySelector('section[aria-label="라이벌"]')?.innerText.includes('평생의 라이벌')`), "라이벌 카드");
 
   // 실제로 선택 버튼까지 내려간 뒤 연출 전·중·후의 스크롤 위치를 매 프레임 비교해요.
   // 시즌 리포트를 펼쳐 둔 상태와 가장 아래 선택지도 검사해요.
@@ -187,6 +188,7 @@ try {
   await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   let sawReport = false;
+  let sawMoment = false;
   for (let guard = 0; guard < 140; guard++) {
     if (await evaluate(`document.body.innerText.includes('LEGEND SCORE')`)) break;
     await waitFor(`document.querySelector('section[aria-labelledby="career-decision"] button') || document.body.innerText.includes('LEGEND SCORE')`);
@@ -197,10 +199,18 @@ try {
       await screenshot("career-season.png");
     }
     if (await evaluate(`document.body.innerText.includes('LEGEND SCORE')`)) break;
+    if (!sawMoment && await evaluate(`document.body.innerText.includes('BIG MOMENT')`)) {
+      sawMoment = true;
+      await evaluate(`document.getElementById('career-decision').scrollIntoView({ block: 'center', behavior: 'instant' })`);
+      await noOverflow("결정적 순간 390px");
+      await screenshot("career-moment.png");
+    }
     await choose();
   }
   assert.ok(sawReport, "시즌 리포트를 보지 못했어요");
   assert.ok(await evaluate(`document.body.innerText.includes('LEGEND SCORE')`), "은퇴까지 가지 못했어요");
+  assert.ok(await evaluate(`document.body.innerText.includes('평생의 라이벌 ·') && document.body.innerText.includes('맞대결')`), "은퇴 화면의 라이벌 비교");
+  console.log(sawMoment ? "결정적 순간 화면 확인" : "이번 커리어에는 결정적 순간이 없었어요");
   await noOverflow("은퇴 화면 390px");
   await command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }, { name: "prefers-reduced-motion", value: "reduce" }] });
   await screenshot("career-retired.png");

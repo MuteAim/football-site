@@ -130,7 +130,7 @@ function checkDecision(s, seen) {
       seen.offers++;
     }
   }
-  if (decision.kind === "event" && s.history.length === 0) seen.firstEvents++;
+  if (decision.kind === "event" && decision.id !== "moment" && s.history.length === 0) seen.firstEvents++;
 }
 
 test("무작위로 수백 번 골라도 규칙이 깨지지 않고 모든 커리어가 은퇴로 끝난다", () => {
@@ -189,6 +189,119 @@ test("무작위로 수백 번 골라도 규칙이 깨지지 않고 모든 커리
   assert.ok(seen.loan > 0 && seen.transfer > 0 && seen.offers > 0, "임대와 이적이 모두 나와요");
   assert.equal(seen.firstEvents, 300, "첫 시즌에는 늘 사건이 있어요");
   assert.ok(seen.reserve > 0 && seen.youthCup > 0, "2군 경기와 U-20 월드컵이 나와요");
+});
+
+/** 이어지는 사건이 잘 나오도록 사건을 일으키는 쪽을 자주 골라요. 나머지는 무작위예요. */
+function storyPicker(random) {
+  const prefer = { sns: "prove", bigclub: "go", agent: "sign", loyalLegend: "promise" };
+  return (s) => {
+    const { kind, id, options } = s.pending;
+    const index = (value) => options.findIndex((option) => option.value === value);
+    if (kind === "event" && prefer[id] && index(prefer[id]) >= 0) return index(prefer[id]);
+    if (kind === "offseason" && random(10) < 6) {
+      const stay = options.findIndex((option) => option.value === "stay" || option.value === "renew");
+      if (stay >= 0) return stay;
+    }
+    return random(options.length);
+  };
+}
+
+test("라이벌·결정적 순간·이어지는 사건이 규칙대로 움직인다", () => {
+  const random = lcg(2027);
+  const pickStory = storyPicker(random);
+  const seen = new Set();
+  const hints = { right: 0, total: 0 };
+  let replayedMoment = false;
+  for (let n = 0; n < 300; n++) {
+    const nation = D.NATION_ORDER[random(D.NATION_ORDER.length)];
+    const setup = { name: "라이벌", nation, league: D.NATIONS[nation].home, pos: D.POSITION_ORDER[random(D.POSITION_ORDER.length)], pick: random(3) };
+    const seed = random(2 ** 31);
+    let state = E.createCareer(seed, 2026, setup);
+    assert.notEqual(state.rival.club, state.club, "라이벌은 다른 구단 유스에서 시작해요");
+    const choices = [];
+    let moments = 0;
+    while (state.phase !== "retired") {
+      const { kind, id, options, title, body } = state.pending;
+      const d = state.draft;
+      if (kind === "event") {
+        seen.add(id);
+        const last = state.history.at(-1);
+        if (id === "moment") {
+          const m = d.moment;
+          assert.ok(m && title.startsWith(`${m.name} 결승`), title);
+          assert.equal(m.kind === "save", state.pos === "GK", "골키퍼는 선방, 필드 플레이어는 킥");
+          assert.deepEqual(options.map((option) => option.value.split(":")[0]), Array(3).fill({ penalty: "kick", save: "dive", freekick: "fk" }[m.kind]));
+          assert.ok(body.includes("스카우팅 리포트"));
+          hints.total++;
+          if (m.hint === m.style) hints.right++;
+        }
+        if (id === "discipline") assert.ok(state.flags.includes(`scandal-${d.year - 1}`));
+        if (id === "fanAnger") assert.ok(state.flags.includes(`bigclub-${d.year - 1}`) && last.club === d.club);
+        if (id === "agentPush") assert.ok(state.flags.includes("agent") && !state.flags.includes("agent-push"));
+        if (id === "surgery") assert.ok(d.major && state.injury >= 10);
+        if (id === "rivalTeammate") assert.equal(state.rival.club, d.club);
+        if (id === "rivalClash") assert.ok(state.rival.club !== d.club && D.CLUBS[state.rival.club].league === D.CLUBS[d.club].league);
+        if (id === "rivalBallon") assert.equal(last.rival.ballon, 1);
+        for (const text of [title, body, ...options.map((option) => option.label)]) assert.ok(copulaOk(text), text);
+      }
+      const index = pickStory(state);
+      const before = state;
+      choices.push(index);
+      state = E.choose(state, index);
+      if (id === "moment") {
+        moments++;
+        const m = before.draft.moment;
+        assert.match(state.lastMoment, new RegExp(`^${m.name} 결승 · .+ · (우승!|준우승)$`));
+        const won = state.lastMoment.endsWith("우승!");
+        const season = state.draft?.year === before.draft.year ? null : state.history.at(-1);
+        const highlights = season ? season.highlights : state.draft.highlights;
+        assert.ok(highlights.includes(state.lastMoment), "결정적 순간은 시즌 하이라이트에 남아요");
+        if (season && m.comp === "cup") assert.equal(season.cup, won ? 6 : 5);
+        if (season && m.comp === "cont") assert.equal(season.continental, won ? 6 : 5);
+        if (season && m.comp === "nt") assert.ok(season.tournaments.includes(`${m.name} ${won ? "우승" : "준우승"}`), season.tournaments.join());
+      } else assert.equal(state.lastMoment, null, "결정적 순간 결과는 다음 선택 때 지워요");
+    }
+    if (moments && !replayedMoment) {
+      const replayed = E.replayCareer({ v: E.CAREER_VERSION, seed, startYear: 2026, setup, choices });
+      assert.deepEqual(JSON.parse(JSON.stringify(replayed)), JSON.parse(JSON.stringify(state)), "결정적 순간이 있어도 다시 계산하면 같아요");
+      replayedMoment = true;
+    }
+
+    // 라이벌의 통산 기록은 시즌 기록의 합이고, 은퇴하면 그다음 시즌부터 기록이 없어요.
+    const rv = state.rival;
+    const seasons = state.history.map((season) => season.rival).filter(Boolean);
+    assert.equal(rv.pos, setup.pos);
+    assert.ok(D.NATION_ORDER.includes(rv.nation) && rv.name.length >= 2);
+    assert.equal(rv.apps, seasons.reduce((sum, season) => sum + season.apps, 0));
+    assert.equal(rv.goals, seasons.reduce((sum, season) => sum + season.goals, 0));
+    assert.equal(rv.trophies, seasons.reduce((sum, season) => sum + season.trophies.length, 0));
+    assert.equal(rv.ballonDor, seasons.filter((season) => season.ballon === 1).length);
+    assert.ok(rv.best >= Math.max(...seasons.map((season) => season.ovr)) && rv.best <= 99);
+    assert.ok(state.history.every((season) => !(season.ballon === 1 && season.rival?.ballon === 1)), "발롱도르는 한 해에 한 명");
+    const retiredAt = state.history.findIndex((season) => season.rival?.retired);
+    if (rv.retiredAge !== null) {
+      assert.ok(retiredAt >= 0 && rv.retiredAge >= 34 && rv.retiredAge <= 38);
+      assert.ok(state.history.slice(retiredAt + 1).every((season) => season.rival === null));
+    } else assert.equal(retiredAt, -1);
+    for (const value of Object.values(rv.h2h)) assert.ok(Number.isInteger(value) && value >= 0);
+    const summary = E.summarizeCareer(state);
+    assert.equal(summary.rival.beat, E.beatRival(state));
+    assert.equal(E.legacyBreakdown(state).rival, rv.h2h.won * 10 + (summary.rival.beat ? 150 : 0));
+
+    // 영구 결번은 약속한 팀에서 은퇴할 때만 받아요.
+    const legend = state.history.flatMap((season) => season.trophies).filter((honor) => honor.label.endsWith("영구 결번"));
+    if (legend.length) {
+      assert.equal(legend.length, 1);
+      assert.ok(state.history.at(-1).trophies.includes(legend[0]));
+      assert.ok(state.flags.includes(`legend:${state.history.at(-1).club}`));
+      seen.add("legendRetired");
+    }
+  }
+  for (const id of ["moment", "discipline", "fanAnger", "agentPush", "surgery", "loyalLegend", "rivalClash", "rivalPress", "rivalBallon", "rivalTeammate", "legendRetired"]) {
+    assert.ok(seen.has(id), `${id} 사건이 한 번은 나와요`);
+  }
+  const ratio = hints.right / hints.total;
+  assert.ok(hints.total >= 100 && ratio > 0.7 && ratio < 0.9, `스카우팅 리포트 적중률 ${ratio}`);
 });
 
 test("잘못된 선수 정보·선택·버전은 거절한다", () => {
