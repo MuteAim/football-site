@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { Avatar, LevelBadge, NameBadge } from "@/components/cafe/Avatar";
+import { Avatar, LevelBadge, NameBadge, RoleBadge } from "@/components/cafe/Avatar";
 import { PostSkeleton } from "@/components/cafe/CafeSkeletons";
 import { CommentForm } from "@/components/cafe/CommentForm";
 import { CommentJump } from "@/components/cafe/CommentJump";
@@ -10,6 +10,7 @@ import { CommentThread, ReplyButton } from "@/components/cafe/CommentThread";
 import { ConfirmButton } from "@/components/cafe/ConfirmButton";
 import { LikeButton } from "@/components/cafe/LikeButton";
 import { LoginLink } from "@/components/cafe/LoginLink";
+import { PinButton } from "@/components/cafe/PinButton";
 import { RichText } from "@/components/cafe/RichText";
 import { ViewCounter } from "@/components/cafe/ViewCounter";
 import { ChevronLeftIcon, EyeIcon, ReplyIcon } from "@/components/Icons";
@@ -23,11 +24,14 @@ import {
   textButtonClass,
 } from "@/components/ui";
 import { deleteComment, deletePost } from "@/lib/cafe/actions";
+import { lockNotice } from "@/lib/cafe/banner";
 import { boardHref, getBoard, parsePostId, postHref } from "@/lib/cafe/boards";
 import { isCafeConfigured } from "@/lib/cafe/config";
 import { getPost, hasLiked, listComments } from "@/lib/cafe/data";
+import { isStaff } from "@/lib/cafe/profile";
+import { lockFor } from "@/lib/cafe/settings";
 import { nameColorClass } from "@/lib/cafe/shop";
-import type { Comment, Post, Viewer } from "@/lib/cafe/types";
+import type { CafeSettings, Comment, Post, Viewer } from "@/lib/cafe/types";
 import { getViewer } from "@/lib/cafe/viewer";
 import { formatDateTime, formatRelativeTime } from "@/lib/time";
 
@@ -67,7 +71,7 @@ function CommentItem({
     );
   }
 
-  const canDelete = viewer?.id === comment.author.id || viewer?.profile?.isManager === true;
+  const canDelete = viewer?.id === comment.author.id || isStaff(viewer?.profile);
   // 내 소식에서 누르면 CommentJump가 이 댓글로 내려와서 잠깐 옅게 칠해 보여 줘요. 칠할 때는 바로, 지울 때는 천천히 바뀌어요.
   return (
     <div
@@ -90,7 +94,7 @@ function CommentItem({
           </span>
           <LevelBadge goals={comment.author.goals} />
           {comment.author.id === post.author.id ? <NameBadge tone="zinc">글쓴이</NameBadge> : null}
-          {comment.author.isManager ? <NameBadge>매니저</NameBadge> : null}
+          <RoleBadge author={comment.author} />
           <span className="shrink-0 text-zinc-400 dark:text-zinc-500">
             {formatRelativeTime(comment.createdAt, now)}
           </span>
@@ -121,11 +125,14 @@ function CommentSection({
   post,
   comments,
   viewer,
+  lock,
   now,
 }: {
   post: Post;
   comments: Comment[];
   viewer: Viewer | null;
+  /** 글쓰기 잠금에 걸리면 그 설정이에요. 그러면 댓글과 답글 입력칸 대신 안내를 보여 줘요. */
+  lock: CafeSettings["lock"] | null;
   now: Date;
 }) {
   const next = postHref(post);
@@ -151,7 +158,7 @@ function CommentSection({
           {tops.map((top) => {
             const thread = replies.get(top.id) ?? [];
             // 지워진 댓글에는 DB가 답글을 받지 않아서 버튼도 숨겨요.
-            const canReply = viewer?.profile != null && !top.deleted;
+            const canReply = viewer?.profile != null && !top.deleted && !lock;
             const item = (
               <>
                 <CommentItem comment={top} post={post} viewer={viewer} now={now} isReply={false} canReply={canReply} />
@@ -183,7 +190,9 @@ function CommentSection({
         <p className={`px-4 py-6 text-center text-sm ${mutedClass}`}>첫 댓글을 남겨 보세요.</p>
       )}
       <div className="border-t border-zinc-100 dark:border-white/[0.07]">
-        {viewer?.profile ? (
+        {viewer?.profile && lock ? (
+          <p className={`px-4 py-3 text-sm break-keep ${mutedClass}`}>{lockNotice(lock.message)}</p>
+        ) : viewer?.profile ? (
           <CommentForm postId={post.id} />
         ) : (
           <div className="flex items-center justify-between gap-3 px-4 py-3">
@@ -215,9 +224,13 @@ async function PostContent({ params }: { params: Params }) {
   const board = getBoard(slug);
   if (!post || !board || post.board !== slug) notFound();
 
-  const liked = viewer?.profile ? await hasLiked(id, viewer.id) : false;
+  const [liked, lock] = await Promise.all([
+    viewer?.profile ? hasLiked(id, viewer.id) : false,
+    viewer?.profile ? lockFor(viewer.profile) : null,
+  ]);
   const isOwner = viewer?.id === post.author.id;
-  const canDelete = isOwner || viewer?.profile?.isManager === true;
+  const isAdmin = viewer?.profile?.isAdmin === true;
+  const canDelete = isOwner || isStaff(viewer?.profile);
   const now = new Date();
 
   return (
@@ -233,7 +246,14 @@ async function PostContent({ params }: { params: Params }) {
 
       <article className={cardClass}>
         <header className="border-b border-zinc-100 px-5 pt-5 pb-4 dark:border-white/[0.07]">
-          <h1 className="text-xl leading-snug font-bold tracking-tight break-words">{post.title}</h1>
+          <h1 className="text-xl leading-snug font-bold tracking-tight break-words">
+            {post.pinned ? (
+              <span className="mr-1.5 inline-block -translate-y-0.5 rounded bg-rose-500/10 px-1.5 py-0.5 align-middle text-xs font-bold text-rose-600 dark:text-rose-300">
+                공지
+              </span>
+            ) : null}
+            {post.title}
+          </h1>
           <div className="mt-3 flex items-center gap-2.5">
             <Avatar
               id={post.author.id}
@@ -246,7 +266,7 @@ async function PostContent({ params }: { params: Params }) {
               <p className="flex items-center gap-1.5 text-sm font-semibold">
                 <span className={`truncate ${nameColorClass(post.author.nameColor)}`}>{post.author.nickname}</span>
                 <LevelBadge goals={post.author.goals} />
-                {post.author.isManager ? <NameBadge>매니저</NameBadge> : null}
+                <RoleBadge author={post.author} />
               </p>
               <p className={`mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs tabular-nums ${mutedClass}`}>
                 <span>{formatDateTime(post.createdAt)}</span>
@@ -283,6 +303,7 @@ async function PostContent({ params }: { params: Params }) {
 
         {canDelete ? (
           <div className="flex justify-end gap-1 border-t border-zinc-100 px-4 py-2 dark:border-white/[0.07]">
+            {isAdmin ? <PinButton postId={post.id} pinned={post.pinned} /> : null}
             {isOwner ? (
               <Link href={`${postHref(post)}/edit`} className={textButtonClass}>
                 수정
@@ -298,7 +319,7 @@ async function PostContent({ params }: { params: Params }) {
         ) : null}
       </article>
 
-      <CommentSection post={post} comments={comments} viewer={viewer} now={now} />
+      <CommentSection post={post} comments={comments} viewer={viewer} lock={lock} now={now} />
 
       <div className="mt-4 flex justify-center">
         <Link href={boardHref(board)} className={secondaryButtonClass}>

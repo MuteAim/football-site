@@ -9,10 +9,13 @@ import { PredictionCard } from "@/components/cafe/PredictionCard";
 import { TalkRoom } from "@/components/cafe/TalkRoom";
 import { ChevronLeftIcon } from "@/components/Icons";
 import { MatchSummary } from "@/components/MatchSummary";
+import { lockNotice } from "@/lib/cafe/banner";
 import { isCafeConfigured } from "@/lib/cafe/config";
 import { countTalkSides, listTalks } from "@/lib/cafe/data";
 import { getMatchGoals, settlePredictions } from "@/lib/cafe/goals";
 import { countPredictions, getMyPrediction } from "@/lib/cafe/predictions";
+import { isStaff } from "@/lib/cafe/profile";
+import { lockFor } from "@/lib/cafe/settings";
 import { getViewer } from "@/lib/cafe/viewer";
 import type { Match } from "@/lib/football-data";
 import { getMatchOnDay } from "@/lib/match-day";
@@ -44,6 +47,7 @@ async function MatchTalk({ match, path }: { match: Match; path: string }) {
     listTalks(match.id),
     countTalkSides(match.id),
   ]);
+  const lock = viewer?.profile ? await lockFor(viewer.profile) : null;
 
   return (
     <TalkRoom
@@ -55,7 +59,12 @@ async function MatchTalk({ match, path }: { match: Match; path: string }) {
       initialCounts={counts}
       viewer={
         viewer
-          ? { id: viewer.id, joined: viewer.profile !== null, isManager: viewer.profile?.isManager ?? false }
+          ? {
+              id: viewer.id,
+              joined: viewer.profile !== null,
+              staff: isStaff(viewer.profile),
+              locked: lock ? lockNotice(lock.message) : null,
+            }
           : null
       }
       joinHref={`/cafe/me?next=${encodeURIComponent(path)}`}

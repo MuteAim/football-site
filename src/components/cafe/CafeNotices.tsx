@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { DEFAULT_LOCK_MESSAGE } from "@/lib/cafe/banner";
 import type { Viewer } from "@/lib/cafe/types";
-import { ChatIcon } from "../Icons";
+import { ChatIcon, LockIcon } from "../Icons";
 import { cardClass, mutedClass, primaryButtonClass } from "../ui";
 import { LoginLink } from "./LoginLink";
 
@@ -21,6 +22,39 @@ export function CafeSetupNotice() {
         </li>
       </ol>
       <p className={`mt-2 ${mutedClass}`}>자세한 순서는 README의 &quot;카페 설정&quot;에 있어요.</p>
+    </div>
+  );
+}
+
+/** 카페 관리 화면에 운영자가 아닌 사람이 들어왔을 때 보여 주는 안내. */
+export function AdminOnly({ viewer }: { viewer: Viewer | null }) {
+  return (
+    <div className={`${cardClass} flex flex-col items-center gap-3 px-5 py-10 text-center break-keep`}>
+      <span className="flex size-11 items-center justify-center rounded-full bg-zinc-500/10 text-zinc-500 dark:text-zinc-400">
+        <LockIcon className="size-5" />
+      </span>
+      <p className="font-semibold">카페 운영자만 볼 수 있어요.</p>
+      <p className={`text-sm ${mutedClass}`}>
+        {viewer ? "운영자는 Supabase의 SQL Editor에서 정해요." : "운영자 계정으로 로그인해 주세요."}
+      </p>
+      {viewer ? null : (
+        <LoginLink next="/cafe/admin" className={`mt-1 ${primaryButtonClass}`}>
+          로그인하기
+        </LoginLink>
+      )}
+    </div>
+  );
+}
+
+/** 글쓰기 잠금(점검 모드) 중에 글쓰기 폼 대신 보여 주는 안내. message는 운영자가 적은 이유예요. */
+export function WriteLocked({ message }: { message: string | null }) {
+  return (
+    <div className={`${cardClass} flex flex-col items-center gap-3 px-5 py-10 text-center break-keep`}>
+      <span className="flex size-11 items-center justify-center rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400">
+        <LockIcon className="size-5" />
+      </span>
+      <p className="font-semibold">지금은 글쓰기를 잠시 멈췄어요.</p>
+      <p className={`text-sm ${mutedClass}`}>{message ?? DEFAULT_LOCK_MESSAGE}</p>
     </div>
   );
 }

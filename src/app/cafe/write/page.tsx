@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { EditorSkeleton } from "@/components/cafe/CafeSkeletons";
-import { MemberRequired } from "@/components/cafe/CafeNotices";
+import { MemberRequired, WriteLocked } from "@/components/cafe/CafeNotices";
 import { PostEditor } from "@/components/cafe/PostEditor";
 import { isWritableBoard } from "@/lib/cafe/boards";
+import { lockFor } from "@/lib/cafe/settings";
 import { getViewer } from "@/lib/cafe/viewer";
 
 export const metadata: Metadata = { title: "글쓰기" };
@@ -19,6 +20,8 @@ async function WriteContent({ searchParams }: { searchParams: PageProps<"/cafe/w
       </MemberRequired>
     );
   }
+  const lock = await lockFor(viewer.profile);
+  if (lock) return <WriteLocked message={lock.message} />;
   return <PostEditor defaultBoard={slug} cancelHref={`/cafe/${slug}`} />;
 }
 

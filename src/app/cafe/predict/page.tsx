@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { after, connection } from "next/server";
 import { Suspense } from "react";
-import { Avatar, LevelBadge, NameBadge } from "@/components/cafe/Avatar";
+import { Avatar, LevelBadge, NameBadge, RoleBadge } from "@/components/cafe/Avatar";
 import { PostListSkeleton } from "@/components/cafe/CafeSkeletons";
 import { EmptyState } from "@/components/EmptyState";
 import { TrophyIcon } from "@/components/Icons";
@@ -40,7 +40,7 @@ function RankRow({ entry, rank, mine }: { entry: RankingEntry; rank: number; min
           {entry.author.nickname}
         </span>
         <LevelBadge goals={entry.author.goals} />
-        {entry.author.isManager ? <NameBadge>매니저</NameBadge> : null}
+        <RoleBadge author={entry.author} />
         {mine ? <NameBadge tone="zinc">나</NameBadge> : null}
       </div>
       <div className="shrink-0 text-right tabular-nums">

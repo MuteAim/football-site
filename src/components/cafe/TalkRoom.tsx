@@ -20,7 +20,7 @@ import {
   primaryButtonClass,
   textButtonClass,
 } from "../ui";
-import { Avatar, LevelBadge, NameBadge } from "./Avatar";
+import { Avatar, LevelBadge, RoleBadge } from "./Avatar";
 import { LoginLink } from "./LoginLink";
 
 // 화면에 들고 있는 응원톡 최대 개수. 오래된 것부터 지워서 오래 켜 둬도 느려지지 않아요.
@@ -93,7 +93,8 @@ export function TalkRoom({
   initialTalks: Talk[];
   initialAuthors: Author[];
   initialCounts: Record<TalkSide, number>;
-  viewer: { id: string; joined: boolean; isManager: boolean } | null;
+  /** staff는 매니저나 운영자, locked는 글쓰기 잠금에 걸렸을 때 입력칸 대신 보여 줄 안내예요. */
+  viewer: { id: string; joined: boolean; staff: boolean; locked: string | null } | null;
   /** 닉네임을 아직 안 정한 사람을 보낼 주소 */
   joinHref: string;
 }) {
@@ -271,7 +272,7 @@ export function TalkRoom({
                       {nickname}
                     </span>
                     {author ? <LevelBadge goals={author.goals} /> : null}
-                    {author?.isManager ? <NameBadge>매니저</NameBadge> : null}
+                    <RoleBadge author={author} />
                     {talk.side ? (
                       <span className={`inline-flex shrink-0 items-center gap-1 font-medium ${SIDE_STYLE[talk.side].text}`}>
                         <Crest src={teams[talk.side].crest} size={14} />
@@ -281,7 +282,7 @@ export function TalkRoom({
                     <span className="shrink-0 text-zinc-400 tabular-nums dark:text-zinc-500">
                       {formatKickoff(talk.createdAt)}
                     </span>
-                    {mine || viewer?.isManager ? (
+                    {mine || viewer?.staff ? (
                       <button
                         type="button"
                         onClick={() => void remove(talk.id)}
@@ -300,7 +301,9 @@ export function TalkRoom({
       </div>
 
       <div className="border-t border-zinc-100 px-4 pt-3 pb-4 dark:border-white/[0.07]">
-        {viewer?.joined ? (
+        {viewer?.joined && viewer.locked ? (
+          <p className="text-sm break-keep text-zinc-500 dark:text-zinc-400">{viewer.locked}</p>
+        ) : viewer?.joined ? (
           <form onSubmit={onSubmit} className="space-y-2">
             <div className="flex gap-1.5" role="group" aria-label="응원할 팀">
               {(["home", "away"] as const).map((key) => (

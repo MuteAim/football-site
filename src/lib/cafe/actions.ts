@@ -7,6 +7,7 @@ import { redirect } from "next/navigation";
 import { getMatchOnDay } from "../match-day";
 import { isPredictionOpen } from "../match-display";
 import { isDateKey } from "../time";
+import { lockNotice } from "./banner";
 import { getBoard, isWritableBoard, postHref } from "./boards";
 import {
   FLASH_COOKIE,
@@ -19,6 +20,7 @@ import {
   safeNext,
 } from "./config";
 import { countPredictions } from "./predictions";
+import { getCafeSettings } from "./settings";
 import type { ShopKind } from "./shop";
 import { createSessionClient } from "./supabase-server";
 import { findTeamChoice } from "./teams";
@@ -28,7 +30,8 @@ import type { FormState, PredictionCounts, PredictionPick, Talk, TalkSide } from
 // 서버 동작은 화면을 거치지 않고도 불릴 수 있어서, 매번 로그인과 입력값을 서버에서 다시 확인해요.
 // DB에도 같은 규칙(본인 글만 수정, 글자 수, 도배 방지)이 있어서 여기를 건너뛰어도 막혀요.
 
-type Member = { supabase: SupabaseClient; userId: string };
+/** staff는 매니저나 운영자예요. 글쓰기 잠금 중에도 쓸 수 있어요. */
+type Member = { supabase: SupabaseClient; userId: string; staff: boolean };
 
 /** 가입(닉네임 설정)까지 마친 회원만 통과시켜요. 아니면 화면에 보여 줄 오류 문구를 돌려줘요. */
 async function requireMember(): Promise<Member | string> {
@@ -38,9 +41,13 @@ async function requireMember(): Promise<Member | string> {
   const userId = data?.claims.sub;
   if (!userId) return "로그인이 필요해요. 다시 로그인해 주세요.";
 
-  const { data: profile } = await supabase.from("profiles").select("id").eq("id", userId).maybeSingle();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_manager, is_admin")
+    .eq("id", userId)
+    .maybeSingle<{ is_manager: boolean; is_admin: boolean }>();
   if (!profile) return "닉네임을 정한 뒤에 쓸 수 있어요.";
-  return { supabase, userId };
+  return { supabase, userId, staff: profile.is_manager || profile.is_admin };
 }
 
 /** DB가 거절한 이유를 사람이 읽을 문구로 바꿔요. 42501은 권한 규칙, 여기서는 대부분 도배 방지예요. */
@@ -50,6 +57,18 @@ function describe(error: PostgrestError, tooFast: string): string {
   if (error.code === "23503") return "이미 지워진 글이에요.";
   console.error(error);
   return "저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
+}
+
+/**
+ * 글·댓글·응원톡을 DB가 거절한 이유. 권한 규칙(42501)에 걸렸는데 글쓰기 잠금 중이면 잠금 안내를,
+ * 아니면 tooFast(도배 방지) 문구를 돌려줘요. 매니저와 운영자는 잠금에 걸리지 않아요.
+ */
+async function refusal(member: Member, error: PostgrestError, tooFast: string): Promise<string> {
+  if (error.code === "42501" && !member.staff) {
+    const { lock } = await getCafeSettings();
+    if (lock.on) return lockNotice(lock.message);
+  }
+  return describe(error, tooFast);
 }
 
 function text(formData: FormData, name: string): string {
@@ -275,7 +294,7 @@ export async function savePost(_prev: FormState, formData: FormData): Promise<Fo
       .eq("user_id", userId)
       .select("id, board")
       .maybeSingle<{ id: number; board: string }>();
-    if (error) return { error: describe(error, "이 글을 고칠 수 없어요."), values };
+    if (error) return { error: await refusal(member, error, "이 글을 고칠 수 없어요."), values };
     if (!data) return { error: "내가 쓴 글만 고칠 수 있어요.", values };
     await flash("글을 고쳤어요");
     redirect(postHref(data));
@@ -286,7 +305,9 @@ export async function savePost(_prev: FormState, formData: FormData): Promise<Fo
     .insert({ board, title, body })
     .select("id, board")
     .single<{ id: number; board: string }>();
-  if (error) return { error: describe(error, "글은 30초에 한 번만 쓸 수 있어요. 잠시 후 다시 올려 주세요."), values };
+  if (error) {
+    return { error: await refusal(member, error, "글은 30초에 한 번만 쓸 수 있어요. 잠시 후 다시 올려 주세요."), values };
+  }
   await flash("글을 올렸어요");
   redirect(postHref(data));
 }
@@ -370,7 +391,7 @@ export async function addComment(_prev: FormState, formData: FormData): Promise<
     const tooFast = parentId
       ? "답글을 달 수 없어요. 댓글이 지워졌거나, 5초 안에 또 쓰고 있어요."
       : "댓글은 5초에 한 번만 달 수 있어요.";
-    return { error: describe(error, tooFast), values };
+    return { error: await refusal(member, error, tooFast), values };
   }
   refresh();
   return { error: null };
@@ -443,7 +464,7 @@ export async function sendTalk(input: {
     .insert({ match_id: matchId, side, body })
     .select("id, user_id, side, body, created_at")
     .single<{ id: number; user_id: string; side: TalkSide | null; body: string; created_at: string }>();
-  if (error) return { error: describe(error, "조금만 천천히 보내 주세요.") };
+  if (error) return { error: await refusal(member, error, "조금만 천천히 보내 주세요.") };
   return {
     talk: { id: data.id, userId: data.user_id, side: data.side, body: data.body, createdAt: data.created_at },
   };

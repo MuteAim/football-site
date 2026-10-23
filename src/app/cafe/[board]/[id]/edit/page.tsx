@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { EditorSkeleton } from "@/components/cafe/CafeSkeletons";
-import { MemberRequired } from "@/components/cafe/CafeNotices";
+import { MemberRequired, WriteLocked } from "@/components/cafe/CafeNotices";
 import { PostEditor } from "@/components/cafe/PostEditor";
 import { EmptyState } from "@/components/EmptyState";
 import { parsePostId, postHref } from "@/lib/cafe/boards";
 import { getPost } from "@/lib/cafe/data";
+import { lockFor } from "@/lib/cafe/settings";
 import { getViewer } from "@/lib/cafe/viewer";
 
 export const metadata: Metadata = { title: "글 고치기" };
@@ -20,6 +21,8 @@ async function EditContent({ params }: { params: PageProps<"/cafe/[board]/[id]/e
   if (!post || post.board !== board) notFound();
   if (!viewer?.profile) return <MemberRequired viewer={viewer} next={`${postHref(post)}/edit`} />;
   if (viewer.id !== post.author.id) return <EmptyState>내가 쓴 글만 고칠 수 있어요.</EmptyState>;
+  const lock = await lockFor(viewer.profile);
+  if (lock) return <WriteLocked message={lock.message} />;
 
   return (
     <PostEditor

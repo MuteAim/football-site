@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { after } from "next/server";
 import { Suspense } from "react";
-import { Avatar, LevelBadge, NameBadge } from "@/components/cafe/Avatar";
+import { Avatar, LevelBadge, RoleBadge } from "@/components/cafe/Avatar";
 import { MemberRequired } from "@/components/cafe/CafeNotices";
 import { TeamPickerSkeleton } from "@/components/cafe/CafeSkeletons";
 import { ProfileForm } from "@/components/cafe/ProfileForm";
@@ -155,7 +155,7 @@ async function MeContent({ searchParams }: { searchParams: PageProps<"/cafe/me">
             <h1 className="flex items-center gap-1.5 text-xl font-bold tracking-tight">
               <span className={`truncate ${nameColorClass(profile.nameColor)}`}>{profile.nickname}</span>
               <LevelBadge goals={profile.goals} />
-              {profile.isManager ? <NameBadge>매니저</NameBadge> : null}
+              <RoleBadge author={profile} />
             </h1>
             <p className={`truncate text-sm ${mutedClass}`}>
               {profile.team ? `카페 회원 · ${profile.team.name} 팬` : "카페 회원"}

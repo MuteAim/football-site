@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { nameColorClass } from "@/lib/cafe/shop";
 import type { Author } from "@/lib/cafe/types";
-import { BagIcon, BellIcon, ChevronDownIcon, TrophyIcon, UserIcon } from "../Icons";
+import { BagIcon, BellIcon, ChevronDownIcon, SlidersIcon, TrophyIcon, UserIcon } from "../Icons";
 import { cardClass, mutedClass } from "../ui";
 import { Avatar, LevelBadge } from "./Avatar";
 import { SignOutButton } from "./SignOutButton";
@@ -102,9 +102,20 @@ function MenuLink({
 
 /**
  * 카페 배너 오른쪽의 내 계정 메뉴. 내 닉네임을 누르면 등급과 골, 내 소식·내 정보·상점·예측 순위로 가는 길이 펼쳐져요.
- * 안 읽은 내 소식이 있으면 닉네임 옆 프로필 그림에 빨간 숫자가 붙어요. 바깥을 누르거나 Esc를 누르면 닫혀요.
+ * 운영자에게는 카페 관리도 보여요. 안 읽은 내 소식이 있으면 닉네임 옆 프로필 그림에 빨간 숫자가 붙어요.
+ * 바깥을 누르거나 Esc를 누르면 닫혀요. badgeRing은 숫자 배지를 배너 색과 떼어 보이게 두르는 테두리 색이에요.
  */
-export function AccountMenu({ me, unread, chipClass }: { me: Author; unread: number; chipClass: string }) {
+export function AccountMenu({
+  me,
+  unread,
+  chipClass,
+  badgeRing,
+}: {
+  me: Author;
+  unread: number;
+  chipClass: string;
+  badgeRing: string;
+}) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
@@ -139,7 +150,9 @@ export function AccountMenu({ me, unread, chipClass }: { me: Author; unread: num
         <span className="relative shrink-0">
           <Avatar id={me.id} nickname={me.nickname} team={me.team} frame={me.frame} size="sm" />
           {count > 0 ? (
-            <span className="absolute -top-1.5 -right-1.5 min-w-[18px] rounded-full bg-rose-500 px-1 text-center text-[11px] leading-[18px] font-bold text-white tabular-nums ring-2 ring-emerald-800">
+            <span
+              className={`absolute -top-1.5 -right-1.5 min-w-[18px] rounded-full bg-rose-500 px-1 text-center text-[11px] leading-[18px] font-bold text-white tabular-nums ring-2 ${badgeRing}`}
+            >
               {countLabel(count)}
               <span className="sr-only">개의 새 소식</span>
             </span>
@@ -194,6 +207,15 @@ export function AccountMenu({ me, unread, chipClass }: { me: Author; unread: num
               hint="내 순위와 적중률"
               onPick={close}
             />
+            {me.isAdmin ? (
+              <MenuLink
+                href="/cafe/admin"
+                icon={<SlidersIcon className="size-4" />}
+                label="카페 관리"
+                hint="배너·공지·글쓰기 잠금과 운영 기록"
+                onPick={close}
+              />
+            ) : null}
           </nav>
           <div className="border-t border-zinc-100 p-1.5 dark:border-white/[0.07]">
             <SignOutButton

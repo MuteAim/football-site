@@ -205,3 +205,43 @@ export function BellIcon({ className = "size-4" }: IconProps) {
     </LineIcon>
   );
 }
+
+/** 카페 맨 위 한 줄 공지. 확성기 모양이에요. */
+export function MegaphoneIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M4 10v4a1 1 0 0 0 1 1h2l6 4V5L7 9H5a1 1 0 0 0-1 1z" />
+      <path d="M17 9a4 4 0 0 1 0 6" />
+    </LineIcon>
+  );
+}
+
+/** 글쓰기 잠금. 자물쇠 모양이에요. */
+export function LockIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M5.5 11h13a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-6A1.5 1.5 0 0 1 5.5 11z" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </LineIcon>
+  );
+}
+
+/** 공지로 올린 글. 압정 모양이에요. */
+export function PinIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M9 4h6l-1 6 3 3H7l3-3-1-6z" />
+      <path d="M12 13v7" />
+    </LineIcon>
+  );
+}
+
+/** 카페 관리. 조절 막대 모양이에요. */
+export function SlidersIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M4 7h9M19 7h1M4 17h3M13 17h7" />
+      <path d="M16 4.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM10 14.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z" />
+    </LineIcon>
+  );
+}

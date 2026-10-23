@@ -4,12 +4,13 @@ import type { Author } from "./types";
 // 서버와 응원톡(브라우저)이 같이 써요.
 
 export const PROFILE_COLUMNS =
-  "id, nickname, is_manager, goals, team_id, team_name, team_crest, name_color, avatar_frame";
+  "id, nickname, is_manager, is_admin, goals, team_id, team_name, team_crest, name_color, avatar_frame";
 
 export type RawProfile = {
   id: string;
   nickname: string;
   is_manager: boolean;
+  is_admin: boolean;
   goals: number;
   team_id: number | null;
   team_name: string | null;
@@ -23,6 +24,7 @@ export function toAuthor(raw: RawProfile): Author {
     id: raw.id,
     nickname: raw.nickname,
     isManager: raw.is_manager,
+    isAdmin: raw.is_admin,
     goals: raw.goals,
     nameColor: raw.name_color,
     frame: raw.avatar_frame,
@@ -32,4 +34,9 @@ export function toAuthor(raw: RawProfile): Author {
         ? { id: raw.team_id, name: raw.team_name, crest: raw.team_crest }
         : null,
   };
+}
+
+/** 매니저나 운영자인지. 아무 글이나 지우고, 글쓰기 잠금 중에도 쓸 수 있어요. */
+export function isStaff(author: Author | null | undefined): boolean {
+  return author?.isManager === true || author?.isAdmin === true;
 }

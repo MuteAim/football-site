@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { boardHref, postHref, type Board } from "@/lib/cafe/boards";
-import { listPosts, listWeeklyBest } from "@/lib/cafe/data";
+import { listPinned, listPosts, listWeeklyBest } from "@/lib/cafe/data";
 import type { PostSummary } from "@/lib/cafe/types";
 import { EmptyState } from "../EmptyState";
 import { ChevronRightIcon, HeartIcon, PencilIcon } from "../Icons";
@@ -55,16 +55,26 @@ function WeeklyBest({ posts }: { posts: PostSummary[] }) {
 
 async function BoardPosts({ board, searchParams }: { board: Board; searchParams: SearchParams }) {
   const page = parsePage((await searchParams).page);
-  const [{ posts, total }, best] = await Promise.all([
+  const first = page === 1;
+  const [{ posts: listed, total }, pinned, best] = await Promise.all([
     listPosts(board.slug, page),
-    board.slug === "" && page === 1 ? listWeeklyBest() : Promise.resolve([]),
+    first ? listPinned(board.slug) : Promise.resolve([]),
+    board.slug === "" && first ? listWeeklyBest() : Promise.resolve([]),
   ]);
+  // 첫 쪽에서는 공지를 맨 위에 따로 모아 보여 줘서, 아래 목록에서는 빼요.
+  const pinnedIds = new Set(pinned.map((post) => post.id));
+  const posts = listed.filter((post) => !pinnedIds.has(post.id));
   const now = new Date();
 
   return (
     <>
+      {pinned.length > 0 ? (
+        <section aria-label="공지" className={`${cardClass} mb-3`}>
+          <PostList posts={pinned} showBoard={!board.writable} now={now} />
+        </section>
+      ) : null}
       <WeeklyBest posts={best} />
-      {posts.length === 0 ? (
+      {posts.length === 0 && pinned.length === 0 ? (
         <EmptyState>
           {page > 1
             ? "이 쪽에는 글이 없어요."
@@ -72,11 +82,11 @@ async function BoardPosts({ board, searchParams }: { board: Board; searchParams:
               ? "아직 인기글이 없어요. 마음에 드는 글에 추천을 눌러 주세요!"
               : "아직 글이 없어요. 첫 글을 남겨 보세요!"}
         </EmptyState>
-      ) : (
+      ) : posts.length > 0 ? (
         <section className={cardClass}>
           <PostList posts={posts} showBoard={!board.writable} now={now} />
         </section>
-      )}
+      ) : null}
       <Pagination page={page} total={total} basePath={boardHref(board)} />
     </>
   );

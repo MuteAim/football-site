@@ -20,6 +20,7 @@ type RawPostSummary = {
   like_count: number;
   comment_count: number;
   created_at: string;
+  pinned_at: string | null;
   author: RawAuthorField;
 };
 
@@ -45,11 +46,13 @@ type RawTalk = {
 
 // 글과 회원은 작성자(user_id) 말고 추천(post_likes)으로도 이어져 있어서, 어느 쪽으로 이을지 꼭 적어 줘야 해요.
 const AUTHOR = `author:profiles!user_id(${PROFILE_COLUMNS})`;
-const POST_SUMMARY = `id, board, title, view_count, like_count, comment_count, created_at, ${AUTHOR}`;
+const POST_SUMMARY = `id, board, title, view_count, like_count, comment_count, created_at, pinned_at, ${AUTHOR}`;
 
 function toAuthor(field: RawAuthorField): Author {
   const raw = Array.isArray(field) ? field[0] : field;
-  if (!raw) return { id: "", nickname: "알 수 없음", isManager: false, goals: 0, nameColor: null, frame: null, team: null };
+  if (!raw) {
+    return { id: "", nickname: "알 수 없음", isManager: false, isAdmin: false, goals: 0, nameColor: null, frame: null, team: null };
+  }
   return profileToAuthor(raw);
 }
 
@@ -63,6 +66,7 @@ function toPostSummary(raw: RawPostSummary): PostSummary {
     commentCount: raw.comment_count,
     createdAt: raw.created_at,
     author: toAuthor(raw.author),
+    pinned: raw.pinned_at !== null,
   };
 }
 
@@ -103,6 +107,20 @@ async function countPosts(slug: string): Promise<number> {
   const { count, error } = await query;
   if (error) throw new CafeError(error.message);
   return count ?? 0;
+}
+
+/**
+ * 공지로 올린 글. 최근에 올린 공지부터예요. slug가 비어 있으면 모든 게시판의 공지를, 게시판이면 그 게시판 공지만 줘요.
+ * 인기글 게시판에는 공지가 없어요.
+ */
+export async function listPinned(slug: string, limit = 5): Promise<PostSummary[]> {
+  if (slug === "best") return [];
+  const supabase = await publicClient();
+  let query = supabase.from("posts").select(POST_SUMMARY).not("pinned_at", "is", null);
+  if (slug) query = query.eq("board", slug);
+  const { data, error } = await query.order("pinned_at", { ascending: false }).limit(limit);
+  if (error) throw new CafeError(error.message);
+  return (data as RawPostSummary[]).map(toPostSummary);
 }
 
 /** 최근 7일 동안 추천을 가장 많이 받은 글. */

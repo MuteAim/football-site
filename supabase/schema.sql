@@ -194,6 +194,59 @@ create table if not exists public.notifications (
 );
 create index if not exists notifications_user_idx on public.notifications (user_id, id desc);
 
+-- ---------- 카페 운영 ----------
+-- 운영자(is_admin)는 카페 관리 화면(/cafe/admin)에서 배너와 공지, 글쓰기 잠금을 바꾸고 글을 공지로 올려요.
+-- 매니저 권한도 같이 가져요. 매니저처럼 SQL Editor에서만 정할 수 있고, 회원은 이 칸을 바꿀 수 없어요.
+alter table public.profiles add column if not exists is_admin boolean not null default false;
+
+-- 공지로 올린 글. 게시판 첫 쪽 위에 따로 보여요. 운영자가 pin_post로만 바꿔요.
+alter table public.posts add column if not exists pinned_at timestamptz;
+create index if not exists posts_pinned_idx on public.posts (pinned_at desc) where pinned_at is not null;
+
+-- 카페 설정. 한 줄만 있고 누구나 읽어요. 운영자가 카페 관리 화면에서 바꿔요.
+create table if not exists public.cafe_settings (
+  id boolean primary key default true check (id),
+  -- 배너
+  cafe_name text not null default '해축남',
+  tagline text not null default '해외축구에 진심인 사람들 대화하는곳',
+  banner_color text not null default 'emerald',
+  -- 카페 맨 위 한 줄 공지. 링크는 비워 둘 수 있어요.
+  notice_on boolean not null default false,
+  notice_text text,
+  notice_href text,
+  -- 글쓰기 잠금(점검 모드). 켜면 매니저와 운영자만 글·댓글·응원톡을 써요.
+  write_locked boolean not null default false,
+  lock_message text,
+  updated_at timestamptz not null default now()
+);
+insert into public.cafe_settings (id) values (true) on conflict (id) do nothing;
+alter table public.cafe_settings drop constraint if exists cafe_settings_values_check;
+alter table public.cafe_settings add constraint cafe_settings_values_check check (
+  char_length(btrim(cafe_name)) between 1 and 20
+  and char_length(btrim(tagline)) between 1 and 40
+  and banner_color in ('emerald', 'teal', 'sky', 'indigo', 'violet', 'rose', 'amber', 'slate')
+  and (notice_text is null or char_length(btrim(notice_text)) between 1 and 100)
+  -- 공지 링크는 이 사이트 주소(/로 시작)나 https 주소만 받아요.
+  and (notice_href is null or (
+    char_length(notice_href) <= 300
+    and notice_href ~ '^(/([^/[:space:]][^[:space:]]*)?|https://[^[:space:]]+)$'
+  ))
+  and (not notice_on or notice_text is not null)
+  and (lock_message is null or char_length(btrim(lock_message)) between 1 and 100)
+);
+
+-- 운영 기록. 카페 설정을 바꾸거나 글을 공지로 올리고 내리면 DB가 한 줄씩 남겨요.
+-- changes에는 바뀐 칸마다 [이전 값, 새 값]을 적어요. 운영자만 보고, 1년이 지나면 지워요.
+create table if not exists public.admin_logs (
+  id bigint generated always as identity primary key,
+  -- SQL Editor에서 직접 바꾸면 비어 있어요.
+  actor_id uuid references public.profiles (id) on delete set null,
+  area text not null,
+  target text,
+  changes jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+
 -- ---------- 숫자 자동 계산 ----------
 -- 회원은 글의 숫자 칸을 직접 고칠 수 없어서, 추천·댓글이 생기거나 지워질 때 DB가 대신 세요.
 
@@ -518,10 +571,86 @@ language sql security definer set search_path = '' as $$
 $$;
 grant execute on function public.count_post_view(bigint) to anon, authenticated;
 
+-- 매니저인지. 운영자는 매니저 권한도 같이 가져요.
 create or replace function public.is_cafe_manager() returns boolean
 language sql stable security definer set search_path = '' as $$
-  select exists (select 1 from public.profiles where id = (select auth.uid()) and is_manager);
+  select exists (select 1 from public.profiles where id = (select auth.uid()) and (is_manager or is_admin));
 $$;
+
+create or replace function public.is_cafe_admin() returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.profiles where id = (select auth.uid()) and is_admin);
+$$;
+
+-- 글·댓글·응원톡을 쓸 수 있는지. 글쓰기 잠금(점검 모드) 중에는 매니저와 운영자만 써요.
+create or replace function public.can_write() returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = (select auth.uid())
+      and (p.is_manager or p.is_admin or not coalesce((select s.write_locked from public.cafe_settings s), false))
+  );
+$$;
+
+-- ---------- 운영 기록 ----------
+
+-- 카페 설정이 바뀌면 바뀐 칸만 [이전 값, 새 값]으로 남겨요.
+create or replace function public.log_admin_change() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  old_row jsonb := to_jsonb(old);
+  new_row jsonb := to_jsonb(new);
+  changes jsonb := '{}';
+  field text;
+begin
+  for field in select jsonb_object_keys(new_row) loop
+    if field <> 'updated_at' and old_row -> field is distinct from new_row -> field then
+      changes := changes || jsonb_build_object(field, jsonb_build_array(old_row -> field, new_row -> field));
+    end if;
+  end loop;
+  if changes <> '{}' then
+    perform public.log_admin_action(tg_table_name, null, changes);
+  end if;
+  return null;
+end $$;
+
+-- 운영 동작을 한 줄 남기고, 1년 지난 기록은 지워요. DB 함수와 트리거 안에서만 불러요.
+create or replace function public.log_admin_action(action text, target text, details jsonb) returns void
+language sql security definer set search_path = '' as $$
+  insert into public.admin_logs (actor_id, area, target, changes) values ((select auth.uid()), action, target, details);
+  delete from public.admin_logs where created_at < now() - interval '1 year';
+$$;
+
+create or replace function public.touch_updated_at() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  new.updated_at := now();
+  return new;
+end $$;
+
+drop trigger if exists cafe_settings_touch on public.cafe_settings;
+create trigger cafe_settings_touch before update on public.cafe_settings
+  for each row execute function public.touch_updated_at();
+drop trigger if exists cafe_settings_log on public.cafe_settings;
+create trigger cafe_settings_log after update on public.cafe_settings
+  for each row execute function public.log_admin_change();
+
+-- 글을 공지로 올리거나 내려요. 운영자만 할 수 있어요.
+create or replace function public.pin_post(target bigint, pinned boolean) returns void
+language plpgsql security definer set search_path = '' as $$
+declare
+  post_title text;
+begin
+  if not public.is_cafe_admin() then
+    raise exception '운영자만 공지를 정할 수 있어요.' using errcode = '42501';
+  end if;
+  update public.posts set pinned_at = case when pinned then now() end where id = target
+  returning title into post_title;
+  if not found then
+    raise exception '없는 글이에요.' using errcode = 'P0002';
+  end if;
+  perform public.log_admin_action('pin', target::text, jsonb_build_object('pinned', pinned, 'title', post_title));
+end $$;
 
 -- ---------- 권한 ----------
 -- 읽기는 누구나, 쓰기는 가입한 회원 본인만 할 수 있어요.
@@ -529,14 +658,16 @@ $$;
 
 revoke all on public.profiles, public.posts, public.comments, public.post_likes, public.match_talks,
   public.match_predictions, public.goal_events, public.settled_matches, public.unsettled_matches,
-  public.shop_items, public.owned_items, public.notifications
+  public.shop_items, public.owned_items, public.notifications, public.cafe_settings, public.admin_logs
   from anon, authenticated;
 
-grant select on public.posts, public.comments, public.match_talks, public.match_predictions, public.shop_items
+grant select on public.posts, public.comments, public.match_talks, public.match_predictions, public.shop_items,
+  public.cafe_settings
   to anon, authenticated;
-grant select on public.post_likes, public.goal_events, public.owned_items, public.notifications to authenticated;
+grant select on public.post_likes, public.goal_events, public.owned_items, public.notifications, public.admin_logs
+  to authenticated;
 -- 회원 정보는 공개해도 되는 칸만 보여요. 언제 들어왔는지 알 수 있는 출석 칸은 본인만 my_attendance로 봐요.
-grant select (id, nickname, is_manager, goals, team_id, team_name, team_crest, name_color, avatar_frame, created_at)
+grant select (id, nickname, is_manager, is_admin, goals, team_id, team_name, team_crest, name_color, avatar_frame, created_at)
   on public.profiles to anon, authenticated;
 revoke all on function public.my_attendance() from public, anon;
 grant execute on function public.my_attendance() to authenticated;
@@ -559,6 +690,15 @@ grant execute on function public.equip_item(text, text) to authenticated;
 revoke all on function public.read_notifications() from public, anon;
 grant execute on function public.read_notifications() to authenticated;
 
+-- 운영 기록은 DB 함수와 트리거 안에서만 남겨요. 회원이 직접 부르면 가짜 기록을 남길 수 있어서 막아요.
+revoke all on function public.log_admin_action(text, text, jsonb) from public, anon, authenticated;
+-- 공지 고정은 함수 안에서 운영자인지 다시 확인해요.
+revoke all on function public.pin_post(bigint, boolean) from public, anon;
+grant execute on function public.pin_post(bigint, boolean) to authenticated;
+-- 카페 설정은 바꿀 수 있는 칸만 열고, 운영자인지는 아래 규칙이 확인해요.
+grant update (cafe_name, tagline, banner_color, notice_on, notice_text, notice_href, write_locked, lock_message)
+  on public.cafe_settings to authenticated;
+
 grant insert (nickname), update (nickname, team_id, team_name, team_crest) on public.profiles to authenticated;
 grant insert (board, title, body), update (title, body, updated_at), delete on public.posts to authenticated;
 grant insert (post_id, parent_id, body), delete on public.comments to authenticated;
@@ -578,6 +718,18 @@ alter table public.settled_matches enable row level security;
 alter table public.shop_items enable row level security;
 alter table public.owned_items enable row level security;
 alter table public.notifications enable row level security;
+alter table public.cafe_settings enable row level security;
+alter table public.admin_logs enable row level security;
+
+-- 카페 설정은 누구나 보고, 운영자만 바꿔요. 운영 기록은 운영자만 봐요.
+drop policy if exists cafe_settings_select on public.cafe_settings;
+create policy cafe_settings_select on public.cafe_settings for select using (true);
+drop policy if exists cafe_settings_update on public.cafe_settings;
+create policy cafe_settings_update on public.cafe_settings for update to authenticated
+  using ((select public.is_cafe_admin())) with check ((select public.is_cafe_admin()));
+drop policy if exists admin_logs_select on public.admin_logs;
+create policy admin_logs_select on public.admin_logs for select to authenticated
+  using ((select public.is_cafe_admin()));
 
 -- 상점 아이템은 누구나 보고, 산 아이템은 내 것만 보여요.
 drop policy if exists shop_items_select on public.shop_items;
@@ -607,11 +759,13 @@ create policy profiles_update on public.profiles for update to authenticated
   using (id = (select auth.uid())) with check (id = (select auth.uid()));
 
 -- 게시글. 도배를 막으려고 글은 30초에 한 번만 쓸 수 있어요.
+-- 글쓰기 잠금 중에는 매니저와 운영자만 쓰고 고칠 수 있어요(can_write).
 drop policy if exists posts_select on public.posts;
 create policy posts_select on public.posts for select using (true);
 drop policy if exists posts_insert on public.posts;
 create policy posts_insert on public.posts for insert to authenticated with check (
   user_id = (select auth.uid())
+  and (select public.can_write())
   and not exists (
     select 1 from public.posts p
     where p.user_id = (select auth.uid()) and p.created_at > now() - interval '30 seconds'
@@ -619,18 +773,19 @@ create policy posts_insert on public.posts for insert to authenticated with chec
 );
 drop policy if exists posts_update on public.posts;
 create policy posts_update on public.posts for update to authenticated
-  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()) and (select public.can_write()));
 drop policy if exists posts_delete on public.posts;
 create policy posts_delete on public.posts for delete to authenticated
   using (user_id = (select auth.uid()) or (select public.is_cafe_manager()));
 
--- 댓글. 5초에 한 번만 달 수 있어요.
+-- 댓글. 5초에 한 번만 달 수 있고, 글쓰기 잠금 중에는 매니저와 운영자만 달아요.
 -- 답글은 같은 글의, 지워지지 않은 맨 위 댓글에만 달 수 있어요.
 drop policy if exists comments_select on public.comments;
 create policy comments_select on public.comments for select using (true);
 drop policy if exists comments_insert on public.comments;
 create policy comments_insert on public.comments for insert to authenticated with check (
   user_id = (select auth.uid())
+  and (select public.can_write())
   and not exists (
     select 1 from public.comments c
     where c.user_id = (select auth.uid()) and c.created_at > now() - interval '5 seconds'
@@ -665,12 +820,13 @@ drop policy if exists post_likes_delete on public.post_likes;
 create policy post_likes_delete on public.post_likes for delete to authenticated
   using (user_id = (select auth.uid()));
 
--- 응원톡. 3초에 한 번만 보낼 수 있어요.
+-- 응원톡. 3초에 한 번만 보낼 수 있고, 글쓰기 잠금 중에는 매니저와 운영자만 보내요.
 drop policy if exists match_talks_select on public.match_talks;
 create policy match_talks_select on public.match_talks for select using (true);
 drop policy if exists match_talks_insert on public.match_talks;
 create policy match_talks_insert on public.match_talks for insert to authenticated with check (
   user_id = (select auth.uid())
+  and (select public.can_write())
   and not exists (
     select 1 from public.match_talks t
     where t.user_id = (select auth.uid()) and t.created_at > now() - interval '3 seconds'

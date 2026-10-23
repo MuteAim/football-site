@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { bannerLook } from "@/lib/cafe/banner";
 import { isCafeConfigured } from "@/lib/cafe/config";
 import { getUnreadCount } from "@/lib/cafe/notifications";
+import { getCafeSettings } from "@/lib/cafe/settings";
 import { getViewer } from "@/lib/cafe/viewer";
-import { ChatIcon, PitchLines, UserIcon } from "../Icons";
+import { UserIcon } from "../Icons";
 import { LinkPending } from "../LinkPending";
 import { AccountMenu } from "./AccountMenu";
 import { ActiveBoardTabs, BoardTabs } from "./BoardTabs";
+import { CafeBanner, LockBar, NoticeBar } from "./CafeBanner";
 import { LoginLink } from "./LoginLink";
 
 const chipClass =
@@ -16,7 +19,7 @@ const chipClass =
  * 배너 오른쪽. 로그인하지 않았으면 로그인 버튼, 닉네임을 정하기 전이면 닉네임 정하기,
  * 회원이면 누르면 내 소식·내 정보·상점·예측 순위로 가는 계정 메뉴예요.
  */
-async function ViewerChip() {
+async function ViewerChip({ badgeRing }: { badgeRing: string }) {
   if (!isCafeConfigured()) return null;
   const viewer = await getViewer();
 
@@ -36,35 +39,27 @@ async function ViewerChip() {
       </Link>
     );
   }
-  return <AccountMenu me={viewer.profile} unread={await getUnreadCount()} chipClass={chipClass} />;
+  return (
+    <AccountMenu me={viewer.profile} unread={await getUnreadCount()} chipClass={chipClass} badgeRing={badgeRing} />
+  );
 }
 
-/** 카페 머리. 초록 배너와 게시판 탭이에요. 모든 카페 화면 위에 붙어요. */
-export function CafeHeader() {
+/**
+ * 카페 머리. 배너와 공지·글쓰기 잠금 띠, 게시판 탭이에요. 모든 카페 화면 위에 붙어요.
+ * 배너와 띠는 운영자가 카페 관리 화면에서 정해요. 설정은 저장해 둬서 화면 뼈대와 같이 바로 떠요.
+ */
+export async function CafeHeader() {
+  const settings = await getCafeSettings();
+  const badgeRing = bannerLook(settings.bannerColor).ring;
   return (
     <div className="mb-5">
-      <div className="relative h-[104px] rounded-3xl bg-linear-to-br from-emerald-700 to-emerald-900 px-5 text-white shadow-sm">
-        {/* 장식만 둥근 모서리 안에 잘라 두고, 계정 메뉴는 배너 밖으로 펼쳐질 수 있게 해요. */}
-        <div aria-hidden className="absolute inset-0 overflow-hidden rounded-3xl">
-          <div className="absolute inset-0 bg-[radial-gradient(120%_120%_at_100%_0%,rgb(255_255_255/0.2),transparent_60%)]" />
-          <PitchLines className="absolute top-1/2 -right-16 size-56 -translate-y-1/2 text-white/10" />
-        </div>
-        <div className="relative flex h-full items-center gap-4">
-          {/* 휴대폰에서는 카페 이름이 잘리지 않게 아이콘을 숨겨요. */}
-          <div className="hidden size-14 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/25 sm:flex">
-            <ChatIcon className="size-7" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-white/85">해축남</p>
-            <Link href="/cafe" className="block truncate text-2xl font-bold tracking-tight">
-              해외축구에 진심인 사람들 대화하는곳
-            </Link>
-          </div>
-          <Suspense fallback={<span className="h-9 w-20 shrink-0 rounded-full bg-white/15" />}>
-            <ViewerChip />
-          </Suspense>
-        </div>
-      </div>
+      <CafeBanner name={settings.cafeName} tagline={settings.tagline} color={settings.bannerColor}>
+        <Suspense fallback={<span className="h-9 w-20 shrink-0 rounded-full bg-white/15" />}>
+          <ViewerChip badgeRing={badgeRing} />
+        </Suspense>
+      </CafeBanner>
+      <LockBar lock={settings.lock} />
+      <NoticeBar notice={settings.notice} />
       <Suspense fallback={<BoardTabs active={null} />}>
         <ActiveBoardTabs />
       </Suspense>

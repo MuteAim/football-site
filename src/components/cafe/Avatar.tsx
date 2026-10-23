@@ -1,6 +1,6 @@
 import { levelOf } from "@/lib/cafe/levels";
 import { frameClass } from "@/lib/cafe/shop";
-import type { FanTeam } from "@/lib/cafe/types";
+import type { Author, FanTeam } from "@/lib/cafe/types";
 import { Crest } from "../Crest";
 
 // 회원 프로필 동그라미. 응원팀을 골랐으면 그 팀 엠블럼을, 아니면 닉네임 첫 글자를 회원마다 정해진 색 위에 보여 줘요.
@@ -103,7 +103,7 @@ export function LevelBadge({ goals }: { goals: number }) {
   );
 }
 
-/** 닉네임 옆에 붙는 작은 표시. 매니저나 글쓴이를 알려 줘요. */
+/** 닉네임 옆에 붙는 작은 표시. 운영자·매니저나 글쓴이를 알려 줘요. */
 export function NameBadge({ children, tone = "emerald" }: { children: string; tone?: "emerald" | "zinc" }) {
   return (
     <span
@@ -117,4 +117,11 @@ export function NameBadge({ children, tone = "emerald" }: { children: string; to
       {children}
     </span>
   );
+}
+
+/** 운영자나 매니저 표시. 둘 다 아니면 아무것도 그리지 않아요. */
+export function RoleBadge({ author }: { author: Pick<Author, "isManager" | "isAdmin"> | null | undefined }) {
+  if (author?.isAdmin) return <NameBadge>운영자</NameBadge>;
+  if (author?.isManager) return <NameBadge>매니저</NameBadge>;
+  return null;
 }

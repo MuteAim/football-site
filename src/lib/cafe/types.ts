@@ -18,6 +18,8 @@ export type Author = {
   id: string;
   nickname: string;
   isManager: boolean;
+  /** 운영자. 카페 관리 화면을 쓰고 매니저 권한도 같이 가져요. */
+  isAdmin: boolean;
   /** 지금까지 받은 골. 등급을 정해요. 상점에서 써도 줄지 않아요. */
   goals: number;
   /** 상점에서 사서 쓰고 있는 닉네임 색과 프로필 테두리 아이템 */
@@ -51,6 +53,8 @@ export type PostSummary = {
   commentCount: number;
   createdAt: string;
   author: Author;
+  /** 운영자가 공지로 올린 글 */
+  pinned: boolean;
 };
 
 export type Post = PostSummary & {
@@ -104,6 +108,29 @@ export type CafeNotification = {
   comment: { id: number; body: string; deleted: boolean } | null;
   /** day는 경기 화면 주소에 쓰는 한국 날짜(YYYY-MM-DD), goals는 받은 골이에요. */
   match: { id: number; day: string; label: string | null; goals: number } | null;
+};
+
+/** 카페 설정. 운영자가 카페 관리 화면에서 바꿔요. */
+export type CafeSettings = {
+  cafeName: string;
+  tagline: string;
+  /** banner.ts의 BANNER_COLORS 이름 */
+  bannerColor: string;
+  /** 카페 맨 위 한 줄 공지. href는 이 사이트 주소(/로 시작)나 https 주소예요. */
+  notice: { on: boolean; text: string | null; href: string | null };
+  /** 글쓰기 잠금(점검 모드). 켜면 매니저와 운영자만 글·댓글·응원톡을 써요. */
+  lock: { on: boolean; message: string | null };
+};
+
+/** 운영 기록 한 줄. changes는 바뀐 칸마다 [이전 값, 새 값]이거나, 공지 고정처럼 동작의 내용이에요. */
+export type AdminLog = {
+  id: number;
+  area: string;
+  target: string | null;
+  changes: Record<string, unknown>;
+  createdAt: string;
+  /** SQL Editor에서 직접 바꿨으면 null이에요. */
+  actor: Author | null;
 };
 
 /** 지금 보고 있는 사람. 로그인했지만 닉네임을 아직 안 정했으면 profile이 null이에요. */
