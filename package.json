@@ -10,6 +10,8 @@
     "test:cafe": "node --test tests/cafe.test.mjs",
     "test:penalty": "node --test tests/penalty.test.mjs",
     "test:penalty:browser": "node tests/penalty.browser.mjs",
+    "test:career": "node --test tests/career.test.mjs",
+    "test:career:browser": "node tests/career.browser.mjs",
     "quiz:players": "node scripts/quiz-players.mjs"
   },
   "dependencies": {

@@ -1697,3 +1697,139 @@ revoke all on function public.penalty_finish(uuid, jsonb) from public, anon;
 revoke all on function public.penalty_board(date) from public;
 grant execute on function public.penalty_start(), public.penalty_finish(uuid, jsonb) to authenticated;
 grant execute on function public.penalty_board(date) to anon, authenticated;
+
+-- ---------- 레전드 로드 ----------
+-- 커리어는 브라우저가 진행하고 저장해요. 순위에 도전하는 회원은 서버가 정한 시드로 시작하고,
+-- 은퇴하면 서버가 시드와 선택 기록으로 처음부터 다시 계산한 기록만 남겨요.
+-- 회원당 진행 중인 순위 도전 커리어는 하나예요. 새로 시작하면 이전 커리어는 저장할 수 없어요.
+create table if not exists public.career_runs (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  id uuid not null unique default gen_random_uuid(),
+  seed bigint not null check (seed between 0 and 4294967295),
+  start_year integer not null check (start_year between 2020 and 2100),
+  started_at timestamptz not null default clock_timestamp(),
+  finished_at timestamptz,
+  recorded_day date
+);
+-- 날짜·회원·포지션마다 최고 기록 하나만 남겨요. 순위는 회원별 최고 기록, 베스트 11은 포지션별 최고 기록으로 뽑아요.
+create table if not exists public.career_records (
+  day date not null,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  position text not null check (position in ('ST', 'WG', 'AM', 'CM', 'DM', 'FB', 'CB', 'GK')),
+  run_id uuid not null,
+  player_name text not null check (char_length(player_name) between 1 and 10),
+  nation text not null check (nation ~ '^[A-Z]{3}$'),
+  club text not null check (char_length(club) between 1 and 30),
+  score integer not null check (score between 0 and 100000),
+  ballon_dor integer not null check (ballon_dor between 0 and 30),
+  peak_ovr integer not null check (peak_ovr between 1 and 99),
+  goals integer not null check (goals between 0 and 5000),
+  assists integer not null check (assists between 0 and 5000),
+  apps integer not null check (apps between 0 and 5000),
+  trophies integer not null check (trophies between 0 and 500),
+  seasons integer not null check (seasons between 1 and 30),
+  achieved_at timestamptz not null default clock_timestamp(),
+  primary key (day, user_id, position)
+);
+create index if not exists career_records_board_idx on public.career_records(day, score desc);
+alter table public.career_runs enable row level security;
+alter table public.career_records enable row level security;
+revoke all on public.career_runs, public.career_records from public, anon, authenticated;
+
+create or replace function public.career_start()
+returns table(run_id uuid, seed bigint, start_year integer)
+language plpgsql security definer set search_path = public as $$
+declare
+  me uuid := auth.uid();
+  seoul_now timestamp := clock_timestamp() at time zone 'Asia/Seoul';
+  started timestamptz;
+begin
+  perform 1 from public.profiles p where p.id = me for update;
+  if not found then raise exception '로그인하고 닉네임을 정하면 순위에 도전할 수 있어요.'; end if;
+  select r.started_at into started from public.career_runs r where r.user_id = me;
+  if started > clock_timestamp() - interval '3 seconds' then
+    raise exception '잠깐만요. 3초 뒤에 다시 시작해 주세요.';
+  end if;
+  -- 7월부터 새 시즌이에요. 화면의 seasonYearOf와 같은 기준이에요.
+  return query
+    insert into public.career_runs as r(user_id, seed, start_year)
+    values (me, floor(random() * 4294967296)::bigint,
+      extract(year from seoul_now)::integer - case when extract(month from seoul_now) >= 7 then 0 else 1 end)
+    on conflict (user_id) do update set id = gen_random_uuid(), seed = excluded.seed, start_year = excluded.start_year,
+      started_at = clock_timestamp(), finished_at = null, recorded_day = null
+    returning r.id, r.seed, r.start_year;
+end $$;
+
+-- 서버가 다시 계산한 은퇴 기록을 남겨요. 비밀 키(service_role)로만 부를 수 있어요.
+-- 응답을 받기 전에 연결이 끊겨도 같은 커리어를 다시 보내면 처음 저장한 날짜를 돌려줘요.
+create or replace function public.career_record(target_user uuid, target_run uuid, record jsonb)
+returns table(record_day date, is_new boolean)
+language plpgsql security definer set search_path = public as $$
+declare
+  item public.career_runs%rowtype;
+  today date := (clock_timestamp() at time zone 'Asia/Seoul')::date;
+  played integer := (record->>'seasons')::integer;
+begin
+  select * into item from public.career_runs r where r.user_id = target_user and r.id = target_run for update;
+  if not found then raise exception '다른 곳에서 새 커리어를 시작해서 이 커리어는 순위에 올릴 수 없어요.'; end if;
+  if item.finished_at is not null then
+    return query select item.recorded_day, false;
+    return;
+  end if;
+  -- 시즌마다 적어도 한 번은 고르니 너무 빨리 끝난 기록은 받지 않아요.
+  if clock_timestamp() - item.started_at < make_interval(secs => played) then
+    raise exception '커리어 진행 시간이 너무 짧아요. 잠시 뒤 다시 시도해 주세요.';
+  end if;
+  update public.career_runs r set finished_at = clock_timestamp(), recorded_day = today where r.user_id = target_user;
+  insert into public.career_records as c(day, user_id, position, run_id, player_name, nation, club, score, ballon_dor,
+    peak_ovr, goals, assists, apps, trophies, seasons)
+  values (today, target_user, record->>'position', target_run, record->>'name', record->>'nation', record->>'club',
+    (record->>'score')::integer, (record->>'ballonDor')::integer, (record->>'peakOvr')::integer, (record->>'goals')::integer,
+    (record->>'assists')::integer, (record->>'apps')::integer, (record->>'trophies')::integer, played)
+  on conflict (day, user_id, position) do update set run_id = excluded.run_id, player_name = excluded.player_name,
+    nation = excluded.nation, club = excluded.club, score = excluded.score, ballon_dor = excluded.ballon_dor,
+    peak_ovr = excluded.peak_ovr, goals = excluded.goals, assists = excluded.assists, apps = excluded.apps,
+    trophies = excluded.trophies, seasons = excluded.seasons, achieved_at = clock_timestamp()
+  where excluded.score > c.score;
+  return query select today, true;
+end $$;
+
+-- 회원마다 그날 최고 기록 하나로 겨뤄요. 같은 점수는 같은 순위이고, 먼저 달성한 회원이 앞에 보여요.
+-- 베스트 11(4-3-3)은 포지션별 최고 기록이에요. 풀백·센터백·윙어는 두 자리예요.
+create or replace function public.career_board(target_day date)
+returns jsonb language sql stable security definer set search_path = public as $$
+  with best as (
+    select distinct on (c.user_id) c.*
+    from public.career_records c where c.day = target_day
+    order by c.user_id, c.score desc, c.achieved_at
+  ), ranked as (
+    select b.*, p.nickname, rank() over (order by b.score desc) as place
+    from best b join public.profiles p on p.id = b.user_id
+  ), leaders as (
+    select * from ranked order by score desc, achieved_at, user_id limit 20
+  ), eleven as (
+    select c.position, c.player_name, c.score, c.peak_ovr, c.ballon_dor, p.nickname,
+      row_number() over (partition by c.position order by c.score desc, c.achieved_at, c.user_id) as slot
+    from public.career_records c join public.profiles p on p.id = c.user_id where c.day = target_day
+  )
+  select jsonb_build_object(
+    'leaders', coalesce((select jsonb_agg(jsonb_build_object(
+      'nickname', nickname, 'name', player_name, 'position', position, 'nation', nation, 'club', club,
+      'score', score, 'ballonDor', ballon_dor, 'peakOvr', peak_ovr, 'goals', goals,
+      'rank', place, 'isMe', coalesce(user_id = auth.uid(), false)
+    ) order by score desc, achieved_at, user_id) from leaders), '[]'::jsonb),
+    'personal', (select jsonb_build_object('score', score, 'rank', place) from ranked where user_id = auth.uid()),
+    'participants', (select count(*) from ranked),
+    'eleven', coalesce((select jsonb_agg(jsonb_build_object(
+      'position', position, 'slot', slot, 'name', player_name, 'nickname', nickname,
+      'score', score, 'peakOvr', peak_ovr, 'ballonDor', ballon_dor
+    ) order by position, slot) from eleven
+      where slot <= case when position in ('FB', 'CB', 'WG') then 2 else 1 end), '[]'::jsonb)
+  );
+$$;
+revoke all on function public.career_start() from public, anon;
+revoke all on function public.career_record(uuid, uuid, jsonb) from public, anon, authenticated;
+revoke all on function public.career_board(date) from public;
+grant execute on function public.career_start() to authenticated;
+grant execute on function public.career_record(uuid, uuid, jsonb) to service_role;
+grant execute on function public.career_board(date) to anon, authenticated;

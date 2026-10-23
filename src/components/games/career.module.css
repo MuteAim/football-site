@@ -1,0 +1,33 @@
+/* 시즌이 지나가는 동안 진행 막대가 차오르고, 결과 카드는 살짝 떠오르며 나타나요. */
+.progress {
+  animation: progress var(--sim-ms, 1000ms) cubic-bezier(.3, .1, .3, 1) both;
+}
+
+@keyframes progress {
+  from { width: var(--from, 0%); }
+  to { width: var(--to, 100%); }
+}
+
+.ball {
+  animation: bounce 520ms ease-in-out infinite alternate;
+}
+
+@keyframes bounce {
+  from { transform: translateY(0) rotate(0deg); }
+  to { transform: translateY(-10px) rotate(160deg); }
+}
+
+.reveal {
+  animation: reveal 220ms ease-out both;
+}
+
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress { animation-duration: 1ms; }
+  .ball { animation: none; }
+  .reveal { animation: none; }
+}
