@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { COMPETITIONS } from "@/lib/competitions";
-import { BallIcon, ChatIcon, ShirtIcon, TrophyIcon } from "./Icons";
+import { BallIcon, ChatIcon, QuizCardIcon, ShirtIcon, TrophyIcon } from "./Icons";
 import { Crest } from "./Crest";
 import { LinkPending } from "./LinkPending";
 
@@ -13,11 +13,12 @@ const MAIN_LINKS = [
   { href: "/cafe", label: "카페", Icon: ChatIcon },
   { href: "/cafe/predict", label: "예측", Icon: TrophyIcon },
   { href: "/cafe/squad", label: "스쿼드", Icon: ShirtIcon },
+  { href: "/games", label: "게임", Icon: QuizCardIcon },
 ];
 
 export function MainNav({ activeHref }: { activeHref?: string }) {
   return (
-    <nav aria-label="주요 메뉴" className="ml-auto grid min-w-0 max-w-lg flex-1 grid-cols-4 gap-1 sm:gap-2">
+    <nav aria-label="주요 메뉴" className="ml-auto grid min-w-0 max-w-lg flex-1 grid-cols-5 gap-1 sm:gap-2">
       {MAIN_LINKS.map(({ href, label, Icon }) => (
         <Link
           key={href}
@@ -41,7 +42,8 @@ export function MainNav({ activeHref }: { activeHref?: string }) {
 
 export function ActiveMainNav() {
   const pathname = usePathname();
-  const activeHref = pathname === "/cafe/predict" ? "/cafe/predict"
+  const activeHref = pathname === "/games" || pathname.startsWith("/games/") || pathname === "/cafe/game" ? "/games"
+    : pathname === "/cafe/predict" ? "/cafe/predict"
     : pathname === "/cafe/squad" || pathname.startsWith("/cafe/squad/") ? "/cafe/squad"
     : pathname === "/cafe" || pathname.startsWith("/cafe/") ? "/cafe"
     : pathname === "/" || pathname.startsWith("/matches/") || pathname.startsWith("/league/") ? "/"

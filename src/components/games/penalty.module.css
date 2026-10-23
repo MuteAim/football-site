@@ -1,0 +1,29 @@
+.keeper {
+  transition: transform 280ms ease-out;
+}
+
+.ballShot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: shoot 420ms cubic-bezier(.16, .7, .2, 1) both;
+}
+
+@keyframes shoot {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(var(--ball-x), var(--ball-y)) scale(.45); }
+}
+
+.result {
+  animation: result 180ms ease-out both;
+}
+
+@keyframes result {
+  from { opacity: 0; transform: translateY(8px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .keeper { transition: none; }
+  .ballShot { animation-duration: 1ms; }
+  .result { animation: none; }
+}

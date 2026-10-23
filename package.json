@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test:cafe": "node --test tests/cafe.test.mjs",
+    "test:penalty": "node --test tests/penalty.test.mjs",
+    "test:penalty:browser": "node tests/penalty.browser.mjs",
     "quiz:players": "node scripts/quiz-players.mjs"
   },
   "dependencies": {

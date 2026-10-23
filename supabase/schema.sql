@@ -1553,3 +1553,147 @@ begin
     alter publication supabase_realtime add table public.notifications;
   end if;
 end $$;
+
+-- ---------- 승부차기 러시 ----------
+-- 회원당 진행 중/마지막 게임 하나만 보관해요. 날짜별 최고 기록만 순위에 남아요.
+create table if not exists public.penalty_runs (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  id uuid not null unique default gen_random_uuid(),
+  day date not null,
+  started_at timestamptz not null default clock_timestamp(),
+  finished_at timestamptz,
+  score integer check (score between 0 and 2250),
+  goals integer check (goals between 0 and 10),
+  perfects integer check (perfects between 0 and 10),
+  best_streak integer check (best_streak between 0 and 10)
+);
+create table if not exists public.penalty_scores (
+  day date not null,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  score integer not null check (score between 0 and 2250),
+  goals integer not null check (goals between 0 and 10),
+  perfects integer not null check (perfects between 0 and 10),
+  achieved_at timestamptz not null default clock_timestamp(),
+  primary key (day, user_id)
+);
+create index if not exists penalty_scores_board_idx on public.penalty_scores(day, score desc, achieved_at);
+alter table public.penalty_runs enable row level security;
+alter table public.penalty_scores enable row level security;
+revoke all on public.penalty_runs, public.penalty_scores from public, anon, authenticated;
+
+create or replace function public.penalty_start()
+returns table(run_id uuid, day date)
+language plpgsql security definer set search_path = public as $$
+declare
+  me uuid := auth.uid();
+  today date := (clock_timestamp() at time zone 'Asia/Seoul')::date;
+  started timestamptz;
+begin
+  perform 1 from public.profiles p where p.id = me for update;
+  if not found then raise exception '로그인하고 닉네임을 정하면 순위에 도전할 수 있어요.'; end if;
+  select r.started_at into started from public.penalty_runs r where r.user_id = me;
+  if started > clock_timestamp() - interval '3 seconds' then
+    raise exception '잠깐만요. 3초 뒤에 다시 시작해 주세요.';
+  end if;
+  return query
+    insert into public.penalty_runs(user_id, day) values(me, today)
+    on conflict (user_id) do update set id = gen_random_uuid(), day = excluded.day,
+      started_at = clock_timestamp(), finished_at = null, score = null, goals = null, perfects = null, best_streak = null
+    returning penalty_runs.id, penalty_runs.day;
+end $$;
+
+-- 점수를 받지 않고 10번의 슛 시각으로 다시 계산해요. 시작 날짜와 소유자는 서버 기록을 사용해요.
+create or replace function public.penalty_finish(target_run uuid, timings jsonb)
+returns table(score integer, goals integer, perfects integer, best_streak integer)
+language plpgsql security definer set search_path = public as $$
+declare
+  item public.penalty_runs%rowtype;
+  i integer; shot integer; seed bigint; target integer; width integer; period integer; phase integer;
+  part integer; position integer; distance integer; streak integer := 0;
+  points integer := 0; scored integer := 0; perfect integer := 0; longest integer := 0;
+  duration integer := 9 * 750;
+begin
+  select * into item from public.penalty_runs r where r.user_id = auth.uid() and r.id = target_run for update;
+  if not found then raise exception '다른 게임을 시작했거나 기록이 만료됐어요. 새 게임을 시작해 주세요.'; end if;
+  -- 응답을 받기 전에 연결이 끊겨도 같은 게임 재전송은 안전해요.
+  if item.finished_at is not null then
+    return query select item.score, item.goals, item.perfects, item.best_streak;
+    return;
+  end if;
+  if item.started_at < clock_timestamp() - interval '5 minutes' then
+    raise exception '게임 시간이 만료됐어요. 새 게임을 시작해 주세요.';
+  end if;
+  if timings is null or jsonb_typeof(timings) <> 'array' then raise exception '슛 기록 형식이 맞지 않아요.'; end if;
+  if jsonb_array_length(timings) <> 10 then raise exception '10번의 슛 기록이 필요해요.'; end if;
+  seed := to_char(item.day, 'YYYYMMDD')::bigint;
+  for i in 0..9 loop
+    if timings->i = 'null'::jsonb then
+      duration := duration + 3500;
+      streak := 0;
+      continue;
+    end if;
+    if jsonb_typeof(timings->i) <> 'number' or (timings->>i) !~ '^[0-9]{1,4}$' then
+      raise exception '슛 기록 형식이 맞지 않아요.';
+    end if;
+    shot := (timings->>i)::integer;
+    if shot < 120 or shot >= 3500 then raise exception '슛 시각이 범위를 벗어났어요.'; end if;
+    duration := duration + shot;
+    target := 220 + (seed * 37 + i * 193) % 560;
+    width := 260 - i * 10;
+    period := 1900 - i * 80 + seed % 150;
+    phase := (seed * 53 + i * 211) % period;
+    part := (shot + phase) % period;
+    position := round(least(part, period - part)::numeric * 2000 / period);
+    distance := abs(position - target);
+    if distance * 2 <= width then
+      streak := streak + 1;
+      scored := scored + 1;
+      longest := greatest(longest, streak);
+      if distance * 6 <= width then
+        perfect := perfect + 1;
+        points := points + 150;
+      else
+        points := points + 100;
+      end if;
+      points := points + least(streak - 1, 4) * 25;
+    else
+      streak := 0;
+    end if;
+  end loop;
+  if extract(epoch from (clock_timestamp() - item.started_at)) * 1000 < duration - 500 then
+    raise exception '진행 시간과 슛 기록이 맞지 않아요. 잠시 뒤 저장을 다시 시도해 주세요.';
+  end if;
+  update public.penalty_runs r set finished_at = clock_timestamp(), score = points,
+    goals = scored, perfects = perfect, best_streak = longest where r.id = item.id;
+  insert into public.penalty_scores as s(day, user_id, score, goals, perfects)
+    values(item.day, item.user_id, points, scored, perfect)
+    on conflict(day, user_id) do update set score = excluded.score, goals = excluded.goals,
+      perfects = excluded.perfects, achieved_at = clock_timestamp()
+    where excluded.score > s.score;
+  return query select points, scored, perfect, longest;
+end $$;
+
+-- 같은 점수는 같은 순위. 동점 표시 순서는 먼저 달성한 회원이 앞이에요.
+-- 공개 결과에는 닉네임과 게임 기록만 내보내요.
+create or replace function public.penalty_board(target_day date)
+returns jsonb language sql stable security definer set search_path = public as $$
+  with ranked as (
+    select s.*, p.nickname, rank() over(order by s.score desc) as place
+    from public.penalty_scores s join public.profiles p on p.id = s.user_id where s.day = target_day
+  ), leaders as (
+    select * from ranked order by score desc, achieved_at, user_id limit 20
+  )
+  select jsonb_build_object(
+    'leaders', coalesce((select jsonb_agg(jsonb_build_object(
+      'nickname', nickname, 'score', score, 'goals', goals, 'perfects', perfects,
+      'rank', place, 'isMe', coalesce(user_id = auth.uid(), false)
+    ) order by score desc, achieved_at, user_id) from leaders), '[]'::jsonb),
+    'personal', (select jsonb_build_object('score', score, 'rank', place) from ranked where user_id = auth.uid()),
+    'participants', (select count(*) from ranked)
+  );
+$$;
+revoke all on function public.penalty_start() from public, anon;
+revoke all on function public.penalty_finish(uuid, jsonb) from public, anon;
+revoke all on function public.penalty_board(date) from public;
+grant execute on function public.penalty_start(), public.penalty_finish(uuid, jsonb) to authenticated;
+grant execute on function public.penalty_board(date) to anon, authenticated;

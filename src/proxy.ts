@@ -31,5 +31,5 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   // 로그인 상태를 읽는 화면에서만 돌아요. 홈은 응원팀 카드 때문에, 경기 화면은 승부 예측과 응원톡 때문에 넣었어요.
-  matcher: ["/", "/cafe/:path*", "/matches/:date/:id"],
+  matcher: ["/", "/cafe/:path*", "/games/:path*", "/matches/:date/:id"],
 };

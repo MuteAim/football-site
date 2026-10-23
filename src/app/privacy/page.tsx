@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 // 개인정보 보호책임자와 시행일이에요. 바뀌면 여기만 고치면 돼요.
 // 내용을 바꿀 때는 시행일도 같이 바꿔 주세요.
 const OFFICER = { name: "해외축구 카페 운영자", email: "ji_hyunsoo@naver.com" };
-const EFFECTIVE_DATE = "2026년 10월 22일";
+const EFFECTIVE_DATE = "2026년 10월 23일";
 
 const linkClass =
   "font-medium text-emerald-700 underline decoration-emerald-700/30 underline-offset-2 hover:decoration-current dark:text-emerald-400 dark:decoration-emerald-400/30";
@@ -67,6 +67,7 @@ export default function PrivacyPage() {
           <li>경기 승부 예측</li>
           <li>출석한 날짜와 골 내역(언제 무엇으로 골을 받았는지)</li>
           <li>골 상점에서 산 아이템과 쓴 골</li>
+          <li>승부차기 순위 도전의 시작·종료 시각, 점수와 성공 횟수, 날짜별 최고 기록</li>
         </List>
         <p className="font-semibold text-zinc-900 dark:text-zinc-100">자동으로 남는 정보</p>
         <List>
@@ -84,6 +85,7 @@ export default function PrivacyPage() {
             계정 번호는 보이지 않아요.
           </li>
           <li>도배, 욕설 같은 부정 이용을 막고 신고와 분쟁에 대응해요.</li>
+          <li>승부차기 기록을 채점하고 순위를 보여 줘요. 순위에는 카페 닉네임, 점수, 성공 횟수가 공개돼요.</li>
           <li>법령에 따른 요청에 대응해요.</li>
         </List>
       </Section>
@@ -95,6 +97,7 @@ export default function PrivacyPage() {
             예측·출석 기록과 산 꾸미기 아이템을 바로 함께 지워요. 탈퇴한 회원의 글에 달린 댓글과, 댓글에 달린 답글도 같이 지워져요.
           </li>
           <li>접속 기록은 운영 업체가 정한 짧은 기간 동안만 남았다가 저절로 지워져요.</li>
+          <li>승부차기 마지막 게임과 날짜별 최고 기록은 회원 탈퇴 시 함께 지워져요.</li>
           <li>다른 법령이 보관하라고 정한 정보는 그 기간 동안만 따로 보관해요.</li>
           <li>지울 때는 되살릴 수 없는 방법으로 지워요.</li>
         </List>
@@ -159,6 +162,7 @@ export default function PrivacyPage() {
             지워져요.
           </li>
           <li>같은 창에서 이미 본 글 번호를 브라우저에 잠깐 적어 둬서 조회수를 두 번 세지 않아요. 창을 닫으면 사라져요.</li>
+          <li>승부차기 날짜와 최고 점수는 브라우저 저장소에도 남아요. 연습 기록은 서버에 등록하지 않으며, 브라우저의 사이트 데이터 삭제로 지울 수 있어요.</li>
           <li>광고나 방문 분석용 쿠키는 쓰지 않아요.</li>
           <li>브라우저 설정에서 쿠키를 막을 수 있어요. 다만 그러면 로그인할 수 없어요.</li>
         </List>
