@@ -6,8 +6,9 @@ import { useActionState } from "react";
 import { savePost } from "@/lib/cafe/actions";
 import { WRITABLE_BOARDS } from "@/lib/cafe/boards";
 import { LIMITS } from "@/lib/cafe/config";
-import type { FormState } from "@/lib/cafe/types";
+import type { FormState, SquadSummary } from "@/lib/cafe/types";
 import { cardClass, errorTextClass, inputClass, primaryButtonClass, secondaryButtonClass } from "../ui";
+import { SquadFaces } from "./SquadList";
 
 const initialState: FormState = { error: null };
 
@@ -15,6 +16,8 @@ type EditorProps = {
   post?: { id: number; board: string; title: string; body: string };
   defaultBoard?: string;
   cancelHref: string;
+  /** 드림 스쿼드 화면의 '카페에 자랑하기'로 왔으면 글에 붙일 내 스쿼드예요. */
+  squad?: SquadSummary;
 };
 
 /**
@@ -29,12 +32,24 @@ export function PostEditor(props: EditorProps) {
   return <EditorForm key={bfcacheId} {...props} />;
 }
 
-function EditorForm({ post, defaultBoard, cancelHref }: EditorProps) {
+function EditorForm({ post, defaultBoard, cancelHref, squad }: EditorProps) {
   const [state, formAction, pending] = useActionState(savePost, initialState);
   const values = state.values;
 
   return (
     <form action={formAction} className={`${cardClass} space-y-3 p-4`}>
+      {squad ? (
+        <div className="flex items-center gap-3 rounded-xl bg-emerald-500/10 p-3">
+          <input type="hidden" name="squadId" value={squad.id} />
+          <SquadFaces players={squad.players} />
+          <span className="min-w-0 flex-1">
+            <span className="block text-xs font-semibold text-emerald-700 dark:text-emerald-400">드림 스쿼드를 붙여 올려요</span>
+            <span className="block truncate text-sm font-medium">
+              {squad.name} · {squad.formation}
+            </span>
+          </span>
+        </div>
+      ) : null}
       {post ? (
         <input type="hidden" name="postId" value={post.id} />
       ) : (
@@ -59,7 +74,7 @@ function EditorForm({ post, defaultBoard, cancelHref }: EditorProps) {
           name="title"
           required
           maxLength={LIMITS.title}
-          defaultValue={values?.title ?? post?.title}
+          defaultValue={values?.title ?? post?.title ?? squad?.name}
           placeholder="제목을 써 주세요"
           className={inputClass}
         />

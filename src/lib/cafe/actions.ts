@@ -4,6 +4,7 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { refresh } from "next/cache";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { cardNames } from "../fconline";
 import { getMatchOnDay } from "../match-day";
 import { isPredictionOpen } from "../match-display";
 import { isDateKey } from "../time";
@@ -22,6 +23,7 @@ import {
 import { countPredictions } from "./predictions";
 import { getCafeSettings } from "./settings";
 import type { ShopKind } from "./shop";
+import { isFormation, playerIdOf, SQUAD_LIMITS, SQUAD_SIZE, type SquadPlayer } from "./squad";
 import { createSessionClient } from "./supabase-server";
 import { findTeamChoice } from "./teams";
 import type { FormState, PredictionCounts, PredictionPick, Talk, TalkSide } from "./types";
@@ -300,9 +302,21 @@ export async function savePost(_prev: FormState, formData: FormData): Promise<Fo
     redirect(postHref(data));
   }
 
+  // 드림 스쿼드 화면에서 '카페에 올리기'로 왔으면 그 스쿼드를 글에 붙여요. DB도 내 스쿼드만 받아요.
+  const squadId = formData.get("squadId") ? positiveInt(formData.get("squadId")) : null;
+  if (squadId) {
+    const { data: squad } = await supabase
+      .from("squads")
+      .select("id")
+      .eq("id", squadId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!squad) return { error: "내 스쿼드만 글에 붙일 수 있어요.", values };
+  }
+
   const { data, error } = await supabase
     .from("posts")
-    .insert({ board, title, body })
+    .insert(squadId ? { board, title, body, squad_id: squadId } : { board, title, body })
     .select("id, board")
     .single<{ id: number; board: string }>();
   if (error) {
@@ -403,6 +417,92 @@ export async function deleteComment(formData: FormData): Promise<void> {
   if (!commentId || typeof member === "string") return;
   await member.supabase.from("comments").delete().eq("id", commentId);
   refresh();
+}
+
+// ---------- 드림 스쿼드 ----------
+
+/**
+ * 스쿼드 저장. id가 있으면 고치기예요. players는 포메이션 자리 순서대로 카드 번호이고 빈 자리는 null이에요.
+ * 화면이 보낸 카드 번호가 진짜 있는지 넥슨 선수 목록에서 확인하고, 선수 이름도 거기서 가져와 적어요.
+ * 저장하면 스쿼드 화면으로 넘어가요.
+ */
+export async function saveSquad(input: {
+  id: number | null;
+  name: string;
+  formation: string;
+  players: (number | null)[];
+}): Promise<{ error: string }> {
+  const id = input.id === null ? null : positiveInt(input.id);
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  const formation = typeof input.formation === "string" ? input.formation : "";
+  if (input.id !== null && !id) return { error: "스쿼드를 찾을 수 없어요." };
+  if (!name || name.length > SQUAD_LIMITS.name) return { error: `스쿼드 이름은 1~${SQUAD_LIMITS.name}자로 써 주세요.` };
+  if (!isFormation(formation)) return { error: "포메이션을 골라 주세요." };
+  const spids = Array.isArray(input.players) ? input.players : [];
+  if (spids.length !== SQUAD_SIZE || !spids.every((spid) => spid === null || positiveInt(spid) !== null)) {
+    return { error: "선수를 다시 골라 주세요." };
+  }
+  const picked = spids.filter((spid): spid is number => spid !== null);
+  if (picked.length === 0) return { error: "선수를 한 명 이상 넣어 주세요." };
+  if (new Set(picked.map(playerIdOf)).size !== picked.length) return { error: "같은 선수는 한 번만 넣을 수 있어요." };
+
+  const member = await requireMember();
+  if (typeof member === "string") return { error: member };
+  const { supabase, userId } = member;
+
+  let names: Map<number, string>;
+  try {
+    names = await cardNames(picked);
+  } catch (error) {
+    console.error(error);
+    return { error: "FC온라인 선수 목록을 확인하지 못했어요. 잠시 후 다시 저장해 주세요." };
+  }
+  const players: (SquadPlayer | null)[] = [];
+  for (const spid of spids) {
+    const playerName = spid === null ? undefined : names.get(spid);
+    if (spid !== null && !playerName) return { error: "지금은 없는 카드가 있어요. 선수를 다시 골라 주세요." };
+    players.push(spid === null || !playerName ? null : { spid, name: playerName });
+  }
+
+  if (id) {
+    const { data, error } = await supabase
+      .from("squads")
+      .update({ name, formation, players, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select("id")
+      .maybeSingle();
+    if (error) return { error: await refusal(member, error, "스쿼드를 고칠 수 없어요.") };
+    if (!data) return { error: "내가 만든 스쿼드만 고칠 수 있어요." };
+    await flash("스쿼드를 고쳤어요");
+    redirect(`/cafe/squad/${id}`);
+  }
+
+  // 개수 제한은 DB도 막지만, 도배 방지에 걸린 것과 구분해서 알려 주려고 먼저 세요.
+  const { count } = await supabase.from("squads").select("id", { count: "exact", head: true }).eq("user_id", userId);
+  if ((count ?? 0) >= SQUAD_LIMITS.perMember) {
+    return { error: `스쿼드는 ${SQUAD_LIMITS.perMember}개까지 만들 수 있어요. 안 쓰는 스쿼드를 지워 주세요.` };
+  }
+  const { data, error } = await supabase
+    .from("squads")
+    .insert({ name, formation, players })
+    .select("id")
+    .single<{ id: number }>();
+  if (error) return { error: await refusal(member, error, "스쿼드는 10초에 하나만 만들 수 있어요. 잠시 후 다시 저장해 주세요.") };
+  await flash("스쿼드를 저장했어요");
+  redirect(`/cafe/squad/${data.id}`);
+}
+
+export async function deleteSquad(formData: FormData): Promise<void> {
+  const squadId = positiveInt(formData.get("squadId"));
+  const member = await requireMember();
+  if (!squadId || typeof member === "string") return;
+
+  // 지울 권한이 없으면 DB가 조용히 아무것도 지우지 않아요.
+  const { data } = await member.supabase.from("squads").delete().eq("id", squadId).select("id");
+  if (!data?.length) return;
+  await flash("스쿼드를 지웠어요");
+  redirect("/cafe/squad");
 }
 
 // ---------- 승부 예측 ----------

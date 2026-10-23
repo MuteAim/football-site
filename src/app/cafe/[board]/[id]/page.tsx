@@ -12,6 +12,7 @@ import { LikeButton } from "@/components/cafe/LikeButton";
 import { LoginLink } from "@/components/cafe/LoginLink";
 import { PinButton } from "@/components/cafe/PinButton";
 import { RichText } from "@/components/cafe/RichText";
+import { NexonCredit, SquadPitch } from "@/components/cafe/SquadPitch";
 import { ViewCounter } from "@/components/cafe/ViewCounter";
 import { ChevronLeftIcon, EyeIcon, ReplyIcon } from "@/components/Icons";
 import {
@@ -33,6 +34,7 @@ import { lockFor } from "@/lib/cafe/settings";
 import { nameColorClass } from "@/lib/cafe/shop";
 import type { CafeSettings, Comment, Post, Viewer } from "@/lib/cafe/types";
 import { getViewer } from "@/lib/cafe/viewer";
+import { getSeasons } from "@/lib/fconline";
 import { formatDateTime, formatRelativeTime } from "@/lib/time";
 
 type Params = PageProps<"/cafe/[board]/[id]">["params"];
@@ -224,9 +226,10 @@ async function PostContent({ params }: { params: Params }) {
   const board = getBoard(slug);
   if (!post || !board || post.board !== slug) notFound();
 
-  const [liked, lock] = await Promise.all([
+  const [liked, lock, seasons] = await Promise.all([
     viewer?.profile ? hasLiked(id, viewer.id) : false,
     viewer?.profile ? lockFor(viewer.profile) : null,
+    post.squad ? getSeasons() : {},
   ]);
   const isOwner = viewer?.id === post.author.id;
   const isAdmin = viewer?.profile?.isAdmin === true;
@@ -281,6 +284,23 @@ async function PostContent({ params }: { params: Params }) {
             </div>
           </div>
         </header>
+
+        {post.squad ? (
+          <section aria-label="드림 스쿼드" className="border-b border-zinc-100 px-4 pt-4 pb-3 dark:border-white/[0.07]">
+            <SquadPitch formation={post.squad.formation} players={post.squad.players} seasons={seasons} />
+            <p className="mt-2.5 flex items-center justify-center gap-1.5 text-sm">
+              <span className="truncate font-semibold">{post.squad.name}</span>
+              <span className={`shrink-0 ${mutedClass}`}>· {post.squad.formation}</span>
+              <Link
+                href={`/cafe/squad/${post.squad.id}`}
+                className="shrink-0 font-semibold text-emerald-700 hover:underline dark:text-emerald-400"
+              >
+                스쿼드 보기
+              </Link>
+            </p>
+            <NexonCredit className="mt-1 text-center" />
+          </section>
+        ) : null}
 
         <RichText text={post.body} className="px-5 py-6 text-[15px] leading-relaxed" />
 

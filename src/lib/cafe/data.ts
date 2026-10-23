@@ -4,7 +4,7 @@ import { cache } from "react";
 import { BEST_LIKES, PAGE_SIZE } from "./config";
 import { PROFILE_COLUMNS, type RawProfile, toAuthor as profileToAuthor } from "./profile";
 import { createSessionClient, publicClient } from "./supabase-server";
-import type { Author, Comment, Post, PostSummary, Talk, TalkSide } from "./types";
+import type { Author, Comment, Post, PostSummary, SquadSummary, Talk, TalkSide } from "./types";
 
 // 카페 글 읽기예요. 글은 올라오자마자 보여야 해서 저장해 두지 않고 요청 때마다 Supabase에서 읽어요.
 // 그래서 이 함수들을 부르는 화면 조각은 꼭 Suspense 안에 둬야 해요.
@@ -24,7 +24,12 @@ type RawPostSummary = {
   author: RawAuthorField;
 };
 
-type RawPost = RawPostSummary & { body: string; updated_at: string | null };
+// 글에 붙인 스쿼드도 글쓴이처럼 객체나 배열로 와요.
+type RawPost = RawPostSummary & {
+  body: string;
+  updated_at: string | null;
+  squad: SquadSummary | SquadSummary[] | null;
+};
 
 type RawComment = {
   id: number;
@@ -144,13 +149,14 @@ export const getPost = cache(async (id: number): Promise<Post | null> => {
   const supabase = await publicClient();
   const { data, error } = await supabase
     .from("posts")
-    .select(`${POST_SUMMARY}, body, updated_at`)
+    .select(`${POST_SUMMARY}, body, updated_at, squad:squads(id, name, formation, players)`)
     .eq("id", id)
     .maybeSingle();
   if (error) throw new CafeError(error.message);
   if (!data) return null;
   const raw = data as RawPost;
-  return { ...toPostSummary(raw), body: raw.body, updatedAt: raw.updated_at };
+  const squad = Array.isArray(raw.squad) ? (raw.squad[0] ?? null) : raw.squad;
+  return { ...toPostSummary(raw), body: raw.body, updatedAt: raw.updated_at, squad };
 });
 
 export async function listComments(postId: number): Promise<Comment[]> {

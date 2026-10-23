@@ -1,3 +1,5 @@
+import type { SquadPlayer } from "./squad";
+
 // 카페 화면에 쓰는 데이터 모양이에요. DB 칸 이름(snake_case)은 data.ts에서 이 모양으로 바꿔요.
 
 /** 회원이 고른 응원팀. id는 football-data.org의 팀 번호예요. */
@@ -59,6 +61,22 @@ export type PostSummary = {
 
 export type Post = PostSummary & {
   body: string;
+  updatedAt: string | null;
+  /** 글에 붙인 드림 스쿼드. 스쿼드를 지우면 null이 돼요. */
+  squad: SquadSummary | null;
+};
+
+/** 드림 스쿼드의 내용. players는 포메이션 자리 순서대로 11칸이고 빈 자리는 null이에요. */
+export type SquadSummary = {
+  id: number;
+  name: string;
+  formation: string;
+  players: (SquadPlayer | null)[];
+};
+
+export type Squad = SquadSummary & {
+  author: Author;
+  createdAt: string;
   updatedAt: string | null;
 };
 

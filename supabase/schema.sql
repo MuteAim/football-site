@@ -235,6 +235,53 @@ alter table public.cafe_settings add constraint cafe_settings_values_check check
   and (lock_message is null or char_length(btrim(lock_message)) between 1 and 100)
 );
 
+-- 드림 스쿼드. FC온라인 선수 카드로 짠 꿈의 베스트 11이에요. 누구나 보고 링크로 공유해요.
+-- players는 자리 11개의 배열이에요. 빈 자리는 null, 채운 자리는 {"spid": 카드 번호, "name": 선수 이름}이에요.
+-- 카드 번호의 끝 6자리가 선수 번호라서, 같은 선수는 시즌이 달라도 한 번만 넣을 수 있어요.
+-- 카드 번호와 이름은 서버가 넥슨 Open API의 선수 목록에서 확인해서 적어요.
+create table if not exists public.squads (
+  id bigint generated always as identity primary key,
+  user_id uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  name text not null,
+  formation text not null,
+  players jsonb not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+create index if not exists squads_user_idx on public.squads (user_id, id desc);
+
+-- 스쿼드 자리 11개가 모양에 맞는지. 표의 규칙(check)에서 써요.
+create or replace function public.squad_players_valid(players jsonb) returns boolean
+language sql immutable set search_path = '' as $$
+  select case when jsonb_typeof(players) <> 'array' or jsonb_array_length(players) <> 11 then false else
+    not exists (
+      select 1 from jsonb_array_elements(players) as slot
+      where slot <> 'null'::jsonb and not (
+        jsonb_typeof(slot) = 'object'
+        and (select count(*) from jsonb_object_keys(slot)) = 2
+        and jsonb_typeof(slot -> 'spid') = 'number'
+        and (slot ->> 'spid') ~ '^[1-9][0-9]{6,10}$'
+        and jsonb_typeof(slot -> 'name') = 'string'
+        and char_length(slot ->> 'name') between 1 and 40
+      )
+    )
+    and (
+      select count(distinct (s ->> 'spid')::bigint % 1000000) = count(*)
+      from jsonb_array_elements(players) as s where s <> 'null'::jsonb
+    )
+  end;
+$$;
+
+alter table public.squads drop constraint if exists squads_values_check;
+alter table public.squads add constraint squads_values_check check (
+  char_length(btrim(name)) between 1 and 30
+  and formation in ('4-3-3', '4-2-3-1', '4-4-2', '4-1-2-1-2', '3-5-2', '3-4-3')
+  and public.squad_players_valid(players)
+);
+
+-- 글에 붙인 스쿼드. 내 스쿼드만 붙일 수 있고, 스쿼드를 지우면 글에서만 빠져요.
+alter table public.posts add column if not exists squad_id bigint references public.squads (id) on delete set null;
+
 -- 운영 기록. 카페 설정을 바꾸거나 글을 공지로 올리고 내리면 DB가 한 줄씩 남겨요.
 -- changes에는 바뀐 칸마다 [이전 값, 새 값]을 적어요. 운영자만 보고, 1년이 지나면 지워요.
 create table if not exists public.admin_logs (
@@ -658,11 +705,11 @@ end $$;
 
 revoke all on public.profiles, public.posts, public.comments, public.post_likes, public.match_talks,
   public.match_predictions, public.goal_events, public.settled_matches, public.unsettled_matches,
-  public.shop_items, public.owned_items, public.notifications, public.cafe_settings, public.admin_logs
+  public.shop_items, public.owned_items, public.notifications, public.cafe_settings, public.admin_logs, public.squads
   from anon, authenticated;
 
 grant select on public.posts, public.comments, public.match_talks, public.match_predictions, public.shop_items,
-  public.cafe_settings
+  public.cafe_settings, public.squads
   to anon, authenticated;
 grant select on public.post_likes, public.goal_events, public.owned_items, public.notifications, public.admin_logs
   to authenticated;
@@ -700,11 +747,12 @@ grant update (cafe_name, tagline, banner_color, notice_on, notice_text, notice_h
   on public.cafe_settings to authenticated;
 
 grant insert (nickname), update (nickname, team_id, team_name, team_crest) on public.profiles to authenticated;
-grant insert (board, title, body), update (title, body, updated_at), delete on public.posts to authenticated;
+grant insert (board, title, body, squad_id), update (title, body, updated_at), delete on public.posts to authenticated;
 grant insert (post_id, parent_id, body), delete on public.comments to authenticated;
 grant insert (post_id), delete on public.post_likes to authenticated;
 grant insert (match_id, side, body), delete on public.match_talks to authenticated;
 grant insert (match_id, competition, pick), update (pick) on public.match_predictions to authenticated;
+grant insert (name, formation, players), update (name, formation, players, updated_at), delete on public.squads to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.posts enable row level security;
@@ -720,6 +768,7 @@ alter table public.owned_items enable row level security;
 alter table public.notifications enable row level security;
 alter table public.cafe_settings enable row level security;
 alter table public.admin_logs enable row level security;
+alter table public.squads enable row level security;
 
 -- 카페 설정은 누구나 보고, 운영자만 바꿔요. 운영 기록은 운영자만 봐요.
 drop policy if exists cafe_settings_select on public.cafe_settings;
@@ -766,6 +815,11 @@ drop policy if exists posts_insert on public.posts;
 create policy posts_insert on public.posts for insert to authenticated with check (
   user_id = (select auth.uid())
   and (select public.can_write())
+  -- 스쿼드는 내 것만 붙여요.
+  and (
+    posts.squad_id is null
+    or exists (select 1 from public.squads s where s.id = posts.squad_id and s.user_id = (select auth.uid()))
+  )
   and not exists (
     select 1 from public.posts p
     where p.user_id = (select auth.uid()) and p.created_at > now() - interval '30 seconds'
@@ -845,6 +899,27 @@ create policy match_predictions_insert on public.match_predictions for insert to
 drop policy if exists match_predictions_update on public.match_predictions;
 create policy match_predictions_update on public.match_predictions for update to authenticated
   using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+
+-- 드림 스쿼드. 누구나 보고, 회원은 30개까지 만들어 내 것만 고치고 지워요. 매니저는 아무 스쿼드나 지워요.
+-- 도배를 막으려고 새 스쿼드는 10초에 하나만 만들고, 글쓰기 잠금 중에는 만들거나 고칠 수 없어요.
+drop policy if exists squads_select on public.squads;
+create policy squads_select on public.squads for select using (true);
+drop policy if exists squads_insert on public.squads;
+create policy squads_insert on public.squads for insert to authenticated with check (
+  user_id = (select auth.uid())
+  and (select public.can_write())
+  and (select count(*) from public.squads s where s.user_id = (select auth.uid())) < 30
+  and not exists (
+    select 1 from public.squads s
+    where s.user_id = (select auth.uid()) and s.created_at > now() - interval '10 seconds'
+  )
+);
+drop policy if exists squads_update on public.squads;
+create policy squads_update on public.squads for update to authenticated
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()) and (select public.can_write()));
+drop policy if exists squads_delete on public.squads;
+create policy squads_delete on public.squads for delete to authenticated
+  using (user_id = (select auth.uid()) or (select public.is_cafe_manager()));
 
 -- ---------- 실시간 ----------
 -- 응원톡에 새 글이 올라오면 보고 있는 사람 화면에 바로 뜨도록 실시간 전송을 켜요.

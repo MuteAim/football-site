@@ -236,6 +236,24 @@ export function PinIcon({ className = "size-4" }: IconProps) {
   );
 }
 
+/** 더하기. 새로 만들기 버튼에 써요. */
+export function PlusIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M12 5v14M5 12h14" />
+    </LineIcon>
+  );
+}
+
+/** 드림 스쿼드. 유니폼 모양이에요. */
+export function ShirtIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M9 4 4 6.5 5.5 11 8 10v10h8V10l2.5 1L20 6.5 15 4a3 3 0 0 1-6 0z" />
+    </LineIcon>
+  );
+}
+
 /** 카페 관리. 조절 막대 모양이에요. */
 export function SlidersIcon({ className = "size-4" }: IconProps) {
   return (
