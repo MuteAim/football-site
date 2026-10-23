@@ -35,6 +35,7 @@ npm run dev                  # http://localhost:3000
 | `/cafe/updates` | 사이트 새 기능과 개선 사항 |
 | `/cafe/admin` | 카페 관리. 운영자만 들어가요. 배너·공지 띠·글쓰기 잠금, 공지 글, 운영 기록(`/cafe/admin/logs`) |
 | `/cafe/squad` | 드림 스쿼드. FC온라인 선수 카드로 베스트 11을 짜고(`/cafe/squad/new`) 링크로 공유하거나 카페 글에 붙여요 |
+| `/cafe/game` | 선수 맞히기. FC온라인 카드 사진을 보고 선수를 맞히면 골을 받아요. 하루 5문제, 연승할수록 골이 커져요 |
 | `/cafe/me` | 처음 로그인하면 닉네임을 정해 가입하고, 그 뒤엔 골과 등급, 예측 성적, 닉네임·응원팀 바꾸기, 로그아웃 |
 | `/privacy` | 개인정보 처리방침 |
 
@@ -53,6 +54,7 @@ npm run dev                  # http://localhost:3000
 | `src/lib/match-day.ts` | 날짜별 경기와 데이터 기준 시각 찾기 |
 | `src/lib/match-filters.ts` | 경기 상태·리그·응원팀 필터 |
 | `src/lib/cafe/` | 카페 설정, 게시판 목록, 글 읽기(`data.ts`), 쓰기(`actions.ts`) |
+| `scripts/quiz-players.mjs` | 선수 맞히기 문제 은행(유명 선수 목록)을 넥슨 카드 목록으로 다시 만들기 |
 | `src/proxy.ts` | 카페 로그인 유지(토큰 갱신) |
 | `supabase/schema.sql` | 카페 DB 표와 권한 규칙 |
 | `src/components/` | 화면 조각. 카페 조각은 `cafe/` 안에 있어요 |
@@ -125,9 +127,9 @@ NEXT_PRIVATE_DEBUG_CACHE=1 npm run start
      대시보드 주소창 `supabase.com/dashboard/project/abcdefghijklmnopqrst`의 맨 끝도 같은 프로젝트 ID예요.
    - Publishable key는 **Project Settings > API Keys**에 있고 `sb_publishable_`로 시작해요. 이 두 칸에는 Secret key를 넣지 마세요.
    Vercel 프로젝트의 Environment Variables에도 같은 값을 넣어요. 빌드할 때 화면에 박히는 값이라 바꾸면 다시 배포해야 해요.
-   - 승부 예측 골을 주려면 같은 화면의 **Secret key**(`sb_secret_`로 시작)를 `SUPABASE_SECRET_KEY`에 넣어요.
+   - 승부 예측 골을 주고 선수 맞히기 사진을 보여 주려면 같은 화면의 **Secret key**(`sb_secret_`로 시작)를 `SUPABASE_SECRET_KEY`에 넣어요.
      서버에서만 쓰는 키라 이름 앞에 `NEXT_PUBLIC_`을 절대 붙이면 안 돼요. Vercel에도 같은 이름으로 넣어요.
-     비워 두면 예측 골 지급만 멈추고 출석 골과 나머지 기능은 그대로 돌아가요.
+     비워 두면 예측 골 지급과 선수 맞히기만 멈추고 출석 골과 나머지 기능은 그대로 돌아가요.
 4. **Authentication > URL Configuration**에서
    - Site URL에 배포한 사이트 주소(`https://내도메인`)를 넣어요. 아직 배포 전이면 `http://localhost:3000`을 넣어요.
    - Redirect URLs에 `http://localhost:3000/**`을 추가해요. 로컬에서 로그인하면 로컬로 돌아오게 해 줘요.
@@ -217,6 +219,7 @@ NEXT_PRIVATE_DEBUG_CACHE=1 npm run start
 - 예측 순위(`/cafe/predict`)는 이번 시즌 대회별 경기 목록에서 결과를 찾아 5분마다 새로 계산해요.
 - **골**은 돈 가치가 없는 자랑용 포인트예요. 하루 첫 방문 때 자동으로 출석해서 10골, 7일 연속마다 30골을 더 받아요.
   승부 예측을 맞히면 10골, 5명 이상 참여한 경기에서 적중자가 30% 이하면 10골을 더 받고, 예측 골은 하루 50골까지예요.
+  선수 맞히기 정답은 1골에 연승마다 1골씩 더해서 5연승부터 5골이에요.
   골에 따라 새싹(0) → 유망주(100) → 주전(300) → 에이스(800) → 레전드(2000) 등급 배지가 닉네임 옆에 붙어요.
 - 골은 회원이 직접 바꿀 수 없어요. 출석은 DB 함수(`check_in`)가 한국 날짜로 하루 한 번만 주고,
   예측 골은 서버가 경기 결과를 확인한 뒤 비밀 키로만 부를 수 있는 `settle_match`가 줘요.
@@ -247,6 +250,24 @@ NEXT_PRIVATE_DEBUG_CACHE=1 npm run start
 - 오버롤·능력치·급여·시세는 넥슨 Open API에 없어서 보여 주지 않아요.
 - 같은 선수는 시즌이 달라도 한 번만 넣을 수 있어요(카드 번호 끝 6자리가 선수 번호예요). 한 회원은 30개까지 만들어요.
   저장할 때 서버가 카드 번호를 넥슨 선수 목록에서 다시 확인하고 이름도 거기서 가져와요. DB도 자리 수와 모양을 확인해요.
+
+### 선수 맞히기
+
+- `/cafe/game`에서 FC온라인 카드 사진을 보고 보기 4개 중 선수 이름을 골라요. 회원만 풀 수 있고, 한국 시간으로 하루 5문제까지예요.
+- 정답은 1골이고 연승마다 1골씩 더 받아요. 2연승 2골, 3연승 3골, 5연승부터는 정답마다 5골이에요.
+  틀리면 연승이 끊기고 다음 정답은 다시 1골부터예요. 연승은 날이 바뀌어도 이어지고, 받은 골은 등급과 골 상점에 그대로 쓰여요.
+- 문제 은행은 DB의 `quiz_players`예요. 카드가 20장 넘게 나온 선수와 ICON 시즌(레전드) 선수 중 사진이 있는 365명이 들어 있어요.
+  `npm run quiz:players`를 실행하면 넥슨 카드 목록으로 `supabase/schema.sql` 안의 목록을 다시 만들고,
+  SQL Editor에서 다시 실행하면 DB에 들어가요. 목록에서 빠진 선수는 DB에 남아 있어도 괜찮아요.
+- 문제 내기와 채점, 골 지급은 DB 함수(`quiz_start`, `quiz_answer`)만 해요. 안 푼 문제가 있으면 새로고침해도 같은 문제를 다시 주고,
+  최근 30문제에 나온 선수는 다시 내지 않아요. 낸 문제와 문제 은행은 회원이 직접 읽을 수 없어서 정답이 새지 않아요.
+- 넥슨 사진 주소에는 선수 번호가 들어 있어서 화면에 그대로 주면 보기와 맞춰 볼 수 있어요.
+  그래서 서버가 비밀 키(`SUPABASE_SECRET_KEY`)로 정답 선수를 읽어 `/cafe/game/photo`로 사진만 대신 넘겨줘요.
+  비밀 키가 없으면 문제를 낼 수 없다는 안내만 보여요.
+- **이 기능을 배포하기 전**: `supabase/schema.sql` 전체를 SQL Editor에서 다시 실행해 주세요.
+  `quiz_players`, `quiz_rounds` 표와 함수, `profiles.quiz_streak`, 골 내역 종류 `quiz`가 추가돼요.
+  배포한 뒤에는 카페 관리의 업데이트 알림으로 회원에게 알려 주세요.
+- `npm run test:cafe`가 문제 받기, 채점, 연승 골, 하루 상한, 권한을 PGlite에서 같이 확인해요.
 
 ## Vercel 배포
 

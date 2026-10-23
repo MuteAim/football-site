@@ -26,7 +26,7 @@ import type { ShopKind } from "./shop";
 import { isFormation, playerIdOf, SQUAD_LIMITS, SQUAD_SIZE, type SquadPlayer } from "./squad";
 import { createSessionClient } from "./supabase-server";
 import { findTeamChoice } from "./teams";
-import type { FormState, PredictionCounts, PredictionPick, Talk, TalkSide } from "./types";
+import type { FormState, PredictionCounts, PredictionPick, QuizResult, QuizStatus, Talk, TalkSide } from "./types";
 
 // 카페의 모든 쓰기 동작이에요.
 // 서버 동작은 화면을 거치지 않고도 불릴 수 있어서, 매번 로그인과 입력값을 서버에서 다시 확인해요.
@@ -578,4 +578,56 @@ export async function deleteTalk(talkId: number): Promise<boolean> {
   if (!id || typeof member === "string") return false;
   const { data } = await member.supabase.from("match_talks").delete().eq("id", id).select("id");
   return (data?.length ?? 0) > 0;
+}
+
+// ---------- 선수 맞히기 ----------
+// 문제 내기, 채점, 골 지급은 모두 DB 함수(quiz_start, quiz_answer)가 해요. 화면은 보기 이름과 문제 번호만 받아요.
+
+type RawQuizStart = { round_id: number | null; choices: string[] | null; played: number; earned: number; streak: number };
+
+/** 선수 맞히기 문제 받기. 안 푼 문제가 있으면 그 문제를 다시 주고, 오늘 문제를 다 냈으면 round가 null이에요. */
+export async function startQuiz(): Promise<QuizStatus | { error: string }> {
+  const member = await requireMember();
+  if (typeof member === "string") return { error: member };
+
+  const { data, error } = await member.supabase.rpc("quiz_start").maybeSingle<RawQuizStart>();
+  if (error) {
+    console.error(error);
+    return { error: "문제를 내지 못했어요. 잠시 후 다시 해 주세요." };
+  }
+  if (!data) return { error: "닉네임을 정한 뒤에 풀 수 있어요." };
+  return {
+    streak: data.streak,
+    played: data.played,
+    earned: data.earned,
+    round: data.round_id && data.choices ? { id: data.round_id, choices: data.choices } : null,
+  };
+}
+
+/** 선수 맞히기 답 보내기. choice는 보기 번호(1~4)예요. */
+export async function answerQuiz(roundId: number, choice: number): Promise<QuizResult | { error: string }> {
+  const target = positiveInt(roundId);
+  if (!target || !Number.isInteger(choice) || choice < 1 || choice > 4) return { error: "보기를 다시 골라 주세요." };
+  const member = await requireMember();
+  if (typeof member === "string") return { error: member };
+
+  const { data, error } = await member.supabase
+    .rpc("quiz_answer", { target, choice })
+    .maybeSingle<{ correct: boolean; answer_name: string; prize: number; streak: number; played: number; earned: number }>();
+  if (error) {
+    if (error.code === "P0002") return { error: "이미 푼 문제예요. 다음 문제를 받아 주세요." };
+    console.error(error);
+    return { error: "답을 보내지 못했어요. 잠시 후 다시 해 주세요." };
+  }
+  if (!data) return { error: "답을 보내지 못했어요. 잠시 후 다시 해 주세요." };
+  // 골을 받았으면 닉네임 옆 등급처럼 화면에 보이는 골도 다시 그려요.
+  if (data.prize > 0) refresh();
+  return {
+    correct: data.correct,
+    answer: data.answer_name,
+    prize: data.prize,
+    streak: data.streak,
+    played: data.played,
+    earned: data.earned,
+  };
 }

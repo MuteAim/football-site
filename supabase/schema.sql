@@ -312,6 +312,416 @@ create table if not exists public.admin_logs (
   created_at timestamptz not null default now()
 );
 
+-- ---------- 선수 맞히기 ----------
+-- FC온라인 선수 사진을 보고 보기 4개 중 이름을 고르는 미니게임이에요. 한국 날짜로 하루 5문제까지 풀어요.
+-- 정답은 1골인데 연승마다 1골씩 더해서 2연승 2골, 3연승 3골, 5연승부터는 5골이에요. 틀리면 연승이 끊겨요.
+-- 규칙은 quiz_start, quiz_answer에 있고, 화면에 보이는 숫자는 src/lib/cafe/config.ts의 QUIZ와 같아야 해요.
+
+-- 문제 은행. 넥슨 Open API의 카드 목록에서 뽑은 유명 선수예요. scripts/quiz-players.mjs가 아래 목록을 다시 만들어요.
+-- spid는 사진으로 보여 줄 대표 카드 번호예요. 동작 사진이 없는 선수는 비워 두고 얼굴 사진을 써요.
+create table if not exists public.quiz_players (
+  pid integer primary key,
+  name text not null check (char_length(name) between 1 and 40),
+  spid integer
+);
+-- quiz-players:start
+insert into public.quiz_players (pid, name, spid) values
+  (1, '데이비드 시먼', 252000001),
+  (41, '이니에스타', 877000041),
+  (51, '앨런 시어러', 861000051),
+  (195, '로비 파울러', 283000195),
+  (240, '로이 킨', 877000240),
+  (241, '라이언 긱스', 268000241),
+  (244, '게리 네빌', 283000244),
+  (246, '폴 스콜스', 861000246),
+  (250, '데이비드 베컴', 867000250),
+  (388, '솔 캠벨', 877000388),
+  (393, '테디 셰링엄', 284000393),
+  (488, '올리버 칸', 877000488),
+  (570, '제이-제이 오코차', 861000570),
+  (805, '옌스 레만', 216000805),
+  (942, '크리스티안 비에리', 264000942),
+  (1025, '후이 코스타', 877001025),
+  (1040, '호베르투 카를루스', 867001040),
+  (1041, '하비에르 사네티', 877001041),
+  (1075, '델피에로', 861001075),
+  (1088, '알레산드로 네스타', 867001088),
+  (1109, '파올로 말디니', 877001109),
+  (1114, '로베르토 바조', 861001114),
+  (1116, '마르셀 드사이', 867001116),
+  (1179, '잔루이지 부폰', 877001179),
+  (1183, '파비오 칸나바로', 867001183),
+  (1198, '필리포 인자기', 272001198),
+  (1201, '잔프랑코 졸라', 852001201),
+  (1238, '프란체스코 토티', 867001238),
+  (1256, '클라렌스 세이도르프', 814001256),
+  (1397, '지네딘 지단', 868001397),
+  (1419, '파트리크 비에이라', 868001419),
+  (1605, '로베르 피레스', 877001605),
+  (1615, '릴리앙 튀람', 861001615),
+  (1620, '에마뉘엘 프티', 861001620),
+  (1625, '티에리 앙리', 877001625),
+  (1668, '클로드 마켈렐레', 877001668),
+  (1845, '올레 군나르 솔샤르', 877001845),
+  (3647, '미하엘 발락', 284003647),
+  (4000, '데니스 베르캄프', 877004000),
+  (4202, '젠나로 가투소', 867004202),
+  (4231, '히바우두', 861004231),
+  (4833, '스토이치코프', 861004833),
+  (5003, '카푸', 877005003),
+  (5099, '잔루카 잠브로타', 861005099),
+  (5419, '마이클 오언', 861005419),
+  (5467, '제이미 캐러거', 861005467),
+  (5471, '프랭크 램파드', 877005471),
+  (5479, '카시야스', 861005479),
+  (5589, '루이스 피구', 868005589),
+  (5673, '야리 리트마넨', 827005673),
+  (5680, '클라위베르트', 877005680),
+  (5681, 'M. 오베르마르스', 256005681),
+  (5984, '다비드 트레제게', 813005984),
+  (6235, '파벨 네드베드', 867006235),
+  (6975, '프레디 융베리', 877006975),
+  (7289, '리오 퍼디난드', 868007289),
+  (7512, '에르난 크레스포', 868007512),
+  (7518, '베론', 867007518),
+  (7763, '안드레아 피를로', 877007763),
+  (7826, '로빈 반페르시', 861007826),
+  (9676, '사뮈엘 에토', 877009676),
+  (10264, '뤼트 반니스텔로이', 861010264),
+  (10535, '차비', 877010535),
+  (11141, '미로슬라프 클로제', 877011141),
+  (13038, '카를레스 푸욜', 877013038),
+  (13128, '안드리 셰우첸코', 877013128),
+  (13383, '나카타 히데토시', 861013383),
+  (13743, '스티븐 제라드', 861013743),
+  (20170, '비토르 바이아', 256020170),
+  (20289, '야야 투레', 861020289),
+  (20801, '크리스티아누 호날두', 877020801),
+  (23174, '리켈메', 861023174),
+  (28130, '호나우지뉴', 877028130),
+  (31432, '디디에 드로그바', 877031432),
+  (34079, '애슐리 콜', 877034079),
+  (37576, '호나우두', 868037576),
+  (39943, '박지성', 864039943),
+  (41236, '즐라탄', 861041236),
+  (45197, '샤비 알론소', 877045197),
+  (45661, '라울', 861045661),
+  (45674, '마이클 에시앙', 868045674),
+  (46747, '알렉시 랄라스', null),
+  (48940, '페트르 체흐', 877048940),
+  (49369, '페르난도 토레스', 861049369),
+  (51539, '에드윈 반데르사르', 861051539),
+  (52241, '헨릭 라르손', 868052241),
+  (53769, '데쿠', 272053769),
+  (54050, '웨인 루니', 877054050),
+  (117106, '파울레타', 272117106),
+  (121939, '필립 람', 877121939),
+  (121944, '슈바인슈타이거', 877121944),
+  (135507, '페르난지뉴', 508135507),
+  (138412, '제임스 밀너', 846138412),
+  (138449, '카카', 877138449),
+  (138956, '조르조 키엘리니', 877138956),
+  (140601, '네마냐 비디치', 877140601),
+  (142754, '하비에르 마스체라노', 877142754),
+  (146536, '헤수스 나바스', 818146536),
+  (152729, '피케', 511152729),
+  (153079, '세르히오 아구에로', 877153079),
+  (155862, '세르히오 라모스', 818155862),
+  (156353, '루이스 에르난데스', 861156353),
+  (156616, '프랑크 리베리', 877156616),
+  (157481, '라울 알비올', 840157481),
+  (158023, '리오넬 메시', 877158023),
+  (161840, '페르난도 이에로', 867161840),
+  (162347, '주앙 무티뉴', 845162347),
+  (162895, '세스크 파브레가스', 877162895),
+  (164240, '티아구 실바', 821164240),
+  (165153, '카림 벤제마', 855165153),
+  (166120, '안드레아스 브레메', 268166120),
+  (166124, '게오르게 하지', 861166124),
+  (166149, '우고 산체스', 861166149),
+  (166691, '지쿠', 861166691),
+  (166906, '프랑코 바레시', 861166906),
+  (167135, '카를루스 아우베르투', 861167135),
+  (167198, '에릭 칸토나', 877167198),
+  (167495, '마누엘 노이어', 856167495),
+  (167680, '로날트 쿠만', 867167680),
+  (167948, '위고 요리스', 848167948),
+  (168473, '베켄바워', 868168473),
+  (168542, '다비드 실바', 511168542),
+  (168651, '이반 라키티치', 511168651),
+  (172871, '얀 베르통언', 815172871),
+  (173731, '가레스 베일', 861173731),
+  (175943, '드리스 메르턴스', 828175943),
+  (176580, '루이스 수아레스', 877176580),
+  (176676, '마르셀루', 867176676),
+  (177003, '루카 모드리치', 877177003),
+  (177413, '악셀 비첼', 834177413),
+  (177683, '얀 조머', 856177683),
+  (177845, '프랑크 더부르', 283177845),
+  (178005, '후이 파트리시우', 845178005),
+  (178509, '올리비에 지루', 852178509),
+  (178603, '마츠 후멜스', 814178603),
+  (179813, '에딘손 카바니', 818179813),
+  (180283, '기성용', 864180283),
+  (180930, '에딘 제코', 863180930),
+  (181291, '조르지뇨 베이날둠', 846181291),
+  (181458, '이반 페리시치', 863181458),
+  (182521, '토니 크로스', 877182521),
+  (183277, '에덴 아자르', 868183277),
+  (183711, '조던 헨더슨', 852183711),
+  (183898, '앙헬 디마리아', 845183898),
+  (184344, '레오나르도 보누치', 511184344),
+  (184432, '아스필리쿠에타', 840184432),
+  (184941, '알렉시스 산체스', 845184941),
+  (186153, '보이치에흐 슈체스니', 852186153),
+  (186345, '키어런 트리피어', 856186345),
+  (186627, '마리오 발로텔리', 503186627),
+  (186942, '일카이 귄도안', 856186942),
+  (188350, '마르코 로이스', 852188350),
+  (188377, '카일 워커', 848188377),
+  (188545, '레반도프스키', 877188545),
+  (188567, 'P. 오바메양', 866188567),
+  (188943, '케빈 트라프', 840188943),
+  (189242, '쿠티뉴', 511189242),
+  (189332, '조르디 알바', 852189332),
+  (189505, '페드로', 852189505),
+  (189509, '티아고', 511189509),
+  (189511, '세르지오 부스케츠', 852189511),
+  (189513, '파레호', 848189513),
+  (189596, '토마스 뮐러', 877189596),
+  (190042, '마라도나', 861190042),
+  (190043, '펠레', 861190043),
+  (190044, '보비 무어', 861190044),
+  (190045, '요한 크루이프', 868190045),
+  (190046, '소크라테스', 861190046),
+  (190048, '게르트 뮐러', 861190048),
+  (190053, '페터 슈마이켈', 877190053),
+  (190460, '크리스티안 에릭센', 815190460),
+  (190815, '데일리 블린트', 852190815),
+  (190871, '네이마르 Jr.', 863190871),
+  (191043, '알렉스 산드루', 801191043),
+  (191189, '로타어 마테우스', 868191189),
+  (191208, '차범근', 868191208),
+  (191695, '부트라게뇨', 861191695),
+  (192119, '티보 쿠르투아', 866192119),
+  (192181, '마르코 반바스텐', 868192181),
+  (192190, '둥가', 861192190),
+  (192318, '마리오 괴체', 848192318),
+  (192366, '니콜라스 오타멘디', 863192366),
+  (192387, '치로 임모빌레', 852192387),
+  (192448, 'M. 테어슈테겐', 852192448),
+  (192505, '로멜루 루카쿠', 877192505),
+  (192629, '이아고 아스파스', 867192629),
+  (192883, '헨릭 미키타리안', 877192883),
+  (192985, '케빈 더브라위너', 877192985),
+  (193041, '케일러 나바스', 508193041),
+  (193080, '데헤아', 877193080),
+  (193082, '후안 콰드라도', 834193082),
+  (193301, '알렉상드르 라카제트', 840193301),
+  (193348, '제르단 샤키리', 825193348),
+  (193474, '이드리사 게예', 863193474),
+  (193747, '코케', 856193747),
+  (194765, '앙투안 그리즈만', 856194765),
+  (195864, '폴 포그바', 596195864),
+  (197445, '데이비드 알라바', 863197445),
+  (197781, '이스코', 867197781),
+  (198176, '스테판 더브레이', 848198176),
+  (198219, '로렌초 인시녜', 845198219),
+  (198710, '하메스 로드리게스', 863198710),
+  (199304, '다닐루', 829199304),
+  (199503, '그라니트 자카', 877199503),
+  (199556, '마르코 베라티', 511199556),
+  (199564, '세르지 로베르토', 877199564),
+  (200104, '손흥민', 866200104),
+  (200145, '카제미루', 877200145),
+  (200389, '얀 오블라크', 856200389),
+  (200724, '나초 페르난데스', 846200724),
+  (201024, '칼리두 쿨리발리', 867201024),
+  (201153, '모라타', 815201153),
+  (201535, '라파엘 바란', 814201535),
+  (201942, '호베르투 피르미누', 845201942),
+  (202126, '해리 케인', 866202126),
+  (202166, '율리안 드락슬러', 508202166),
+  (202371, '토마 뫼니에', 863202371),
+  (202556, '멤피스 데파이', 863202556),
+  (202652, '라힘 스털링', 836202652),
+  (203376, '버질 반다이크', 877203376),
+  (203574, '존 스톤스', 877203574),
+  (204485, '리야드 마레즈', 863204485),
+  (204525, '이니고 마르티네스', 844204525),
+  (204639, '스테판 사비치', 810204639),
+  (204923, '마르셀 자비처', 863204923),
+  (204935, '조던 픽포드', 863204935),
+  (204963, '카르바할', 848204963),
+  (205452, '안토니오 뤼디거', 863205452),
+  (205988, '루크 쇼', 840205988),
+  (206113, '세르주 그나브리', 866206113),
+  (206517, '잭 그릴리시', 852206517),
+  (207410, '마테오 코바치치', 840207410),
+  (207862, '마티아스 긴터', 852207862),
+  (207865, '마르키뉴스', 863207865),
+  (208093, '제라르 모레노', 840208093),
+  (208128, '하칸 찰하놀루', 877208128),
+  (208333, '엠레 잔', 867208333),
+  (208418, '야니크 카라스코', 866208418),
+  (208574, '필리프 코스티치', 840208574),
+  (208618, '루카스 바스케스', 834208618),
+  (208722, '사디오 마네', 877208722),
+  (209331, '모하메드 살라', 863209331),
+  (209499, '파비뉴', 848209499),
+  (209658, '레온 고레츠카', 863209658),
+  (209889, '하파엘 게헤이루', 856209889),
+  (210008, '아드리앙 라비오', 867210008),
+  (210035, '그리말도', 866210035),
+  (210257, '에데르송', 863210257),
+  (210406, 'P. 지엘린스키', 877210406),
+  (210514, '주앙 칸셀루', 863210514),
+  (210935, '도메니코 베라르디', 867210935),
+  (211110, '파울로 디발라', 877211110),
+  (211688, '가야', 867211688),
+  (212188, '티모 베르너', 848212188),
+  (212190, '니클라스 쥘레', 848212190),
+  (212194, '율리안 브란트', 856212194),
+  (212198, '브루누 페르난데스', 867212198),
+  (212218, '에므리크 라포르트', 863212218),
+  (212432, '조현우', 863212432),
+  (212622, '요주아 키미히', 866212622),
+  (212831, '알리송', 877212831),
+  (213331, '요나탄 타', 866213331),
+  (213345, '킹슬레 코망', 877213345),
+  (214098, '프랑크 레이카르트', 868214098),
+  (214100, '루드 굴리트', 868214100),
+  (214101, '파울루 푸트리', 867214101),
+  (214267, '게리 리네커', 861214267),
+  (214649, '다보르 슈케르', 867214649),
+  (215558, '슈테판 에펜베르크', 284215558),
+  (215698, '마이크 메냥', 866215698),
+  (215732, '올리버 비어호프', 861215732),
+  (215914, '은골로 캉테', 848215914),
+  (216201, '이냐키 윌리암스', 863216201),
+  (216267, '앤드루 로버트슨', 877216267),
+  (216352, 'M. 브로조비치', 848216352),
+  (216354, 'A. 크라마리치', 866216354),
+  (216393, '유리 틸레만스', 863216393),
+  (216460, 'J. 히메네스', 863216460),
+  (216594, '나빌 페키르', 511216594),
+  (217870, '조반니 디로렌초', 877217870),
+  (218667, '베르나르두 실바', 863218667),
+  (219683, '코랑탕 톨리소', 866219683),
+  (220814, '루카스 에르난데스', 840220814),
+  (221162, '바티스투타', 861221162),
+  (222000, '미카엘 라우드루프', 861222000),
+  (222077, '마누엘 로카텔리', 867222077),
+  (222257, '브리안 라우드루프', 252222257),
+  (222481, '로랑 블랑', 868222481),
+  (222492, '리로이 사네', 863222492),
+  (222665, '마르틴 외데고르', 863222665),
+  (222680, '카를로스 발데라마', null),
+  (223848, 'S. 밀린코비치-사비치', 867223848),
+  (224232, '니콜로 바렐라', 877224232),
+  (225193, '미켈 메리노', 867225193),
+  (225850, '프레스넬 킴펨베', null),
+  (226161, '마르코스 요렌테', 866226161),
+  (226271, '파비안 루이스', 863226271),
+  (226764, '조지 베스트', 850226764),
+  (226851, '뱅자맹 파바르', 877226851),
+  (227796, '크리스천 풀리식', 863227796),
+  (228093, '마르쿠스 튀람', 877228093),
+  (228618, '페를랑 멘디', 846228618),
+  (228702, '프렝키 더용', 863228702),
+  (229237, '마누엘 아칸지', 866229237),
+  (229261, '데니스 자카리아', 863229261),
+  (229558, '다요 우파메카노', 866229558),
+  (230025, '보비 찰턴', 868230025),
+  (230142, '오야르사발', 866230142),
+  (230621, '잔루이지 돈나룸마', 866230621),
+  (230666, '가브리엘 제주스', 877230666),
+  (231281, 'T. 알렉산더-아놀드', 848231281),
+  (231443, '우스만 뎀벨레', 866231443),
+  (231478, '라우타로', 866231478),
+  (231677, '마커스 래시포드', 863231677),
+  (231747, '킬리안 음바페', 866231747),
+  (231866, '로드리', 877231866),
+  (232363, '밀란 슈크리니아르', 848232363),
+  (232411, 'C. 은쿤쿠', 852232411),
+  (232488, '크리스티안 로메로', 867232488),
+  (232656, '테오 에르난데스', 867232656),
+  (233049, '제이든 산초', 852233049),
+  (233064, '메이슨 마운트', 836233064),
+  (233096, '덴젤 둠프리스', 863233096),
+  (233419, '하피냐', 866233419),
+  (234378, '데클런 라이스', 866234378),
+  (234396, '알폰소 데이비스', 863234396),
+  (235243, '마테이스 더리흐트', 840235243),
+  (235790, '카이 하베르츠', 867235790),
+  (235805, '페데리코 키에사', 845235805),
+  (237086, '김민재', 863237086),
+  (237383, 'A. 바스토니', 856237383),
+  (237692, '필 포든', 877237692),
+  (238380, '레프 야신', 861238380),
+  (238794, '비니시우스', 867238794),
+  (239053, '페데리코 발베르데', 866239053),
+  (239085, '엘링 홀란', 866239085),
+  (239818, '후벵 디아스', 877239818),
+  (240130, '에데르 밀리탕', 856240130),
+  (241084, '루이스 디아스', 866241084),
+  (241486, '쥘 쿤데', 863241486),
+  (241637, 'A. 추아메니', 866241637),
+  (241721, '하파엘 레앙', 863241721),
+  (242444, '주앙 펠릭스', 866242444),
+  (242519, '에우제비우', 868242519),
+  (243715, '윌리암 살리바', 866243715),
+  (243780, '이강인', 879243780),
+  (243781, '과르디올라', 256243781),
+  (243812, '호드리구', 863243812),
+  (244260, '다니 올모', 856244260),
+  (246430, '두샨 블라호비치', 856246430),
+  (246669, '부카요 사카', 863246669),
+  (247515, '존 반스', 861247515),
+  (247553, '가린샤', 861247553),
+  (247635, '크바라츠헬리아', 866247635),
+  (247699, '케니 달글리시', 861247699),
+  (247703, '이언 러시', 868247703),
+  (248146, '이언 라이트', 867248146),
+  (251517, '그바르디올', 863251517),
+  (251854, '페드리', 866251854),
+  (252371, '주드 벨링엄', 867252371),
+  (253149, '제레미 프림퐁', 877253149),
+  (254642, '페렌츠 푸스카스', 861254642),
+  (256630, '플로리안 비르츠', 877256630),
+  (256790, '무시알라', 863256790),
+  (268513, '자이르지뉴', 861268513)
+on conflict (pid) do update set name = excluded.name, spid = excluded.spid;
+-- quiz-players:end
+
+-- 낸 문제. 정답 선수는 서버가 비밀 키로만 읽어서 화면은 사진 주소로 정답을 알 수 없어요.
+-- choices는 보기 4개의 선수 이름(화면 순서), answer는 정답 보기 번호(1~4), picked는 회원이 고른 번호예요. 아직 안 풀었으면 null이에요.
+create table if not exists public.quiz_rounds (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  -- 문제를 낸 한국 날짜. 하루 문제 수를 셀 때 써요.
+  day date not null,
+  answer_pid integer not null,
+  answer_spid integer,
+  choices text[] not null check (array_length(choices, 1) = 4),
+  answer integer not null check (answer between 1 and 4),
+  picked integer check (picked between 1 and 4),
+  awarded integer not null default 0,
+  created_at timestamptz not null default now(),
+  answered_at timestamptz
+);
+create index if not exists quiz_rounds_user_idx on public.quiz_rounds (user_id, id desc);
+-- 안 푼 문제는 한 번에 하나만 있어요.
+create unique index if not exists quiz_rounds_open_key on public.quiz_rounds (user_id) where picked is null;
+
+-- 연승. 정답마다 1씩 오르고 틀리면 0이 돼요. 날이 바뀌어도 이어져요.
+alter table public.profiles add column if not exists quiz_streak integer not null default 0;
+
+-- 골 내역에 선수 맞히기(quiz)를 더해요.
+alter table public.goal_events drop constraint if exists goal_events_kind_check;
+alter table public.goal_events add constraint goal_events_kind_check
+  check (kind in ('attendance', 'streak', 'prediction', 'minority', 'quiz'));
+
 -- ---------- 숫자 자동 계산 ----------
 -- 회원은 글의 숫자 칸을 직접 고칠 수 없어서, 추천·댓글이 생기거나 지워질 때 DB가 대신 세요.
 
@@ -661,6 +1071,125 @@ begin
   end if;
 end $$;
 
+-- 선수 맞히기 문제 받기. 안 푼 문제가 있으면 그 문제를 다시 주고, 오늘 5문제를 다 냈으면 round_id가 null이에요.
+-- 최근 30문제에 나온 선수는 다시 내지 않고, 보기는 이름이 다른 선수 3명을 섞어요.
+-- played는 오늘 받은 문제 수(지금 준 문제 포함), earned는 오늘 받은 골이에요. 가입 전이면 아무것도 돌려주지 않아요.
+create or replace function public.quiz_start()
+returns table (round_id bigint, choices text[], played integer, earned integer, streak integer)
+language plpgsql security definer set search_path = '' as $$
+declare
+  me uuid := (select auth.uid());
+  today date := (now() at time zone 'Asia/Seoul')::date;
+  my_streak integer;
+  done integer;
+  got integer;
+  pick record;
+  names text[];
+  spot integer;
+  new_id bigint;
+begin
+  -- 두 번 눌러도 문제가 두 개 생기지 않게 내 줄을 잠가요.
+  select p.quiz_streak into my_streak from public.profiles p where p.id = me for update;
+  if not found then
+    return;
+  end if;
+  select count(*), coalesce(sum(r.awarded), 0) into done, got
+  from public.quiz_rounds r where r.user_id = me and r.day = today;
+
+  return query select r.id, r.choices, done, got, my_streak
+    from public.quiz_rounds r where r.user_id = me and r.picked is null;
+  if found then
+    return;
+  end if;
+  if done >= 5 then
+    return query select null::bigint, null::text[], done, got, my_streak;
+    return;
+  end if;
+
+  select q.pid, q.name, q.spid into pick from public.quiz_players q
+  where q.pid not in (
+    select r.answer_pid from public.quiz_rounds r where r.user_id = me order by r.id desc limit 30
+  )
+  order by random() limit 1;
+  if not found then
+    -- 문제 은행이 작으면 최근에 나온 선수라도 다시 내요.
+    select q.pid, q.name, q.spid into pick from public.quiz_players q order by random() limit 1;
+    if not found then
+      raise exception '문제로 낼 선수가 없어요.' using errcode = 'P0002';
+    end if;
+  end if;
+  select coalesce(array_agg(o.name), '{}') into names
+  from (select q.name from public.quiz_players q where q.name <> pick.name order by random() limit 3) o;
+  if coalesce(array_length(names, 1), 0) <> 3 then
+    raise exception '보기로 낼 선수가 모자라요.' using errcode = 'P0002';
+  end if;
+  spot := 1 + floor(random() * 4)::integer;
+  names := names[1:spot - 1] || pick.name || names[spot:3];
+
+  insert into public.quiz_rounds (user_id, day, answer_pid, answer_spid, choices, answer)
+  values (me, today, pick.pid, pick.spid, names, spot)
+  returning id into new_id;
+  return query select new_id, names, done + 1, got, my_streak;
+end $$;
+
+-- 선수 맞히기 답하기. choice는 보기 번호(1~4)예요. 정답이면 연승을 올리고 연승만큼(최대 5골) 골을 줘요. 틀리면 연승이 0이 돼요.
+-- answer_name은 정답 선수 이름, prize는 이번에 받은 골, played와 earned는 오늘 받은 문제 수와 골이에요.
+-- 오류 코드: 가입 전 42501, 없거나 이미 푼 문제 P0002, 보기 번호 오류 22023
+create or replace function public.quiz_answer(target bigint, choice integer)
+returns table (correct boolean, answer_name text, prize integer, streak integer, played integer, earned integer)
+language plpgsql security definer set search_path = '' as $$
+declare
+  me uuid := (select auth.uid());
+  today date := (now() at time zone 'Asia/Seoul')::date;
+  my_streak integer;
+  item public.quiz_rounds%rowtype;
+  hit boolean;
+  given integer := 0;
+begin
+  if choice is null or choice not between 1 and 4 then
+    raise exception '보기 번호가 잘못됐어요.' using errcode = '22023';
+  end if;
+  -- 문제 받기와 같은 순서로 내 줄부터 잠가서 서로 기다리다 멈추지 않게 해요.
+  select p.quiz_streak into my_streak from public.profiles p where p.id = me for update;
+  if not found then
+    raise exception '가입한 회원만 풀 수 있어요.' using errcode = '42501';
+  end if;
+  select * into item from public.quiz_rounds q
+  where q.id = target and q.user_id = me and q.picked is null for update;
+  if not found then
+    raise exception '없는 문제이거나 이미 푼 문제예요.' using errcode = 'P0002';
+  end if;
+
+  hit := choice = item.answer;
+  if hit then
+    my_streak := my_streak + 1;
+    given := least(my_streak, 5);
+    insert into public.goal_events (user_id, kind, ref, day, amount) values (me, 'quiz', target::text, today, given);
+  else
+    my_streak := 0;
+  end if;
+  update public.quiz_rounds q set picked = choice, awarded = given, answered_at = now() where q.id = target;
+  update public.profiles p set quiz_streak = my_streak where p.id = me;
+  return query
+    select hit, item.choices[item.answer], given, my_streak, count(*)::integer, coalesce(sum(q.awarded), 0)::integer
+    from public.quiz_rounds q where q.user_id = me and q.day = today;
+end $$;
+
+-- 내 선수 맞히기 상태. 연승, 오늘 받은 문제 수와 골, 아직 안 푼 문제예요. 본인만 볼 수 있어요.
+create or replace function public.my_quiz()
+returns table (streak integer, played integer, earned integer, round_id bigint, choices text[])
+language sql stable security definer set search_path = '' as $$
+  select p.quiz_streak,
+    (select count(*)::integer from public.quiz_rounds r
+      where r.user_id = p.id and r.day = (now() at time zone 'Asia/Seoul')::date),
+    (select coalesce(sum(r.awarded), 0)::integer from public.quiz_rounds r
+      where r.user_id = p.id and r.day = (now() at time zone 'Asia/Seoul')::date),
+    o.id, o.choices
+  from public.profiles p
+  left join public.quiz_rounds o on o.user_id = p.id and o.picked is null
+  where p.id = (select auth.uid());
+$$;
+
 -- 조회수 올리기. 로그인하지 않은 방문자도 부를 수 있어요.
 create or replace function public.count_post_view(target bigint) returns void
 language sql security definer set search_path = '' as $$
@@ -769,7 +1298,8 @@ create trigger site_updates_notify after insert on public.site_updates
 
 revoke all on public.profiles, public.posts, public.comments, public.post_likes, public.match_talks,
   public.match_predictions, public.goal_events, public.settled_matches, public.unsettled_matches,
-  public.shop_items, public.owned_items, public.notifications, public.cafe_settings, public.admin_logs, public.squads, public.site_updates
+  public.shop_items, public.owned_items, public.notifications, public.cafe_settings, public.admin_logs, public.squads, public.site_updates,
+  public.quiz_players, public.quiz_rounds
   from anon, authenticated;
 
 grant select on public.posts, public.comments, public.match_talks, public.match_predictions, public.shop_items,
@@ -796,6 +1326,15 @@ revoke all on function public.buy_item(text) from public, anon;
 grant execute on function public.buy_item(text) to authenticated;
 revoke all on function public.equip_item(text, text) from public, anon;
 grant execute on function public.equip_item(text, text) to authenticated;
+
+-- 선수 맞히기도 DB 함수로만 문제를 받고 답해요. 문제 은행과 낸 문제는 회원이 직접 읽지 못해서 정답이 새지 않아요.
+-- 정답 선수의 사진은 서버가 비밀 키(service_role)로만 읽어요.
+revoke all on function public.quiz_start() from public, anon;
+grant execute on function public.quiz_start() to authenticated;
+revoke all on function public.quiz_answer(bigint, integer) from public, anon;
+grant execute on function public.quiz_answer(bigint, integer) to authenticated;
+revoke all on function public.my_quiz() from public, anon;
+grant execute on function public.my_quiz() to authenticated;
 
 -- 내 소식은 DB가 만들고, 회원은 읽음 표시만 함수로 해요.
 revoke all on function public.read_notifications() from public, anon;
@@ -837,6 +1376,9 @@ alter table public.cafe_settings enable row level security;
 alter table public.admin_logs enable row level security;
 alter table public.squads enable row level security;
 alter table public.site_updates enable row level security;
+-- 선수 맞히기 표는 서버(service_role)와 DB 함수만 읽고 써서 회원용 규칙을 두지 않아요.
+alter table public.quiz_players enable row level security;
+alter table public.quiz_rounds enable row level security;
 drop policy if exists site_updates_select on public.site_updates;
 create policy site_updates_select on public.site_updates for select using (true);
 drop policy if exists site_updates_insert on public.site_updates;

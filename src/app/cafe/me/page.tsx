@@ -9,10 +9,11 @@ import { ProfileForm } from "@/components/cafe/ProfileForm";
 import { SignOutButton } from "@/components/cafe/SignOutButton";
 import { TeamPicker } from "@/components/cafe/TeamPicker";
 import { cardClass, mutedClass, secondaryButtonClass, skeletonClass, textButtonClass } from "@/components/ui";
-import { safeNext } from "@/lib/cafe/config";
+import { QUIZ, quizPrize, safeNext } from "@/lib/cafe/config";
 import { getMyGoals, settlePredictions } from "@/lib/cafe/goals";
 import { levelOf, nextLevel } from "@/lib/cafe/levels";
 import { getPredictionRanking, rankOf } from "@/lib/cafe/predictions";
+import { getMyQuiz } from "@/lib/cafe/quiz";
 import { nameColorClass } from "@/lib/cafe/shop";
 import { getTeamChoices } from "@/lib/cafe/teams";
 import type { FanTeam, GoalEvent } from "@/lib/cafe/types";
@@ -57,7 +58,26 @@ const GOAL_LABEL: Record<GoalEvent["kind"], string> = {
   streak: "7일 연속 출석 보너스",
   prediction: "승부 예측 적중",
   minority: "소수 의견 적중 보너스",
+  quiz: "선수 맞히기 정답",
 };
+
+/** 내 선수 맞히기 상태. 연승과 오늘 푼 문제 수예요. */
+async function QuizRecord() {
+  const quiz = await getMyQuiz();
+  const remaining = quiz ? QUIZ.daily - quiz.played : 0;
+  return (
+    <div className="mt-1.5 flex items-center justify-between gap-3">
+      <p className={`text-sm ${quiz && (quiz.streak > 0 || quiz.played > 0) ? "" : mutedClass}`}>
+        {!quiz || (quiz.streak === 0 && quiz.played === 0)
+          ? "카드 사진 속 선수를 맞히면 골을 받아요."
+          : `${quiz.streak}연승 · 다음 정답 +${quizPrize(quiz.streak)}골 · 오늘 ${quiz.played}/${QUIZ.daily}문제`}
+      </p>
+      <Link href="/cafe/game" className={`shrink-0 ${textButtonClass}`}>
+        {remaining > 0 ? "풀러 가기" : "보러 가기"}
+      </Link>
+    </div>
+  );
+}
 
 /** 내 골과 등급, 출석 상태, 최근 골 내역 */
 async function GoalSection({ userId, goals }: { userId: string; goals: number }) {
@@ -124,7 +144,7 @@ async function GoalSection({ userId, goals }: { userId: string; goals: number })
       ) : null}
       <p className={`mt-2 text-xs leading-relaxed ${mutedClass}`}>
         출석 10골, 7일 연속 출석마다 30골, 승부 예측 적중 10골을 받아요. 남들이 많이 틀린 경기를 맞히면 10골을 더 주고,
-        예측으로 받는 골은 하루 50골까지예요.
+        예측으로 받는 골은 하루 50골까지예요. 선수 맞히기는 정답 1골에 연승마다 1골씩 더해서 5연승부터 5골이에요.
       </p>
     </div>
   );
@@ -187,6 +207,13 @@ async function MeContent({ searchParams }: { searchParams: PageProps<"/cafe/me">
             <h2 className="text-sm font-semibold">승부 예측</h2>
             <Suspense fallback={<div className={`mt-2 h-5 w-48 animate-pulse ${skeletonClass}`} />}>
               <PredictionRecord userId={viewer.id} />
+            </Suspense>
+          </section>
+
+          <section className={sectionClass}>
+            <h2 className="text-sm font-semibold">선수 맞히기</h2>
+            <Suspense fallback={<div className={`mt-2 h-5 w-48 animate-pulse ${skeletonClass}`} />}>
+              <QuizRecord />
             </Suspense>
           </section>
 

@@ -47,7 +47,7 @@ export function BoardTabs({ active }: { active: string | null }) {
 export function ActiveBoardTabs() {
   const pathname = usePathname();
   const segment = pathname.split("/")[2] ?? "";
-  if (segment === "predict" || segment === "squad") return null;
+  if (segment === "predict" || segment === "squad" || segment === "game") return null;
   const active = pathname === "/cafe" ? "" : (getBoard(segment)?.slug ?? null);
   return <BoardTabs active={active} />;
 }

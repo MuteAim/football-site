@@ -6,7 +6,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { nameColorClass } from "@/lib/cafe/shop";
 import { getBrowserClient } from "@/lib/cafe/supabase-browser";
 import type { Author } from "@/lib/cafe/types";
-import { BagIcon, BellIcon, ChevronDownIcon, SlidersIcon, TrophyIcon, UserIcon } from "../Icons";
+import { BagIcon, BellIcon, ChevronDownIcon, QuizCardIcon, SlidersIcon, TrophyIcon, UserIcon } from "../Icons";
 import { cardClass, mutedClass } from "../ui";
 import { Avatar, LevelBadge } from "./Avatar";
 import { SignOutButton } from "./SignOutButton";
@@ -208,6 +208,13 @@ export function AccountMenu({
               icon={<BagIcon className="size-4" />}
               label="골 상점"
               hint="골로 닉네임 색과 테두리 사기"
+              onPick={close}
+            />
+            <MenuLink
+              href="/cafe/game"
+              icon={<QuizCardIcon className="size-4" />}
+              label="선수 맞히기"
+              hint="카드 사진 보고 선수 맞히고 골 받기"
               onPick={close}
             />
             <MenuLink

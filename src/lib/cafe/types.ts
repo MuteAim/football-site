@@ -41,10 +41,34 @@ export type ShopItem = {
 /** 골 내역 한 줄 */
 export type GoalEvent = {
   id: number;
-  kind: "attendance" | "streak" | "prediction" | "minority";
+  kind: "attendance" | "streak" | "prediction" | "minority" | "quiz";
   amount: number;
   /** 한국 날짜(YYYY-MM-DD). 예측 골은 킥오프 날짜예요. */
   day: string;
+};
+
+/** 선수 맞히기 문제 하나. choices는 보기 4개의 선수 이름이고, 사진은 /cafe/game/photo?round=id로 받아요. */
+export type QuizRound = {
+  id: number;
+  choices: string[];
+};
+
+/** 내 선수 맞히기 상태. played와 earned는 오늘 받은 문제 수와 골, round는 아직 안 푼 문제예요. */
+export type QuizStatus = {
+  streak: number;
+  played: number;
+  earned: number;
+  round: QuizRound | null;
+};
+
+/** 선수 맞히기 답의 결과. prize는 이번에 받은 골이에요. */
+export type QuizResult = {
+  correct: boolean;
+  answer: string;
+  prize: number;
+  streak: number;
+  played: number;
+  earned: number;
 };
 
 export type PostSummary = {

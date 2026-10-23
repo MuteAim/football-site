@@ -4,7 +4,7 @@ import { boardHref, postHref, type Board } from "@/lib/cafe/boards";
 import { listPinned, listPosts, listWeeklyBest } from "@/lib/cafe/data";
 import type { PostSummary } from "@/lib/cafe/types";
 import { EmptyState } from "../EmptyState";
-import { ChevronRightIcon, HeartIcon, PencilIcon } from "../Icons";
+import { ChevronRightIcon, HeartIcon, PencilIcon, QuizCardIcon } from "../Icons";
 import { cardClass, cardHeadingClass, cardListClass, mutedClass, primaryButtonClass } from "../ui";
 import { PostListSkeleton } from "./CafeSkeletons";
 import { Pagination } from "./Pagination";
@@ -53,6 +53,25 @@ function WeeklyBest({ posts }: { posts: PostSummary[] }) {
   );
 }
 
+/** 전체글 첫 쪽에서 선수 맞히기로 가는 길. 누구에게나 같아서 글 목록과 상관없이 바로 떠요. */
+function QuizEntry() {
+  return (
+    <Link
+      href="/cafe/game"
+      className={`${cardClass} mb-3 flex items-center gap-3 px-4 py-3 transition hover:ring-emerald-500/40 active:scale-[0.99]`}
+    >
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
+        <QuizCardIcon className="size-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-bold">선수 맞히기</span>
+        <span className={`block truncate text-xs ${mutedClass}`}>카드 사진 보고 선수를 맞히면 골을 받아요. 하루 5문제, 연승할수록 커져요.</span>
+      </span>
+      <ChevronRightIcon className="size-4 shrink-0 text-zinc-400" />
+    </Link>
+  );
+}
+
 async function BoardPosts({ board, searchParams }: { board: Board; searchParams: SearchParams }) {
   const page = parsePage((await searchParams).page);
   const first = page === 1;
@@ -73,6 +92,7 @@ async function BoardPosts({ board, searchParams }: { board: Board; searchParams:
           <PostList posts={pinned} showBoard={!board.writable} now={now} />
         </section>
       ) : null}
+      {board.slug === "" && first ? <QuizEntry /> : null}
       <WeeklyBest posts={best} />
       {posts.length === 0 && pinned.length === 0 ? (
         <EmptyState>

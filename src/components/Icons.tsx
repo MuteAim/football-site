@@ -258,6 +258,17 @@ export function ShirtIcon({ className = "size-4" }: IconProps) {
   );
 }
 
+/** 선수 맞히기. 물음표가 붙은 선수 카드 모양이에요. */
+export function QuizCardIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M7 3.5h10A1.5 1.5 0 0 1 18.5 5v14a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z" />
+      <path d="M9.75 9.5a2.25 2.25 0 1 1 3.2 2.05c-.6.3-.95.8-.95 1.45v.5" />
+      <path d="M12 16.5h.01" />
+    </LineIcon>
+  );
+}
+
 /** 카페 관리. 조절 막대 모양이에요. */
 export function SlidersIcon({ className = "size-4" }: IconProps) {
   return (
