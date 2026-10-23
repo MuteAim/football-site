@@ -15,17 +15,19 @@ import { cardClass, mutedClass, primaryButtonClass, secondaryButtonClass } from 
 import { CareerBoard } from "./CareerBoard";
 import { CareerCreate } from "./CareerCreate";
 import { DecisionCard, HalfSeason, HistoryTable, OvrChart, PlayerCard, ScoreBreakdown, SeasonReport, SimulationCard } from "./CareerParts";
+import { TurnHeader, turnResult, type TurnResult } from "./CareerTurn";
 import styles from "./career.module.css";
 
 /** 브라우저에 남기는 커리어. 상태 대신 시드와 선택만 저장하고 불러올 때 다시 계산해요. */
 type Stored = CareerSave & { runId: string | null; recorded: string | null };
 type HallEntry = { name: string; pos: string; nation: string; score: number; grade: string; title: string; ballonDor: number; peakOvr: number; day: string; ranked: boolean };
 type Pending = { seed: number; startYear: number; runId: string | null };
-type Busy = { title: string; from: number; to: number; ms: number };
+type Busy = { title: string; from: number; to: number; ms: number; previous: CareerState; result: TurnResult | null };
 type RankState = { state: "none" | "saving" | "saved" | "failed"; message: string };
 
 const SAVE_KEY = "football-career-v1";
 const HALL_KEY = "football-career-hall-v1";
+const QUICK_KEY = "football-career-quick";
 const SIM_MS = 650;
 
 function parseStored(value: unknown): Stored | null {
@@ -76,6 +78,11 @@ function randomSeed(): number {
   return crypto.getRandomValues(new Uint32Array(1))[0];
 }
 
+/** 짧은 결과로 바뀌어도 페이지 끝이 현재 화면 위로 당겨지지 않게 해요. */
+function keepViewport(root: HTMLDivElement | null) {
+  if (root) root.style.minHeight = `${Math.max(0, Math.ceil(window.innerHeight - root.getBoundingClientRect().top))}px`;
+}
+
 export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; challenge: { score: number; day: string } | null }) {
   const [snapshot, setSnapshot] = useState(initial);
   const [screen, setScreen] = useState<"loading" | "intro" | "create" | "play">("loading");
@@ -84,6 +91,8 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   const [pending, setPending] = useState<Pending | null>(null);
   const [hall, setHall] = useState<HallEntry[]>([]);
   const [busy, setBusy] = useState<Busy | null>(null);
+  const [quick, setQuick] = useState(false);
+  const [result, setResult] = useState<TurnResult | null>(null);
   const [rank, setRank] = useState<RankState>({ state: "none", message: "" });
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
@@ -94,13 +103,15 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   const [saving, saveAction] = useTransition();
   const loaded = useRef(false);
   const lastPick = useRef(0);
-  const focusTarget = useRef<"decision" | "report" | null>(null);
+  const focusDecision = useRef(false);
+  const gameRoot = useRef<HTMLDivElement>(null);
   const ranked = snapshot.member && snapshot.available;
 
   const restore = useCallback((value: Stored) => {
     const state = replayCareer(value);
     setStored(value);
     setCareer(state);
+    setResult(value.choices.length ? turnResult(replayCareer({ ...value, choices: value.choices.slice(0, -1) }), state, value.choices.at(-1)!) : null);
     // 순위 도전 커리어가 은퇴했는데 기록이 없으면(저장 중 창을 닫는 등) 다시 시도할 수 있게 해요.
     setRank(value.recorded ? { state: "saved", message: `${value.recorded} 순위에 기록된 커리어예요.` }
       : value.runId && state.phase === "retired" ? { state: "failed", message: "" } : { state: "none", message: "" });
@@ -114,6 +125,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     const frame = requestAnimationFrame(() => {
       loaded.current = true;
       setHall(readHall());
+      try { setQuick(localStorage.getItem(QUICK_KEY) === "1"); } catch {}
       const value = readStored();
       if (!value) { setScreen("intro"); return; }
       try {
@@ -130,23 +142,25 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
 
   useEffect(() => {
     if (!busy) return;
-    const timer = window.setTimeout(() => setBusy(null), busy.ms);
+    const timer = window.setTimeout(() => {
+      // 연출 중 사용자가 직접 움직였다면 그때의 위치를 지켜요.
+      keepViewport(gameRoot.current);
+      setBusy(null);
+    }, busy.ms);
     return () => window.clearTimeout(timer);
   }, [busy]);
 
-  // 새 결정이 화면 밖에 있으면 그쪽으로 옮기고, 화면 읽기 프로그램의 초점도 옮겨요.
-  // 시즌이 끝나면 리포트부터, 시즌 중 사건은 전반기 성적부터 보이게 해요.
+  // 키보드로 고른 경우에만 다음 결정으로 초점을 이어 줘요. 선택 때문에 화면을 스크롤하지 않아요.
   useEffect(() => {
-    if (busy || !focusTarget.current) return;
-    const where = focusTarget.current;
-    focusTarget.current = null;
-    const focus = document.getElementById(where === "report" ? "career-report" : "career-decision");
-    const scroll = (where === "decision" && document.getElementById("career-half")) || focus;
-    if (!focus || !scroll) return;
-    const top = scroll.getBoundingClientRect().top;
-    if (top < 80 || top > window.innerHeight * 0.55) scroll.scrollIntoView({ block: "start", behavior: "smooth" });
-    focus.focus({ preventScroll: true });
+    if (busy || !focusDecision.current) return;
+    focusDecision.current = false;
+    document.getElementById("career-decision")?.focus({ preventScroll: true });
   }, [busy, career]);
+
+  function changeQuick(value: boolean) {
+    setQuick(value);
+    try { localStorage.setItem(QUICK_KEY, value ? "1" : "0"); } catch {}
+  }
 
   const submit = useCallback((value: Stored) => {
     if (!value.runId) return;
@@ -179,6 +193,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
         setPending({ seed: randomSeed(), startYear: seasonYearOf(new Date()), runId: null });
       }
       setScreen("create");
+      if (gameRoot.current) gameRoot.current.style.minHeight = "";
       window.scrollTo({ top: 0 });
     });
   }
@@ -195,8 +210,9 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
       setRank({ state: "none", message: "" });
       setShareNote("");
       setShareText("");
+      setResult(null);
       setScreen("play");
-      focusTarget.current = "decision";
+      focusDecision.current = true;
       window.scrollTo({ top: 0 });
     } catch (reason) {
       setError(reason instanceof CareerError ? reason.message : "선수를 만들지 못했어요.");
@@ -216,7 +232,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   }
 
   /** time은 클릭 이벤트 시각이에요. 빠른 두 번 클릭이 바로 다음에 뜬 결정까지 고르지 않게 잠깐 막아요. */
-  function pick(index: number, time: number) {
+  function pick(index: number, time: number, keyboard: boolean) {
     if (!career || !stored || busy || !career.pending) return;
     if (time - lastPick.current < 400) return;
     lastPick.current = time;
@@ -227,16 +243,18 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
       return;
     }
     const value = { ...stored, choices: [...stored.choices, index] };
+    keepViewport(gameRoot.current);
     writeStored(value);
     setStored(value);
     setCareer(next);
+    setResult(turnResult(career, next, index));
     setError("");
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (kind !== "offseason" && !reduce) {
+    if (kind !== "offseason" && !reduce && !quick) {
       const title = `${seasonLabel(career.year)} 시즌 ${next.phase === "event" ? "전반기" : kind === "event" ? "후반기" : ""} 진행 중`.replace("  ", " ");
-      setBusy({ title, from: kind === "event" ? 50 : 0, to: next.phase === "event" ? 50 : 100, ms: SIM_MS });
+      setBusy({ title, from: kind === "event" ? 50 : 0, to: next.phase === "event" ? 50 : 100, ms: SIM_MS, previous: career, result });
     }
-    focusTarget.current = next.phase === "offseason" ? "report" : "decision";
+    focusDecision.current = keyboard;
     if (next.phase === "retired") retire(next, value);
   }
 
@@ -290,11 +308,12 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     catch { setShareText(`${text}\n${url}`); setShareNote("아래 내용을 복사해서 친구에게 보내 주세요."); }
   }
 
-  const last = career?.history.at(-1);
-  const summary = career?.phase === "retired" ? summarizeCareer(career) : null;
+  const displayed = busy?.previous ?? career;
+  const last = displayed?.history.at(-1);
+  const summary = displayed?.phase === "retired" ? summarizeCareer(displayed) : null;
 
   return (
-    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+    <div ref={gameRoot} className="grid items-start gap-5 [overflow-anchor:none] lg:grid-cols-[minmax(0,1fr)_300px]">
       <div className="min-w-0 space-y-4">
         {challenge ? (
           <p className="rounded-2xl bg-amber-100 px-4 py-3 text-sm text-amber-950 dark:bg-amber-300/10 dark:text-amber-100">
@@ -307,25 +326,38 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
           <div className="h-[460px] animate-pulse rounded-3xl bg-[#102c26]" aria-busy="true" aria-label="커리어 불러오는 중" />
         ) : screen === "create" && pending ? (
           <CareerCreate key={pending.seed} seed={pending.seed} startYear={pending.startYear} ranked={!!pending.runId} onCreate={create} onCancel={cancelCreate} />
-        ) : screen === "play" && career ? (
+        ) : screen === "play" && displayed ? (
           <>
-            <PlayerCard state={career} />
-            {busy ? <SimulationCard {...busy} /> : summary ? (
-              <RetiredCard summary={summary} state={career} rank={rank} saving={saving} starting={starting} challenge={challenge}
+            <PlayerCard state={displayed} />
+            {summary ? (
+              <RetiredCard summary={summary} state={displayed} rank={rank} saving={saving} starting={starting} challenge={challenge}
                 onRetry={() => stored && submit(stored)} onShare={() => void share(summary)} onNew={() => void begin()}
                 shareNote={shareNote} shareText={shareText} ranked={ranked} practiceRun={!stored?.runId} />
             ) : (
-              <>
-                {career.phase === "offseason" && last ? <div id="career-report" tabIndex={-1} className="outline-none"><SeasonReport key={last.year} season={last} /></div> : null}
-                {career.phase === "event" ? <HalfSeason state={career} /> : null}
-                {career.pending ? <DecisionCard key={career.steps} decision={career.pending} onPick={pick} disabled={!!busy} /> : null}
-              </>
+              <div className="relative" aria-busy={!!busy}>
+                <div inert={!!busy} aria-hidden={busy ? true : undefined} className={`space-y-3 ${busy ? "opacity-25" : ""}`}>
+                  <TurnHeader state={displayed} result={busy ? busy.result : result} quick={quick} onQuick={changeQuick} />
+                  {displayed.pending ? <DecisionCard key={displayed.steps} decision={displayed.pending} onPick={pick} disabled={!!busy} /> : null}
+                  {displayed.phase === "event" ? <HalfSeason state={displayed} /> : null}
+                  {last ? (
+                    <details key={last.year} id="career-report" className={`${cardClass} group/report`}>
+                      <summary className="flex cursor-pointer items-center justify-between gap-3 px-5 py-4 text-sm font-bold">
+                        {seasonLabel(last.year)} 시즌 리포트
+                        <span className={`shrink-0 text-xs ${mutedClass} group-open/report:hidden`}>펼치기</span>
+                        <span className={`hidden shrink-0 text-xs ${mutedClass} group-open/report:inline`}>접기</span>
+                      </summary>
+                      <SeasonReport season={last} />
+                    </details>
+                  ) : null}
+                </div>
+                {busy ? <div className="absolute inset-0 flex flex-col justify-center p-2"><div className="sticky top-24 bottom-4"><SimulationCard {...busy} /></div></div> : null}
+              </div>
             )}
-            <HistoryTable history={career.history} />
+            <HistoryTable history={displayed.history} />
             {!summary ? (
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => void copyCode()} className={secondaryButtonClass}>커리어 코드 복사</button>
-                <button type="button" disabled={starting} onClick={() => void begin()} className={secondaryButtonClass}>새 커리어</button>
+                <button type="button" disabled={starting || !!busy} onClick={() => void begin()} className={secondaryButtonClass}>새 커리어</button>
               </div>
             ) : null}
             {!summary && shareNote ? <p role="status" className={`text-xs ${mutedClass}`}>{shareNote}</p> : null}

@@ -167,18 +167,18 @@ const TONE_CLASS: Record<Choice["tone"], string> = {
 };
 const KIND_LABEL: Record<Decision["kind"], string> = { training: "PRE-SEASON · 훈련 선택", event: "MID-SEASON · 시즌 중 사건", offseason: "TRANSFER WINDOW · 이적 시장" };
 
-export function DecisionCard({ decision, onPick, disabled }: { decision: Decision; onPick: (index: number, time: number) => void; disabled: boolean }) {
+export function DecisionCard({ decision, onPick, disabled }: { decision: Decision; onPick: (index: number, time: number, keyboard: boolean) => void; disabled: boolean }) {
   const list = decision.kind === "offseason";
   // 남는 것 말고는 고를 게 없으면 결정 대신 다음 시즌으로 넘어가는 버튼으로 보여 줘요.
   const only = list && decision.options.length === 1 && decision.options[0].value === "stay" ? decision.options[0] : null;
   return (
-    <section className={`${cardClass} ${styles.reveal} p-5 sm:p-6`} aria-labelledby="career-decision">
+    <section className={`${cardClass} p-5 sm:p-6`} aria-labelledby="career-decision">
       <p className="sport-eyebrow text-emerald-700 dark:text-emerald-400">{KIND_LABEL[decision.kind]}</p>
       <h2 id="career-decision" tabIndex={-1} className="mt-1 text-xl font-black tracking-tight outline-none">{decision.title}</h2>
       <p className={`mt-2 text-sm leading-relaxed ${mutedClass}`}>{decision.body}</p>
       {only ? (
         <>
-          <button type="button" disabled={disabled} onClick={(event) => onPick(0, event.timeStamp)}
+          <button type="button" disabled={disabled} onClick={(event) => onPick(0, event.timeStamp, event.detail === 0)}
             className="mt-4 flex h-14 w-full items-center justify-center rounded-2xl bg-[#d4f77d] text-base font-black text-[#152d21] shadow-[0_4px_0_#83aa45] transition hover:bg-lime-200 active:translate-y-0.5 active:shadow-none disabled:opacity-50">
             다음 시즌으로 →
           </button>
@@ -187,7 +187,7 @@ export function DecisionCard({ decision, onPick, disabled }: { decision: Decisio
       ) : (
         <div className={`mt-4 grid gap-2 ${list ? "" : decision.options.length >= 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
           {decision.options.map((option, index) => (
-            <button key={`${option.value}-${option.club ?? index}`} type="button" disabled={disabled} onClick={(event) => onPick(index, event.timeStamp)}
+            <button key={`${option.value}-${option.club ?? index}`} type="button" disabled={disabled} onClick={(event) => onPick(index, event.timeStamp, event.detail === 0)}
               className={`flex min-h-16 w-full items-center gap-3 rounded-2xl px-4 py-3 text-left ring-1 transition active:scale-[0.99] disabled:opacity-50 ${TONE_CLASS[option.tone]}`}>
               {option.club ? <ClubBadge name={clubName(option.club)} className="size-9 text-sm" /> : null}
               <span className="min-w-0 flex-1">

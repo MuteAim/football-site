@@ -96,8 +96,68 @@ try {
   await waitFor(`document.querySelector('section[aria-labelledby="career-decision"] button')`);
   assert.ok(await evaluate(`document.body.innerText.includes('테스트맨') && document.body.innerText.includes('프리시즌')`));
 
-  // 처음 두 번은 시즌 연출을 보고, 그다음은 움직임 줄이기로 빠르게 은퇴까지 가요.
+  // 실제로 선택 버튼까지 내려간 뒤 연출 전·중·후의 스크롤 위치를 매 프레임 비교해요.
+  // 시즌 리포트를 펼쳐 둔 상태와 가장 아래 선택지도 검사해요.
   let picks = 0;
+  let sawAnimation = false;
+  const stablePick = async ({ keyboard = false, quick = false, moveDuringAnimation = false } = {}) => {
+    await sleep(450);
+    const receipt = await evaluate(`(() => {
+      const buttons = [...document.querySelectorAll('section[aria-labelledby="career-decision"] button')];
+      const button = buttons.at(-1);
+      button.scrollIntoView({ block: 'center', behavior: 'instant' });
+      return button.querySelector('span.block')?.textContent ?? button.textContent;
+    })()`);
+    await sleep(100);
+    const metrics = await evaluate(`new Promise((resolve) => {
+      const button = [...document.querySelectorAll('section[aria-labelledby="career-decision"] button')].at(-1);
+      const before = JSON.parse(localStorage.getItem('football-career-v1')).choices.length;
+      let y = window.scrollY;
+      const started = performance.now();
+      let delta = 0, busy = false;
+      function sample() {
+        delta = Math.max(delta, Math.abs(window.scrollY - y));
+        busy ||= !!document.querySelector('[aria-busy="true"]');
+        if (performance.now() - started < 1050) requestAnimationFrame(sample);
+        else resolve({ delta, busy, count: JSON.parse(localStorage.getItem('football-career-v1')).choices.length - before, focus: document.activeElement.id });
+      }
+      requestAnimationFrame(sample);
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: ${keyboard ? 0 : 1} }));
+      // 같은 위치를 연달아 눌러도 다음 결정까지 고르지 않아야 해요.
+      document.querySelector('section[aria-labelledby="career-decision"] button')?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+      if (${moveDuringAnimation}) setTimeout(() => { window.scrollBy(0, 100); y = window.scrollY; }, 180);
+    })`);
+    assert.ok(metrics.delta <= 2, `선택 중 스크롤이 ${metrics.delta}px 이동했어요`);
+    assert.equal(metrics.count, 1, "빠른 연속 클릭으로 두 번 선택됐어요");
+    if (quick) assert.equal(metrics.busy, false, "빠른 진행인데 연출을 기다렸어요");
+    sawAnimation ||= metrics.busy;
+    if (keyboard) assert.equal(metrics.focus, "career-decision", "키보드 초점이 다음 결정으로 이어지지 않았어요");
+    const feedback = await evaluate(`document.getElementById('career-turn-result').textContent`);
+    assert.ok(feedback.includes(receipt.trim()) || (receipt.includes("다음 시즌으로") && feedback.includes("시즌을 준비")), `지난 선택 표시: ${receipt} → ${feedback}`);
+    picks++;
+  };
+  for (const width of [390, 1280, 320]) {
+    await command("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width < 600 });
+    for (let step = 0; step < 3; step++) {
+      await evaluate(`(() => { const report = document.getElementById('career-report'); if (report) report.open = true; })()`);
+      await stablePick();
+      await noOverflow(`진행 화면 ${width}px`);
+    }
+    await screenshot(`career-play-${width}.png`);
+    console.log(`${width}px: 선택·시즌 연출·리포트 전환 중 스크롤 위치 유지`);
+  }
+  // 연출을 보는 도중 직접 스크롤하면 그 위치를 유지해야 해요.
+  await stablePick({ moveDuringAnimation: true });
+  await evaluate(`document.querySelector('input[type="checkbox"]').click()`);
+  await stablePick({ keyboard: true, quick: true });
+  const savedReceipt = await evaluate(`document.getElementById('career-turn-result').textContent`);
+  await command("Page.reload");
+  await waitFor(`document.querySelector('section[aria-labelledby="career-decision"] button')`);
+  assert.equal(await evaluate(`document.getElementById('career-turn-result').textContent`), savedReceipt, "지난 선택 결과 복원");
+  assert.equal(await evaluate(`document.querySelector('input[type="checkbox"]').checked`), true, "빠른 진행 설정 복원");
+  await evaluate(`document.querySelector('input[type="checkbox"]').click()`);
+
+  // 나머지 커리어는 움직임 줄이기로 은퇴까지 진행해요.
   // 화면은 빠른 연속 클릭을 0.4초 동안 무시해요. 반영될 때까지 조금씩 쉬며 다시 눌러요.
   const choose = async () => {
     const count = `JSON.parse(localStorage.getItem('football-career-v1')).choices.length`;
@@ -113,8 +173,7 @@ try {
     }
     throw new Error("선택이 반영되지 않았어요");
   };
-  await choose();
-  await waitFor(`document.querySelector('[aria-busy="true"]')`, 30);
+  assert.ok(sawAnimation, "시즌 진행 연출을 보지 못했어요");
   console.log("시즌 진행 연출 확인");
   await waitFor(`!document.querySelector('[aria-busy="true"]') && document.querySelector('section[aria-labelledby="career-decision"] button')`);
   await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
@@ -123,8 +182,9 @@ try {
   for (let guard = 0; guard < 140; guard++) {
     if (await evaluate(`document.body.innerText.includes('LEGEND SCORE')`)) break;
     await waitFor(`document.querySelector('section[aria-labelledby="career-decision"] button') || document.body.innerText.includes('LEGEND SCORE')`);
-    if (!sawReport && await evaluate(`document.body.innerText.includes('SEASON REPORT')`)) {
+    if (!sawReport && await evaluate(`Boolean(document.getElementById('career-report'))`)) {
       sawReport = true;
+      await evaluate(`document.getElementById('career-report').open = true`);
       await noOverflow("시즌 리포트 390px");
       await screenshot("career-season.png");
     }
@@ -159,7 +219,7 @@ try {
   assert.ok(await clickText("새 커리어"));
   await waitFor("document.getElementById('career-name')");
   assert.deepEqual(errors, [], "브라우저 실행 오류");
-  console.log("만들기·시즌 연출·리포트·은퇴·새로고침 복원·도전장 대체 경로·브라우저 오류 없음 확인 완료");
+  console.log("화면 위치·연속 클릭 방지·키보드 초점·빠른 진행·선택 결과 복원·은퇴·공유·브라우저 오류 없음 확인 완료");
 } finally {
   await closeBrowser?.();
   socket?.close();
