@@ -76,16 +76,48 @@ test("후보 선수는 시드마다 고정이고, 시작 능력치와 스카우�
   assert.notDeepEqual(E.scoutCandidates(99, "ENG", "ENG", "ST"), E.scoutCandidates(100, "ENG", "ENG", "ST"));
 });
 
+/** "이에요"는 받침 뒤에, "예요"는 받침 없는 말 뒤에 와요. */
+function copulaOk(text) {
+  for (const [, before, ending] of text.matchAll(/([가-힣])(이에요|예요)/g)) {
+    const batchim = (before.charCodeAt(0) - 0xac00) % 28 !== 0;
+    if ((ending === "이에요") !== batchim) return false;
+  }
+  return true;
+}
+
+/** 고르기 전에 결정 카드가 규칙을 지키는지 살펴요. */
+function checkDecision(s, seen) {
+  const decision = s.pending;
+  for (const text of [decision.body, ...decision.options.flatMap((option) => [option.label, option.detail])]) assert.ok(copulaOk(text), text);
+  if (decision.kind === "training") {
+    for (const option of decision.options.filter((item) => item.value.startsWith("attr"))) assert.match(option.detail, /→ \d+ · 오버롤/);
+  }
+  if (decision.kind === "offseason") {
+    const ovr = E.overall(s.attrs, s.pos);
+    const home = [D.CLUBS[s.club].league, D.NATIONS[s.nation].home];
+    for (const option of decision.options.filter((item) => item.value === "transfer" && !item.detail.endsWith("자유 계약"))) {
+      const club = D.CLUBS[option.club];
+      assert.ok(club.rating <= ovr + 10, `${club.name}(${club.rating})이 오버롤 ${ovr} 선수에게 제안`);
+      if (ovr < 60) assert.ok(home.includes(club.league), `덜 여문 유망주(${ovr})에게 해외 제안: ${club.name}`);
+      seen.offers++;
+    }
+  }
+  if (decision.kind === "event" && s.history.length === 0) seen.firstEvents++;
+}
+
 test("무작위로 수백 번 골라도 규칙이 깨지지 않고 모든 커리어가 은퇴로 끝난다", () => {
   const random = lcg(42);
-  const seen = { ballon: 0, military: 0, exempt: 0, loan: 0, transfer: 0 };
+  const seen = { ballon: 0, military: 0, exempt: 0, loan: 0, transfer: 0, offers: 0, firstEvents: 0, reserve: 0, youthCup: 0 };
   for (let n = 0; n < 300; n++) {
     const nation = D.NATION_ORDER[random(D.NATION_ORDER.length)];
     const setup = {
       name: "테스트", nation, league: random(2) ? D.NATIONS[nation].home : D.YOUTH_LEAGUES[random(D.YOUTH_LEAGUES.length)],
       pos: D.POSITION_ORDER[random(D.POSITION_ORDER.length)], pick: random(3),
     };
-    const { state, choices } = play(random(2 ** 31) * 2 + random(2), setup, (s) => random(s.pending.options.length));
+    const { state, choices } = play(random(2 ** 31) * 2 + random(2), setup, (s) => {
+      checkDecision(s, seen);
+      return random(s.pending.options.length);
+    });
     assert.equal(state.phase, "retired");
     assert.ok(choices.length <= E.CAREER_RULES.maxChoices);
     assert.ok(state.age >= 30 && state.age <= E.CAREER_RULES.maxAge, `은퇴 나이 ${state.age}`);
@@ -101,6 +133,14 @@ test("무작위로 수백 번 골라도 규칙이 깨지지 않고 모든 커리
         seen.military++;
       }
       if (season.loan) seen.loan++;
+      if (season.reserve) {
+        assert.ok(season.age <= 22 && !season.military && season.reserve.apps > 0, "2군은 22세 이하 유망주·백업만 뛰어요");
+        seen.reserve++;
+      }
+      if (season.tournaments.some((label) => label.includes("U-20 월드컵"))) {
+        assert.ok(season.age <= 19);
+        seen.youthCup++;
+      }
     }
     if (state.nation === "KOR") {
       const served = state.history.filter((season) => season.military).length;
@@ -109,6 +149,8 @@ test("무작위로 수백 번 골라도 규칙이 깨지지 않고 모든 커리
     } else assert.equal(state.history.filter((season) => season.military).length, 0);
     const summary = E.summarizeCareer(state);
     assert.ok(Number.isInteger(summary.score) && summary.score >= 0 && summary.score <= B.MAX_CAREER_SCORE);
+    const parts = E.legacyBreakdown(state);
+    assert.equal(Object.values(parts).reduce((sum, value) => sum + value, 0), summary.score, "점수 내역의 합이 레전드 점수예요");
     assert.equal(summary.seasons, state.history.length);
     assert.ok(summary.peakOvr >= state.history[0].ovrStart && summary.peakOvr <= 99);
     assert.ok(summary.clubs.length >= 1 && summary.lastClub);
@@ -116,7 +158,9 @@ test("무작위로 수백 번 골라도 규칙이 깨지지 않고 모든 커리
     seen.transfer += summary.clubs.length > 1 ? 1 : 0;
   }
   assert.ok(seen.military > 0 && seen.exempt > 0, "병역 복무와 면제가 모두 나와요");
-  assert.ok(seen.loan > 0 && seen.transfer > 0, "임대와 이적이 모두 나와요");
+  assert.ok(seen.loan > 0 && seen.transfer > 0 && seen.offers > 0, "임대와 이적이 모두 나와요");
+  assert.equal(seen.firstEvents, 300, "첫 시즌에는 늘 사건이 있어요");
+  assert.ok(seen.reserve > 0 && seen.youthCup > 0, "2군 경기와 U-20 월드컵이 나와요");
 });
 
 test("잘못된 선수 정보·선택·버전은 거절한다", () => {

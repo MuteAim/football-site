@@ -15,6 +15,13 @@ export function subjectParticle(word: string): string {
   return pickParticle(word, "이", "가");
 }
 
+/** 낱말 뒤에 붙일 "이에요"와 "예요" 중 맞는 쪽을 골라요. 한글로 끝나지 않으면 "(이)에요"예요. */
+export function politeCopula(word: string): string {
+  const code = word.charCodeAt(word.length - 1) - 0xac00;
+  if (code < 0 || code > 11171) return "(이)에요";
+  return code % 28 === 0 ? "예요" : "이에요";
+}
+
 /** 낱말 뒤에 붙일 "으로"와 "로" 중 맞는 쪽을 골라요. ㄹ 받침 뒤에도 "로"예요. */
 export function directionParticle(word: string): string {
   const code = word.charCodeAt(word.length - 1) - 0xac00;

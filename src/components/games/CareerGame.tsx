@@ -6,7 +6,7 @@ import { finishCareerRun, getCareerSnapshot, startCareerRun } from "@/lib/cafe/c
 import { careerDay, type CareerSnapshot } from "@/lib/career/board";
 import { NATIONS, POSITIONS } from "@/lib/career/data";
 import {
-  CAREER_RULES, CAREER_VERSION, CareerError, choose, createCareer, replayCareer, seasonLabel, seasonYearOf, summarizeCareer,
+  CAREER_RULES, CAREER_VERSION, CareerError, choose, createCareer, legacyBreakdown, replayCareer, seasonLabel, seasonYearOf, summarizeCareer,
   type CareerSave, type CareerSetup, type CareerState, type CareerSummary,
 } from "@/lib/career/engine";
 import { confirmDialog, showToast } from "../feedback";
@@ -14,7 +14,7 @@ import { TrophyIcon } from "../Icons";
 import { cardClass, mutedClass, primaryButtonClass, secondaryButtonClass } from "../ui";
 import { CareerBoard } from "./CareerBoard";
 import { CareerCreate } from "./CareerCreate";
-import { DecisionCard, HalfSeason, HistoryTable, PlayerCard, SeasonReport, SimulationCard } from "./CareerParts";
+import { DecisionCard, HalfSeason, HistoryTable, OvrChart, PlayerCard, ScoreBreakdown, SeasonReport, SimulationCard } from "./CareerParts";
 import styles from "./career.module.css";
 
 /** 브라우저에 남기는 커리어. 상태 대신 시드와 선택만 저장하고 불러올 때 다시 계산해요. */
@@ -117,7 +117,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
       const value = readStored();
       if (!value) { setScreen("intro"); return; }
       try {
-        if (value.v !== CAREER_VERSION) throw new CareerError("게임 규칙이 바뀌어서 이전 커리어는 이어 할 수 없어요.");
+        if (value.v !== CAREER_VERSION) throw new CareerError("레전드 로드가 업데이트되어 진행 중이던 커리어는 이어 할 수 없어요. 은퇴한 선수는 명예의 전당에 그대로 있어요.");
         restore(value);
       } catch (reason) {
         writeStored(null);
@@ -311,7 +311,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
           <>
             <PlayerCard state={career} />
             {busy ? <SimulationCard {...busy} /> : summary ? (
-              <RetiredCard summary={summary} rank={rank} saving={saving} starting={starting} challenge={challenge}
+              <RetiredCard summary={summary} state={career} rank={rank} saving={saving} starting={starting} challenge={challenge}
                 onRetry={() => stored && submit(stored)} onShare={() => void share(summary)} onNew={() => void begin()}
                 shareNote={shareNote} shareText={shareText} ranked={ranked} practiceRun={!stored?.runId} />
             ) : (
@@ -404,8 +404,8 @@ function Intro({ ranked, member, starting, hall, onStart, onPractice, importCode
   );
 }
 
-function RetiredCard({ summary, rank, saving, starting, challenge, ranked, practiceRun, onRetry, onShare, onNew, shareNote, shareText }: {
-  summary: CareerSummary; rank: RankState; saving: boolean; starting: boolean; challenge: { score: number; day: string } | null;
+function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked, practiceRun, onRetry, onShare, onNew, shareNote, shareText }: {
+  summary: CareerSummary; state: CareerState; rank: RankState; saving: boolean; starting: boolean; challenge: { score: number; day: string } | null;
   ranked: boolean; practiceRun: boolean; onRetry: () => void; onShare: () => void; onNew: () => void; shareNote: string; shareText: string;
 }) {
   const stats: [string, string][] = [
@@ -448,6 +448,16 @@ function RetiredCard({ summary, rank, saving, starting, challenge, ranked, pract
                 </li>
               ))}
             </ul>
+          </div>
+        ) : null}
+        <div>
+          <h3 className="text-xs font-bold text-white/60">레전드 점수는 이렇게 모였어요</h3>
+          <div className="mt-2"><ScoreBreakdown parts={legacyBreakdown(state)} /></div>
+        </div>
+        {state.history.length >= 2 ? (
+          <div>
+            <h3 className="text-xs font-bold text-white/60">커리어 곡선 · 시즌이 끝날 때의 오버롤</h3>
+            <div className="mt-2"><OvrChart history={state.history} dark /></div>
           </div>
         ) : null}
         <div>

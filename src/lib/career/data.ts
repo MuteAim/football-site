@@ -235,6 +235,8 @@ export const TOURNAMENTS = {
   asia: { name: "아시안컵", group: 64, opp: [68, 72, 75, 77], rounds: ["16강", "8강", "4강", "결승"] },
   europe: { name: "유로", group: 76, opp: [79, 82, 84, 85], rounds: ["16강", "8강", "4강", "결승"] },
   america: { name: "코파 아메리카", group: 74, opp: [79, 83, 85], rounds: ["8강", "4강", "결승"] },
+  /** U-20 월드컵은 홀수 해에 열려요. 시즌 중 발탁 사건으로 나가고, 대표팀 경기 수에는 넣지 않아요. */
+  youth: { name: "U-20 월드컵", group: 74, opp: [75, 77, 79, 80], rounds: ["16강", "8강", "4강", "결승"] },
 } satisfies Record<string, Tournament>;
 export type TournamentCode = keyof typeof TOURNAMENTS;
 

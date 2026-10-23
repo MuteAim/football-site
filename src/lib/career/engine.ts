@@ -2,14 +2,14 @@
 // 커리어는 시드와 선택 번호만으로 처음부터 다시 계산돼요. 저장도, 순위 검증도 이 성질을 이용해요.
 // 그래서 브라우저마다 결과가 달라질 수 있는 Math.random, 날짜, Math.exp 같은 실수 함수를 쓰지 않고
 // 정수 연산만 써요. 규칙을 바꾸면 CAREER_VERSION을 올리고 npm run test:career를 실행해 주세요.
-import { directionParticle } from "../korean";
+import { directionParticle, politeCopula } from "../korean";
 import {
   ATTR_TRAININGS, CLUBS, CONTINENTALS, INJURIES, KEEPER_ATTRS, LEAGUES, MILITARY_CLUB, NATIONS, OUTFIELD_ATTRS,
   POSITION_MOVES, POSITIONS, SPECIAL_TRAININGS, TOURNAMENTS, tournamentIn,
   type ClubInfo, type LeagueCode, type NationCode, type Pos,
 } from "./data";
 
-export const CAREER_VERSION = 1;
+export const CAREER_VERSION = 2;
 
 export const CAREER_RULES = {
   startAge: 17,
@@ -65,6 +65,8 @@ export type SeasonRecord = {
   /** 발롱도르 순위. 30위 밖이면 0이에요. */
   ballon: number;
   caps: number; intlGoals: number; tournaments: string[];
+  /** 1군 기회가 적은 어린 선수가 뛴 2군 경기. 통산 기록과 점수에는 들어가지 않아요. */
+  reserve: { apps: number; goals: number; assists: number } | null;
   highlights: string[]; missed: number; event: string | null;
 };
 
@@ -76,9 +78,10 @@ type Draft = {
   apps: number; starts: number; minutes: number; goals: number; assists: number; cleanSheets: number; ratingSum: number;
   leagueApps: number; leagueGoals: number; leagueAssists: number; cupApps: number; contApps: number;
   missed: number; away: number;
+  reserveApps: number; reserveGoals: number; reserveAssists: number; reserveMinutes: number;
   cupAlive: boolean; cup: number; contOn: boolean; contAlive: boolean; cont: number;
   phaseGoals: number; tie: { goals: number; assists: number; played: boolean };
-  highlights: string[]; hatTricks: number; event: string | null; extraCaps: number; olympics: boolean;
+  highlights: string[]; hatTricks: number; event: string | null; extraCaps: number; olympics: boolean; youthCup: boolean;
 };
 
 export type CareerState = {
@@ -197,6 +200,12 @@ export function attrLabels(pos: Pos): string[] {
 }
 
 export const ROLE_LABELS: Record<Role, string> = { starter: "주전", rotation: "로테이션", bench: "백업", reserve: "유망주" };
+
+/** 역할 이름. 1군 밖 선수는 어리면 유망주, 나이가 차면 전력 외예요. */
+export function roleName(role: Role, age: number): string {
+  return role === "reserve" && age > 21 ? "전력 외" : ROLE_LABELS[role];
+}
+
 export const CUP_STAGES = ["", "32강", "16강", "8강", "4강", "준우승", "우승"];
 export const CONTINENTAL_STAGES = ["", "리그 페이즈", "16강", "8강", "4강", "준우승", "우승"];
 
@@ -239,9 +248,23 @@ export function expectedRole(s: CareerState, clubId: string, fresh = false): Rol
   return gap >= -1 ? "starter" : gap >= -5 ? "rotation" : gap >= -10 ? "bench" : "reserve";
 }
 
+/** 그 구단에서 주전으로 뛰는 데 필요한 오버롤. 감독 신뢰와 폼이 좋으면 조금 낮아져요. */
+export function starterLine(s: CareerState, clubId: string): number {
+  return CLUBS[clubId].rating - 1 - Math.trunc(s.trust / 2) - Math.trunc(s.form / 2);
+}
+
 function addAttr(s: CareerState, index: number, amount: number) {
   s.attrs[index] = clamp(s.attrs[index] + amount, 10, 99);
 }
+
+/** 능력치를 이만큼 바꾸면 오버롤이 얼마나 달라지는지. 훈련 설명에 보여 줘요. */
+function ovrGain(s: CareerState, changes: [number, number][]): number {
+  const next = [...s.attrs];
+  for (const [index, amount] of changes) next[index] = clamp(next[index] + amount, 10, 99);
+  return overall(next, s.pos) - overall(s.attrs, s.pos);
+}
+
+const gainText = (gain: number) => (gain > 0 ? `오버롤 +${gain}` : "오버롤 변화 적음");
 
 /** 오버롤을 delta만큼 옮겨요. 비중이 큰 능력치가 더 자주 움직이고, 서른 즈음부터는 속도·피지컬이 먼저 떨어져요. */
 function shiftOverall(s: CareerState, delta: number) {
@@ -377,9 +400,10 @@ function trainingDecision(s: CareerState): Decision {
     const index = weightedIndex(s, weights.map((weight, i) => (chosen.includes(i) || s.attrs[i] >= 97 ? 0 : weight + 4)));
     if (index < 0) break;
     chosen.push(index);
+    const after = Math.min(99, s.attrs[index] + gain);
     options.push({
       label: ATTR_TRAININGS[keeper ? "keeper" : "outfield"][index],
-      detail: `${labels[index]} +${gain}`,
+      detail: `${labels[index]} ${s.attrs[index]} → ${after} · ${gainText(ovrGain(s, [[index, gain]]))}`,
       tone: "good",
       value: `attr${index}`,
     });
@@ -388,18 +412,29 @@ function trainingDecision(s: CareerState): Decision {
   if (s.age <= 30) specials.push("hell");
   if (s.age >= 26 || s.injury > 0) specials.push("care", "care");
   if (["ST", "WG", "AM", "CM"].includes(s.pos)) specials.push("freekick");
+  const [tacticA, tacticB] = keeper ? [3, 4] : [2, 4];
+  const specialDetail = {
+    hell: `모든 능력치 +1 · ${gainText(ovrGain(s, [0, 1, 2, 3, 4, 5].map((i): [number, number] => [i, 1])))} · 부상 위험 큼`,
+    care: SPECIAL_TRAININGS.care.detail,
+    tactics: `감독 신뢰 ↑ · ${labels[tacticA]}·${labels[tacticB]} +1`,
+    mental: SPECIAL_TRAININGS.mental.detail,
+    freekick: SPECIAL_TRAININGS.freekick.detail,
+  };
   while (options.length < 3) {
     const id = pick(s, specials);
     if (options.some((option) => option.value === id)) continue;
-    options.push({ label: SPECIAL_TRAININGS[id].label, detail: SPECIAL_TRAININGS[id].detail, tone: id === "hell" ? "risk" : "neutral", value: id });
+    options.push({ label: SPECIAL_TRAININGS[id].label, detail: specialDetail[id], tone: id === "hell" ? "risk" : "neutral", value: id });
   }
   const club = CLUBS[s.club];
-  const role = expectedRole(s, s.club);
+  const role = roleName(expectedRole(s, s.club), s.age);
+  const ovr = overall(s.attrs, s.pos);
+  const line = starterLine(s, s.club);
+  const outlook = ovr >= line ? "주전 경쟁에서 앞서 있어요." : `주전 기준 오버롤 ${line} · 지금 ${ovr}.`;
   const injured = s.injury > 0 ? ` 부상 회복까지 ${s.injury}경기 남았어요.` : "";
   return {
     kind: "training", id: "training",
     title: `${seasonLabel(s.year)} 프리시즌`,
-    body: `${s.age}세, ${club.name}에서 ${s.history.length ? "새 시즌" : "프로 첫 시즌"}을 준비해요. 예상 역할은 ${ROLE_LABELS[role]}이에요.${injured}`,
+    body: `${s.age}세, ${club.name}에서 ${s.history.length ? "새 시즌" : "프로 첫 시즌"}을 준비해요. 예상 역할은 ${role}${politeCopula(role)}. ${outlook}${injured}`,
     options,
   };
 }
@@ -457,10 +492,10 @@ function startSeason(s: CareerState, before: number[], ovrBefore: number, extras
     t: 0, games: league.games, teamForm: between(s, -3, 3),
     apps: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, ratingSum: 0,
     leagueApps: 0, leagueGoals: 0, leagueAssists: 0, cupApps: 0, contApps: 0,
-    missed: 0, away: 0,
+    missed: 0, away: 0, reserveApps: 0, reserveGoals: 0, reserveAssists: 0, reserveMinutes: 0,
     cupAlive: true, cup: 1, contOn: s.continentalNext && !!league.continental && !military, contAlive: true, cont: 0,
     phaseGoals: 0, tie: { goals: 0, assists: 0, played: false },
-    highlights: [...s.notes], hatTricks: 0, event: null, extraCaps: 0, olympics: false,
+    highlights: [...s.notes], hatTricks: 0, event: null, extraCaps: 0, olympics: false, youthCup: false,
   };
   if (d.contOn) d.cont = 1;
   s.notes = [];
@@ -482,7 +517,10 @@ function playMatch(s: CareerState, d: Draft, comp: Competition, opponent: string
   const none = { played: false, goals: 0, assists: 0 };
   if (s.injury > 0) { s.injury--; d.missed++; return none; }
   if (d.away > 0) { d.away--; return none; }
-  if (!chance(s, clamp(SELECT[comp][d.role] + s.form * 40 + s.trust * 12, 0, 985))) return none;
+  if (!chance(s, clamp(SELECT[comp][d.role] + s.form * 40 + s.trust * 12, 0, 985))) {
+    if (comp === "league") reserveMatch(s, d);
+    return none;
+  }
   const start = chance(s, d.role === "starter" ? 950 : d.role === "rotation" ? 600 : d.role === "bench" ? 300 : 200);
   const minutes = start ? (chance(s, 700) ? 90 : between(s, 60, 89)) : between(s, 8, 35);
   const ovr = overall(s.attrs, s.pos);
@@ -535,6 +573,20 @@ function playMatch(s: CareerState, d: Draft, comp: Competition, opponent: string
   }
   injuryCheck(s, d, minutes);
   return { played: true, goals, assists };
+}
+
+/** 1군에 못 뛴 날, 어린 유망주와 백업은 2군 경기에서 감각을 쌓아요. 통산 기록에는 넣지 않고 성장에만 반쯤 반영해요. */
+function reserveMatch(s: CareerState, d: Draft) {
+  if (d.age > 22 || d.military || (d.role !== "reserve" && d.role !== "bench") || !chance(s, 800)) return;
+  const minutes = between(s, 70, 90);
+  const info = POSITIONS[d.pos];
+  // 2군 상대는 또래 유망주라 오버롤 58을 보통 실력으로 봐요.
+  const quality = Math.max(250, 1000 + (overall(s.attrs, s.pos) - 58) * 30);
+  const scale = (base: number) => Math.trunc((((base * quality) / 1000) * 1150) / 1000 * minutes / 90);
+  d.reserveApps++;
+  d.reserveMinutes += minutes;
+  d.reserveGoals += count(s, clamp(scale(info.goal), 0, 2800), 4);
+  d.reserveAssists += count(s, clamp(scale(info.assist), 0, 2000), 3);
 }
 
 function injuryCheck(s: CareerState, d: Draft, minutes: number) {
@@ -736,6 +788,23 @@ const EVENTS: Record<string, EventDef> = {
       if (value === "go") { d.olympics = true; return "올림픽 출전을 결심했어요."; }
       s.flags.push(`rested-${s.year + 1}`);
       return "올림픽 대신 다음 시즌 준비를 택했어요.";
+    },
+  },
+  youthCup: {
+    weight: 0, priority: true,
+    when: (s) => (s.year + 1) % 2 === 1 && s.age <= 19 && overall(s.attrs, s.pos) >= 56,
+    card: (s) => ({
+      title: `${s.year + 1} U-20 월드컵 발탁`,
+      body: `${NATIONS[s.nation].name} U-20 대표팀 최종 명단에 이름이 올랐어요. 대회는 시즌이 끝난 뒤 열려요. 세계 무대 경험은 성장에 큰 도움이 돼요.`,
+      options: [
+        option("U-20 월드컵 출전", "세계 무대 경험 · 성장 ↑ · 휴식 부족", "good", "go"),
+        option("소속팀 프리시즌 준비", "다음 시즌 폼 ↑", "neutral", "rest"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      if (value === "go") { d.youthCup = true; return "U-20 월드컵 출전을 결심했어요."; }
+      s.flags.push(`rested-${s.year + 1}`);
+      return "U-20 월드컵 대신 소속팀에서 다음 시즌을 준비하기로 했어요.";
     },
   },
   manager: {
@@ -1086,7 +1155,97 @@ const EVENTS: Record<string, EventDef> = {
       return "전술에 충실한 플레이로 감독의 믿음을 얻었어요.";
     },
   },
+  abroad: {
+    weight: 8,
+    when: (s, d) => LEAGUES[CLUBS[d.club].league].region !== "europe" && s.age <= 25 && overall(s.attrs, s.pos) >= 66
+      && !d.loan && !d.military && !s.flags.some((flag) => flag.startsWith("abroad-")),
+    card: () => ({
+      title: "유럽 스카우트 방문",
+      body: "유럽 구단 스카우트들이 다음 경기를 보러 온대요. 해외 진출의 기회가 될 수 있어요.",
+      options: [
+        option("모든 걸 보여 준다", "다음 이적 시장에 유럽 구단 제안 · 감독 신뢰 조금 ↓", "good", "go"),
+        option("지금 팀에서 더 성장한다", "감독 신뢰 ↑", "neutral", "stay"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      if (value === "go") {
+        s.flags.push(`abroad-${d.year}`);
+        bump(s, -1);
+        note(d, "유럽 스카우트 앞에서 맹활약");
+        return "유럽 스카우트들의 수첩에 이름을 올렸어요.";
+      }
+      bump(s, 2);
+      return "지금 팀에서 더 성장하기로 했어요.";
+    },
+  },
+  bigclub: {
+    weight: 7,
+    when: (s, d) => d.role === "starter" && !d.loan && !d.military && s.age >= 20 && s.age <= 31
+      && overall(s.attrs, s.pos) >= CLUBS[d.club].rating + 3 && biggerClubs(s, d.club).length > 0,
+    card: () => ({
+      title: "빅클럽 이적설",
+      body: "더 큰 구단이 당신을 노린다는 기사가 쏟아졌어요. 팬들은 남아 달라고 외쳐요.",
+      options: [
+        option("이적을 원한다고 밝힌다", "다음 이적 시장에 빅클럽 제안 · 감독 신뢰 ↓↓", "risk", "go"),
+        option("남겠다고 약속한다", "감독 신뢰 ↑↑ · 이적 제안 ↓", "neutral", "stay"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      if (value === "go") { s.flags.push(`bigclub-${d.year}`); bump(s, -3); return "빅클럽 이적을 원한다고 공개적으로 밝혔어요."; }
+      bump(s, 3);
+      s.flags.push(`loyal-${d.year}`);
+      return "팬들 앞에서 남겠다고 약속했어요.";
+    },
+  },
+  locker: {
+    weight: 5,
+    when: (_s, d) => d.apps >= 3 && !d.military,
+    card: () => ({
+      title: "라커룸 불화",
+      body: "선수단 일부가 감독의 훈련 방식에 반발하고 있어요. 모두가 당신의 선택을 지켜봐요.",
+      options: [
+        option("감독 편에 선다", "감독 신뢰 ↑↑ · 동료들과 서먹해져 폼 ↓", "neutral", "coach"),
+        option("동료들 편에 선다", "팀 분위기 살아나 폼 ↑↑ · 감독 신뢰 ↓", "neutral", "team"),
+      ],
+    }),
+    apply: (s, _d, value) => {
+      if (value === "coach") { bump(s, 3); lift(s, -1); return "감독 편에 서서 신뢰를 얻었지만 동료들과는 서먹해졌어요."; }
+      lift(s, 2);
+      bump(s, -2);
+      return "동료들과 뭉쳐 분위기를 살렸지만 감독의 눈 밖에 났어요.";
+    },
+  },
+  veteran: {
+    weight: 7,
+    when: (s, d) => s.age >= 31 && !d.military,
+    card: () => ({
+      title: "베테랑의 역할",
+      body: "구단이 팀의 어린 유망주를 맡아 이끌어 달라고 부탁해요.",
+      options: [
+        option("멘토 역할을 맡는다", "감독 신뢰 ↑ · 노쇠화를 조금 늦춰요", "good", "mentor"),
+        option("내 경기력에 집중한다", "폼 ↑", "neutral", "focus"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      if (value === "mentor") {
+        bump(s, 2);
+        d.care = true;
+        note(d, "후배 유망주의 멘토로 활약");
+        return "후배를 이끌며 라커룸의 기둥이 됐어요.";
+      }
+      lift(s, 1);
+      return "자기 경기력 관리에 집중했어요.";
+    },
+  },
 };
+
+/** 지금 구단보다 확실히 큰 유럽 구단 가운데 이 선수를 원할 만한 곳 */
+function biggerClubs(s: CareerState, clubId: string): ClubInfo[] {
+  const ovr = overall(s.attrs, s.pos);
+  const current = CLUBS[clubId].rating;
+  return Object.values(CLUBS).filter((club) => club.id !== clubId && club.id !== MILITARY_CLUB && club.rating >= current + 3
+    && club.rating <= ovr + 4 && LEAGUES[club.league].region === "europe");
+}
 
 function seasonsAt(s: CareerState, club: string): number {
   let count = 0;
@@ -1099,7 +1258,8 @@ function midSeasonEvent(s: CareerState, d: Draft): Decision | null {
   const priority = ids.find((id) => EVENTS[id].priority && EVENTS[id].when(s, d));
   let id: string | undefined = priority;
   if (!id) {
-    if (!chance(s, 720)) return null;
+    // 첫 시즌에는 늘 사건이 있어서 처음부터 고를 거리가 생겨요.
+    if (s.history.length > 0 && !chance(s, 720)) return null;
     const eligible = ids.filter((key) => !EVENTS[key].priority && !s.recent.includes(key) && EVENTS[key].when(s, d));
     const index = weightedIndex(s, eligible.map((key) => EVENTS[key].weight));
     if (index < 0) return null;
@@ -1114,8 +1274,9 @@ function secondHalf(s: CareerState, d: Draft) {
   const ovr = overall(s.attrs, s.pos);
   const before = d.role;
   d.role = betterRole(roleFor(s, ovr, CLUBS[d.club].rating), d.roleFloor);
-  if (ROLE_RANK[d.role] > ROLE_RANK[before]) note(d, `시즌 중반 ${ROLE_LABELS[d.role]}${directionParticle(ROLE_LABELS[d.role])} 도약`);
-  else if (ROLE_RANK[d.role] < ROLE_RANK[before] && d.role !== "reserve") note(d, `시즌 중반 ${ROLE_LABELS[d.role]}${directionParticle(ROLE_LABELS[d.role])} 밀려남`);
+  const role = roleName(d.role, d.age);
+  if (ROLE_RANK[d.role] > ROLE_RANK[before]) note(d, `시즌 중반 ${role}${directionParticle(role)} 도약`);
+  else if (ROLE_RANK[d.role] < ROLE_RANK[before] && d.role !== "reserve") note(d, `시즌 중반 ${role}${directionParticle(role)} 밀려남`);
   simulateUntil(s, d, d.games);
   endSeason(s, d);
 }
@@ -1127,8 +1288,11 @@ type TournamentResult = { label: string; trophy: Honor | null; awards: Honor[]; 
 function playTournament(s: CareerState, code: keyof typeof TOURNAMENTS, key: boolean, ovr: number, year: number): TournamentResult {
   const tournament = TOURNAMENTS[code];
   const nation = NATIONS[s.nation];
-  const strength = nation.rating + (key ? clamp(Math.trunc((ovr - nation.rating) / 3), 0, 4) : 0) + between(s, -3, 3);
-  const quality = Math.max(250, 1000 + (ovr - 75) * 30);
+  // U-20 월드컵은 또래끼리 겨뤄서 전력과 골 기준을 낮춰 봐요.
+  const youth = code === "youth";
+  const base = youth ? nation.rating - 2 : nation.rating;
+  const strength = base + (key ? clamp(Math.trunc((ovr - (youth ? 60 : nation.rating)) / 3), 0, 4) : 0) + between(s, -3, 3);
+  const quality = Math.max(250, 1000 + (ovr - (youth ? 68 : 75)) * 30);
   let caps = 0;
   let goals = 0;
   const match = (oppRating: number) => {
@@ -1160,11 +1324,12 @@ function playTournament(s: CareerState, code: keyof typeof TOURNAMENTS, key: boo
   const label = won ? `${name} 우승` : reached === finalRound ? `${name} 준우승` : `${name} ${tournament.rounds[reached]}`;
   const awards: Honor[] = [];
   if (key && (won || reached === finalRound) && chance(s, (won ? 280 : 110) + goals * 60)) {
-    awards.push({ label: `${name} 골든볼`, points: isWorldCup ? 150 : 70 });
+    awards.push({ label: `${name} 골든볼`, points: isWorldCup ? 150 : youth ? 30 : 70 });
   }
-  if (goals >= (isWorldCup ? 5 : 4) + int(s, 3)) awards.push({ label: `${name} 득점왕`, points: isWorldCup ? 90 : 40 });
-  const trophyPoints = isWorldCup ? 300 : code === "asia" ? 90 : 140;
-  const points = won ? (isWorldCup ? 120 : 50) : reached === finalRound ? (isWorldCup ? 50 : 20) : reached >= finalRound - 1 ? (isWorldCup ? 25 : 10) : 0;
+  if (goals >= (isWorldCup ? 5 : 4) + int(s, 3)) awards.push({ label: `${name} 득점왕`, points: isWorldCup ? 90 : youth ? 20 : 40 });
+  const trophyPoints = isWorldCup ? 300 : youth ? 40 : code === "asia" ? 90 : 140;
+  // 발롱도르 평가에 더하는 값. 유소년 대회는 넣지 않아요.
+  const points = youth ? 0 : won ? (isWorldCup ? 120 : 50) : reached === finalRound ? (isWorldCup ? 50 : 20) : reached >= finalRound - 1 ? (isWorldCup ? 25 : 10) : 0;
   return { label, trophy: won ? { label: `${name} 우승`, points: trophyPoints } : null, awards, points, caps, goals };
 }
 
@@ -1227,6 +1392,15 @@ function endSeason(s: CareerState, d: Draft) {
     } else note(d, `${d.year + 1} 올림픽 메달 획득 실패`);
   }
   if (s.flags.includes(`ag-gold-${d.year}`)) trophies.push({ label: `${d.year} 아시안게임 금메달`, points: 30 });
+  let youthBoost = 0;
+  if (d.youthCup) {
+    const result = playTournament(s, "youth", ovr >= 62, ovr, d.year + 1);
+    tournaments.push(result.label);
+    if (result.trophy) trophies.push(result.trophy);
+    awards.push(...result.awards);
+    note(d, `${result.label}${result.goals ? ` · ${result.goals}골` : ""}`);
+    youthBoost = 1;
+  }
 
   // 이번 시즌 평가. 수상과 발롱도르가 이 값으로 정해져요.
   const individual = Math.max(0, rating - 60) * 6 + (
@@ -1257,8 +1431,8 @@ function endSeason(s: CareerState, d: Draft) {
   else if (ballon > 0 && ballon <= 3) awards.push({ label: `발롱도르 ${ballon}위`, points: 80 });
   else if (ballon > 0 && ballon <= 10) awards.push({ label: `발롱도르 ${ballon}위`, points: 20 });
 
-  // 성장과 노쇠
-  const share = clamp(Math.trunc((d.minutes * 100) / (d.games * 90)), 0, 100);
+  // 성장과 노쇠. 2군 출전 시간은 절반만 쳐요.
+  const share = clamp(Math.trunc(((d.minutes + Math.trunc(d.reserveMinutes / 2)) * 100) / (d.games * 90)), 0, 100);
   const yearsToPeak = s.traits.peak - d.age;
   let growth = yearsToPeak >= 8 ? 6 : yearsToPeak >= 6 ? 5 : yearsToPeak >= 4 ? 4 : yearsToPeak >= 2 ? 3 : yearsToPeak >= 0 ? 1
     : yearsToPeak >= -2 ? 0 : yearsToPeak >= -4 ? -1 : yearsToPeak >= -6 ? -2 : -3 + (yearsToPeak + 7);
@@ -1267,7 +1441,7 @@ function endSeason(s: CareerState, d: Draft) {
     growth = Math.trunc((growth * factor + 50) / 100);
     if (d.apps >= 10 && rating >= 76) growth++;
     if (d.apps >= 10 && rating <= 62) growth--;
-    growth += between(s, -1, 1);
+    growth += between(s, -1, 1) + youthBoost;
     const room = s.potential - ovr;
     growth = room <= 0 ? Math.min(growth, 0) : Math.min(growth, room < 6 ? Math.trunc((room + 1) / 2) : room);
   } else {
@@ -1296,12 +1470,15 @@ function endSeason(s: CareerState, d: Draft) {
     s.military = "served";
     note(d, "김천 상무 전역");
   }
+  // 2군에서 꾸준히 뛰면 1군 감독도 눈여겨봐요.
+  if (d.reserveApps >= 12) bump(s, 1);
 
   s.history.push({
     year: d.year, age: d.age, club: d.club, loan: d.loan, military: d.military, pos: d.pos, role: d.role,
     ovrBefore: d.ovrBefore, ovrStart: d.ovrStart, ovrEnd, growth: s.attrs.map((value, i) => value - d.attrsBefore[i]),
     apps: d.apps, starts: d.starts, minutes: d.minutes, goals: d.goals, assists: d.assists, cleanSheets: d.cleanSheets, rating,
     rank, cup: d.cup, continental: d.cont, trophies, awards, ballon, caps, intlGoals, tournaments,
+    reserve: d.reserveApps ? { apps: d.reserveApps, goals: d.reserveGoals, assists: d.reserveAssists } : null,
     highlights: d.highlights, missed: d.missed, event: d.event,
   });
   s.apps += d.apps;
@@ -1320,6 +1497,11 @@ function endSeason(s: CareerState, d: Draft) {
 }
 
 // ---------- 이적 시장 ----------
+
+/** 1234567 → "1,234,567". 엔진 글자는 기기 언어 설정에 따라 달라지지 않게 직접 만들어요. */
+function comma(value: number): string {
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
 
 function contractYears(age: number): number {
   return age <= 23 ? 5 : age <= 27 ? 4 : age <= 30 ? 3 : age <= 32 ? 2 : 1;
@@ -1342,14 +1524,14 @@ function ownerWants(s: CareerState, ovr: number, club: ClubInfo): boolean {
 }
 
 function roleText(s: CareerState, clubId: string) {
-  return `예상 ${ROLE_LABELS[expectedRole(s, clubId, true)]}`;
+  return `전력 ${CLUBS[clubId].rating} · 예상 ${roleName(expectedRole(s, clubId, true), s.age)}`;
 }
 
 function offseasonDecision(s: CareerState): Decision {
   const ovr = overall(s.attrs, s.pos);
   const last = s.history.at(-1)!;
   const options: Choice[] = [];
-  const retire = option("은퇴하기", `${s.age}세 · 통산 ${s.apps}경기 ${s.goals}골`, "neutral", "retire");
+  const retire = option("은퇴하기", `${s.age}세 · 통산 ${s.apps}경기 ${s.goals}골 · 지금 은퇴하면 레전드 점수 ${comma(legacyScore(s))}점`, "neutral", "retire");
   const title = `${seasonLabel(s.year)} 이적 시장`;
   if (s.age >= CAREER_RULES.maxAge) {
     return { kind: "offseason", id: "offseason", title: "작별의 시간", body: `${s.age}세. 이제는 축구화를 벗을 때예요.`, options: [retire] };
@@ -1384,34 +1566,49 @@ function offseasonDecision(s: CareerState): Decision {
   if (s.flags.includes(`market-${last.year}`)) wanted++;
   if (s.flags.includes("agent")) wanted++;
   if (loyal) wanted = Math.min(wanted, 1);
+  // 적어도 백업으로 쓸 만한 구단만 연락하고, 아직 덜 여문 유망주에게는 국내 구단만 관심을 보여요.
+  const home: LeagueCode[] = [CLUBS[s.club].league, NATIONS[s.nation].home];
+  const grown = ovr >= 60;
   const pool = Object.values(CLUBS).filter((club) => club.id !== s.club && club.id !== owner && club.id !== MILITARY_CLUB
-    && club.rating <= interest + 2 && club.rating >= interest - 9 && regionAllowed(s, club, interest));
+    && club.rating <= interest + 2 && club.rating >= interest - 9 && club.rating <= ovr + 10
+    && (grown || home.includes(club.league)) && regionAllowed(s, club, interest));
   const offers: ClubInfo[] = [];
   for (let n = 0; n < Math.min(wanted, 3); n++) {
-    // 몸값에 맞는 구단 가운데 수준 높은 구단일수록 먼저 연락해요.
+    // 몸값에 맞는 구단 가운데 수준 높은 구단일수록 먼저 연락해요. 어린 선수에게는 국내 구단이 더 자주 연락해요.
     const index = weightedIndex(s, pool.map((club) => {
       const reach = club.rating - (interest - 10);
-      return offers.includes(club) ? 0 : reach * reach + 2;
+      return offers.includes(club) ? 0 : (reach * reach + 2) * (s.age <= 21 && home.includes(club.league) ? 2 : 1);
     }));
     if (index < 0) break;
     offers.push(pool[index]);
+  }
+  // 시즌 중에 해외 진출이나 빅클럽 이적을 원한다고 밝혔다면 그런 제안이 하나는 와요.
+  const wish = s.flags.includes(`abroad-${last.year}`)
+    ? Object.values(CLUBS).filter((club) => LEAGUES[club.league].region === "europe" && club.rating >= ovr - 8 && club.rating <= ovr + 6)
+    : s.flags.includes(`bigclub-${last.year}`) ? biggerClubs(s, owner ?? s.club) : [];
+  const wishes = wish.filter((club) => club.id !== s.club && club.id !== owner && !offers.includes(club));
+  if (wishes.length && !offers.some((club) => wish.includes(club))) {
+    const choice = wishes[weightedIndex(s, wishes.map((club) => Math.max(1, club.rating - 60)))];
+    if (offers.length >= 3) offers.sort((a, b) => b.rating - a.rating).pop();
+    offers.push(choice);
   }
   const years = contractYears(s.age);
   for (const club of offers.sort((a, b) => b.rating - a.rating)) {
     const fee = free ? "자유 계약" : `이적료 ${formatValue(marketValue(ovr, s.age, s.potential))}`;
     options.push({
-      label: `이적 · ${club.name}`, detail: `${LEAGUES[club.league].name} · ${years}년 · ${roleText(s, club.id)} · ${fee}`,
+      label: `이적 · ${club.name}`, detail: `${LEAGUES[club.league].name} · ${roleText(s, club.id)} · ${years}년 · ${fee}`,
       tone: "good", value: "transfer", club: club.id, years,
     });
   }
 
   const share = Math.trunc((last.minutes * 100) / (LEAGUES[CLUBS[last.club].league].games * 90));
   if (s.age <= 22 && !free && share < 35) {
+    // 뛸 수 있는 구단으로 보내고, 국내 구단을 더 자주 골라요.
     const loans = Object.values(CLUBS).filter((club) => club.id !== owner && club.id !== s.club && club.id !== MILITARY_CLUB
-      && club.rating >= ovr - 4 && club.rating <= ovr + 2 && regionAllowed(s, club, interest));
+      && club.rating >= ovr - 4 && club.rating <= ovr + 6 && (grown || home.includes(club.league)) && regionAllowed(s, club, interest));
     const chosen: ClubInfo[] = [];
     for (let n = 1 + int(s, 2); n > 0 && loans.length; n--) {
-      const club = pick(s, loans);
+      const club = loans[weightedIndex(s, loans.map((item) => (home.includes(item.league) ? 3 : 1)))];
       if (!chosen.includes(club)) chosen.push(club);
     }
     for (const club of chosen) {
@@ -1419,11 +1616,12 @@ function offseasonDecision(s: CareerState): Decision {
     }
   }
 
+  // 아직 젊은데 갈 곳이 없으면 국내에서 수준이 가장 비슷한 구단이 받아 줘요.
   if (!options.length && s.age < 30) {
-    const fallback = Object.values(CLUBS).filter((club) => club.id !== MILITARY_CLUB && club.rating <= ovr + 2 && regionAllowed(s, club, interest));
-    const club = fallback.length ? fallback.reduce((best, item) => (item.rating > best.rating ? item : best), fallback[0])
-      : Object.values(CLUBS).reduce((low, item) => (item.rating < low.rating ? item : low));
-    options.push({ label: `이적 · ${club.name}`, detail: `${LEAGUES[club.league].name} · ${years}년 · ${roleText(s, club.id)} · 자유 계약`, tone: "good", value: "transfer", club: club.id, years });
+    const nearby = Object.values(CLUBS).filter((club) => club.id !== MILITARY_CLUB && club.id !== s.club && home.includes(club.league));
+    const list = nearby.length ? nearby : Object.values(CLUBS).filter((club) => club.id !== MILITARY_CLUB && club.id !== s.club);
+    const club = list.reduce((best, item) => (Math.abs(item.rating - ovr) < Math.abs(best.rating - ovr) ? item : best), list[0]);
+    options.push({ label: `이적 · ${club.name}`, detail: `${LEAGUES[club.league].name} · ${roleText(s, club.id)} · ${years}년 · 자유 계약`, tone: "good", value: "transfer", club: club.id, years });
   }
   if (s.age >= CAREER_RULES.retireFrom || !options.length) options.push(retire);
 
@@ -1554,7 +1752,7 @@ export type CareerSummary = {
 };
 
 export function careerTotals(history: SeasonRecord[]) {
-  const totals = { apps: 0, goals: 0, assists: 0, cleanSheets: 0, caps: 0, intlGoals: 0, ballonDor: 0, awards: 0, trophies: 0, honorPoints: 0 };
+  const totals = { apps: 0, goals: 0, assists: 0, cleanSheets: 0, caps: 0, intlGoals: 0, ballonDor: 0, awards: 0, trophies: 0 };
   for (const season of history) {
     totals.apps += season.apps;
     totals.goals += season.goals;
@@ -1567,16 +1765,35 @@ export function careerTotals(history: SeasonRecord[]) {
       if (award.label.endsWith("발롱도르")) totals.ballonDor++;
       else if (!award.label.startsWith("발롱도르 ")) totals.awards++;
     }
-    for (const honor of [...season.trophies, ...season.awards]) totals.honorPoints += honor.points;
   }
   return totals;
 }
 
-export function legacyScore(s: CareerState): number {
+/** 레전드 점수의 출처. 다 더하면 레전드 점수예요. */
+export type LegacyBreakdown = { trophies: number; awards: number; ballon: number; records: number; national: number; peak: number };
+
+export function legacyBreakdown(s: CareerState): LegacyBreakdown {
   const totals = careerTotals(s.history);
   const sheets = s.pos === "GK" || s.pos === "CB" || s.pos === "FB" ? 2 : s.pos === "DM" ? 1 : 0;
-  return totals.honorPoints + totals.goals * 3 + totals.assists * 2 + totals.cleanSheets * sheets
-    + totals.caps * 3 + totals.intlGoals * 4 + Math.max(0, s.peak - 60) * 25;
+  const parts: LegacyBreakdown = {
+    trophies: 0, awards: 0, ballon: 0,
+    records: totals.goals * 3 + totals.assists * 2 + totals.cleanSheets * sheets,
+    national: totals.caps * 3 + totals.intlGoals * 4,
+    peak: Math.max(0, s.peak - 60) * 25,
+  };
+  for (const season of s.history) {
+    for (const trophy of season.trophies) parts.trophies += trophy.points;
+    for (const award of season.awards) {
+      if (award.label.includes("발롱도르")) parts.ballon += award.points;
+      else parts.awards += award.points;
+    }
+  }
+  return parts;
+}
+
+export function legacyScore(s: CareerState): number {
+  const parts = legacyBreakdown(s);
+  return parts.trophies + parts.awards + parts.ballon + parts.records + parts.national + parts.peak;
 }
 
 export function legacyGrade(score: number): string {
@@ -1589,7 +1806,7 @@ function careerTitle(s: CareerState, totals: ReturnType<typeof careerTotals>, cl
   const honors = s.history.flatMap((season) => season.trophies.map((trophy) => trophy.label));
   const ucl = honors.filter((label) => label.endsWith("챔피언스리그 우승") && !label.startsWith("AFC")).length;
   if (totals.ballonDor >= 3) return `발롱도르 ${totals.ballonDor}회의 전설`;
-  if (honors.some((label) => label.includes("월드컵 우승"))) return "월드컵 챔피언";
+  if (honors.some((label) => /^\d{4} 월드컵 우승$/.test(label))) return "월드컵 챔피언";
   if (totals.ballonDor) return "발롱도르 위너";
   if (ucl >= 2) return "빅이어 수집가";
   if (clubs.length === 1 && s.history.length >= 12) return "원클럽맨";
@@ -1613,7 +1830,8 @@ export function summarizeCareer(s: CareerState): CareerSummary {
   const counts = new Map<string, number>();
   for (const season of s.history) {
     for (const honor of [...season.awards, ...season.trophies]) {
-      const label = honor.label.replace(/^\d{4} /, "");
+      // 연도는 떼고 모아요. 발롱도르 4~10위는 '톱10' 하나로 묶어요.
+      const label = honor.label.replace(/^\d{4} /, "").replace(/^발롱도르 ([4-9]|10)위$/, "발롱도르 톱10");
       counts.set(label, (counts.get(label) ?? 0) + 1);
     }
   }
