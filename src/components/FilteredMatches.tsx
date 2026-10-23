@@ -49,11 +49,14 @@ function CompetitionHeading({ code, list }: { code: string; list: Match[] }) {
   const info = getCompetition(code);
   const content = (
     <>
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-zinc-950/5">
-        <Crest src={info?.emblem ?? list[0].competition.emblem} size={18} />
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-zinc-950/5">
+        <Crest src={info?.emblem ?? list[0].competition.emblem} size={22} />
       </span>
-      <span className="truncate">{info?.name ?? list[0].competition.name}</span>
-      <span className="ml-auto shrink-0 text-xs font-normal text-zinc-500 dark:text-zinc-400">{list.length}경기</span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm">{info?.name ?? list[0].competition.name}</span>
+        {info ? <span className="block text-[10px] font-medium tracking-normal text-zinc-500 dark:text-zinc-400">{info.region}</span> : null}
+      </span>
+      <span className="ml-auto shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-[11px] font-semibold tabular-nums text-zinc-500 dark:bg-white/5 dark:text-zinc-400">{list.length}경기</span>
     </>
   );
   return (
@@ -92,17 +95,17 @@ export function FilteredMatches({ matches, today, teamControl }: { matches: Matc
 
   return (
     <TeamFilterContext.Provider value={{ teamId, select: setTeamId }}>
-      <div className="mb-4 space-y-3">
-        <div role="group" aria-label="경기 상태" className="grid grid-cols-4 gap-1 rounded-2xl bg-zinc-200/60 p-1 dark:bg-white/5">
+      <div className="mb-5 space-y-3">
+        <div role="group" aria-label="경기 상태" className="grid grid-cols-4 gap-1 rounded-2xl bg-white p-1.5 ring-1 ring-emerald-950/[0.08] dark:bg-[#131e18] dark:ring-white/[0.08]">
           {FILTERS.map(({ value, label }) => (
             <button
               key={value}
               type="button"
               aria-pressed={status === value}
               onClick={() => setStatus(value)}
-              className={`flex min-h-11 min-w-0 flex-wrap items-center justify-center gap-x-1 rounded-xl px-1 text-[13px] font-semibold transition ${status === value ? "bg-white text-zinc-900 shadow-xs dark:bg-zinc-800 dark:text-white" : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"}`}
+              className={`flex min-h-11 min-w-0 flex-wrap items-center justify-center gap-x-1.5 rounded-xl px-1 text-[13px] font-bold transition ${status === value ? "bg-[#173d2c] text-white shadow-sm dark:bg-[#d4f77d] dark:text-[#132b1e]" : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"}`}
             >
-              {label}<span className={`text-xs tabular-nums ${value === "live" ? "text-red-600 dark:text-red-400" : "text-zinc-500 dark:text-zinc-400"}`}>{filterMatches(scoped, value, "", null).length}</span>
+              {label}<span className={`text-[11px] tabular-nums ${status === value ? "text-white/70 dark:text-emerald-950/65" : value === "live" ? "text-red-600 dark:text-red-400" : "text-zinc-400 dark:text-zinc-500"}`}>{filterMatches(scoped, value, "", null).length}</span>
             </button>
           ))}
         </div>
@@ -126,9 +129,10 @@ export function FilteredMatches({ matches, today, teamControl }: { matches: Matc
       {visible.length === 0 ? (
         <EmptyState>{filtered ? "선택한 조건에 맞는 경기가 없어요. 필터를 바꿔 보세요." : "이날은 경기가 없어요. 다른 날짜를 골라 보세요."}</EmptyState>
       ) : (
-        <div className="space-y-3">
+        <div className="grid items-start gap-4 md:grid-cols-2">
           {ordered.map(([code, list]) => (
-            <section key={code} className={cardClass}>
+            <section key={code} className={`${cardClass} relative`}>
+              <span aria-hidden className="absolute top-0 left-5 h-0.5 w-9 rounded-b-full" style={{ backgroundColor: getCompetition(code)?.color ?? "#15803d" }} />
               <CompetitionHeading code={code} list={list} />
               <ul className={cardListClass}>
                 {list.map((match) => <MatchRow key={match.id} match={match} caption={roundLabel(match)} today={today} />)}

@@ -7,7 +7,7 @@ export function PostListSkeleton({ rows = 10 }: { rows?: number }) {
     <div className={`${cardClass} animate-pulse`} aria-busy="true" aria-label="불러오는 중">
       <div className={cardListClass}>
         {Array.from({ length: rows }, (_, i) => (
-          <div key={i} className="py-3">
+          <div key={i} className="py-4">
             <div className="flex h-[22px] items-center">
               <div className={`h-3.5 ${i % 3 === 0 ? "w-2/3" : i % 3 === 1 ? "w-1/2" : "w-3/5"} ${bar}`} />
             </div>
@@ -30,7 +30,7 @@ export function BoardSkeleton() {
           <div className={`h-6 w-28 ${bar}`} />
           <div className={`h-3 w-44 ${bar}`} />
         </div>
-        <div className={`h-10 w-24 rounded-full ${bar}`} />
+        <div className={`h-11 w-24 rounded-xl ${bar}`} />
       </div>
       <PostListSkeleton />
     </div>

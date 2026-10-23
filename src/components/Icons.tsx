@@ -26,19 +26,23 @@ export function BallIcon({ className = "size-4" }: IconProps) {
 /** 사이트 로고. 초록 바탕 위에 축구공이 있어요. */
 export function LogoMark() {
   return (
-    <span className="flex size-7 items-center justify-center rounded-lg bg-linear-to-br from-emerald-400 to-emerald-600 text-white shadow-sm shadow-emerald-600/30">
-      <BallIcon className="size-[18px]" />
+    <span className="flex size-9 shrink-0 -rotate-6 items-center justify-center rounded-xl bg-[#d4f77d] text-[#132b1e] ring-1 ring-white/10">
+      <BallIcon className="size-6 rotate-6" />
     </span>
   );
 }
 
-/** 경기장 가운데 선과 센터 서클. 대회 페이지 머리의 배경 무늬로 써요. */
+/** 축구장 라인. 장식이므로 보조 기술에는 읽히지 않아요. */
 export function PitchLines({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 200 200" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden className={className}>
-      <path d="M100 0v200M0 1h200M0 199h200" />
-      <circle cx="100" cy="100" r="46" />
-      <circle cx="100" cy="100" r="3" fill="currentColor" stroke="none" />
+    <svg viewBox="0 0 360 240" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden className={className}>
+      <rect x="10" y="10" width="340" height="220" rx="2" />
+      <path d="M180 10v220M10 62h56v116H10M350 62h-56v116h56M10 94h22v52H10M350 94h-22v52h22" />
+      <circle cx="180" cy="120" r="32" />
+      <circle cx="180" cy="120" r="2" fill="currentColor" />
+      <circle cx="49" cy="120" r="2" fill="currentColor" />
+      <circle cx="311" cy="120" r="2" fill="currentColor" />
+      <path d="M66 96a30 30 0 0 1 0 48M294 96a30 30 0 0 0 0 48" />
     </svg>
   );
 }

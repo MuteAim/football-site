@@ -18,7 +18,7 @@ export function BoardTabs({ active }: { active: string | null }) {
     <nav
       ref={navRef}
       aria-label="게시판 목록"
-      className="no-scrollbar -mx-4 mt-3 flex gap-1.5 overflow-x-auto px-4 py-0.5"
+      className="no-scrollbar -mx-4 mt-4 flex gap-1.5 overflow-x-auto px-4 py-1"
     >
       {TABS.map((board) => {
         const isActive = board.slug === active;
@@ -27,14 +27,15 @@ export function BoardTabs({ active }: { active: string | null }) {
             key={board.slug || "all"}
             href={boardHref(board)}
             aria-current={isActive ? "page" : undefined}
-            className={`relative flex h-9 shrink-0 items-center rounded-full px-3.5 text-sm font-medium transition active:scale-95 ${
+            className={`relative flex h-10 shrink-0 items-center gap-1.5 rounded-xl px-3.5 text-sm font-semibold transition active:scale-[0.98] ${
               isActive
-                ? "bg-zinc-900 font-semibold text-white dark:bg-white dark:text-zinc-900"
+                ? "bg-emerald-700 text-white shadow-sm dark:bg-[#d4f77d] dark:text-emerald-950"
                 : "bg-white text-zinc-600 ring-1 ring-zinc-950/5 hover:text-zinc-900 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-white/10 dark:hover:text-white"
             }`}
           >
+            {board.slug && board.slug !== "best" ? <span aria-hidden className={`size-1.5 rounded-full ${isActive ? "bg-current" : ""}`} style={isActive ? undefined : { backgroundColor: board.color }} /> : null}
             {board.short}
-            <LinkPending className="rounded-full bg-emerald-500/20" />
+            <LinkPending className="rounded-xl bg-emerald-500/20" />
           </Link>
         );
       })}

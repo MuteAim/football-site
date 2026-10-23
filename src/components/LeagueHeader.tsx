@@ -8,21 +8,22 @@ export function LeagueHeader({ competition }: { competition: CompetitionInfo }) 
   return (
     <div className="mb-5">
       <div
-        className="relative h-[104px] overflow-hidden rounded-3xl px-5 text-white shadow-sm"
+        className="relative flex min-h-36 items-center overflow-hidden rounded-3xl px-5 py-6 text-white sm:px-7"
         style={{ backgroundColor: competition.color }}
       >
         <div
           aria-hidden
-          className="absolute inset-0 bg-[radial-gradient(120%_120%_at_100%_0%,rgb(255_255_255/0.22),transparent_60%)]"
+          className="absolute inset-0 bg-linear-to-r from-black/25 to-transparent"
         />
-        <PitchLines className="absolute top-1/2 -right-16 size-56 -translate-y-1/2 text-white/10" />
-        <div className="relative flex h-full items-center gap-4">
+        <PitchLines className="absolute top-1/2 -right-12 h-60 w-96 -translate-y-1/2 -rotate-12 text-white/10" />
+        <div className="relative flex min-w-0 items-center gap-4 sm:gap-5">
           <div className="flex size-16 shrink-0 items-center justify-center rounded-2xl bg-white shadow-lg shadow-black/20">
             <Crest src={competition.emblem} size={44} />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-medium text-white/80">{competition.region}</p>
-            <h1 className="truncate text-2xl font-bold tracking-tight">{competition.name}</h1>
+            <p className="sport-eyebrow mb-1 text-white/60">LEAGUE CENTER</p>
+            <h1 className="truncate text-2xl font-extrabold tracking-tight sm:text-3xl">{competition.name}</h1>
+            <p className="mt-1 text-xs font-medium text-white/75">{competition.region} · 순위와 경기 기록</p>
           </div>
         </div>
       </div>

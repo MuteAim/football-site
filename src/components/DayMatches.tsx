@@ -4,12 +4,13 @@ import { getViewer } from "@/lib/cafe/viewer";
 import { getMatchesSnapshot } from "@/lib/football-data";
 import { isWithinRange, MAX_DISTANCE_DAYS, queryRange } from "@/lib/match-dates";
 import { isLive } from "@/lib/match-display";
-import { formatMonthDayLong, formatWeekdayLong, relativeDayLabel, toKstDateKey, todayKst } from "@/lib/time";
+import { toKstDateKey, todayKst } from "@/lib/time";
 import { DateStrip } from "./DateStrip";
 import { EmptyState } from "./EmptyState";
 import { FilteredMatches, MyTeamFilter } from "./FilteredMatches";
 import { ScoreRefresh } from "./ScoreRefresh";
 import { CompetitionNav } from "./SiteNav";
+import { MatchdayHero } from "./MatchdayHero";
 
 const SLIDE = { "nav-forward": "nav-forward", "nav-back": "nav-back", default: "none" };
 
@@ -38,7 +39,6 @@ async function CachedDayMatches({ date, teamControl }: { date?: string; teamCont
 
   const today = todayKst();
   const selected = date ?? today;
-  const relative = relativeDayLabel(selected, today);
   const inRange = isWithinRange(selected, today);
   const { from, to } = queryRange(selected, today);
   const snapshot = inRange ? await getMatchesSnapshot(from, to) : null;
@@ -48,17 +48,11 @@ async function CachedDayMatches({ date, teamControl }: { date?: string; teamCont
 
   return (
     <>
+      <MatchdayHero matches={matches} selected={selected} today={today} />
       <CompetitionNav />
       <DateStrip selected={selected} today={today} />
       <ViewTransition enter={SLIDE} exit={SLIDE} default="none">
         <div>
-          <div className="mb-4">
-            <p className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">
-              {relative ? <span className="text-emerald-600 dark:text-emerald-400">{relative} · </span> : null}
-              {formatWeekdayLong(selected)}
-            </p>
-            <h1 className="mt-0.5 text-2xl font-bold tracking-tight">{formatMonthDayLong(selected)}</h1>
-          </div>
           {snapshot ? (
             <>
               <ScoreRefresh checkedAt={snapshot.checkedAt} automatic={selected === today || matches.some(isLive)} />

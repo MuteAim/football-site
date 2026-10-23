@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { COMPETITIONS } from "@/lib/competitions";
 import { BallIcon, ChatIcon, ShirtIcon, TrophyIcon } from "./Icons";
+import { Crest } from "./Crest";
 import { LinkPending } from "./LinkPending";
 
 const MAIN_LINKS = [
@@ -16,22 +17,22 @@ const MAIN_LINKS = [
 
 export function MainNav({ activeHref }: { activeHref?: string }) {
   return (
-    <nav aria-label="주요 메뉴" className="grid min-w-0 flex-1 grid-cols-4 gap-1">
+    <nav aria-label="주요 메뉴" className="ml-auto grid min-w-0 max-w-lg flex-1 grid-cols-4 gap-1 sm:gap-2">
       {MAIN_LINKS.map(({ href, label, Icon }) => (
         <Link
           key={href}
           href={href}
           prefetch={false}
           aria-current={activeHref === href ? "page" : undefined}
-          className={`relative flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl text-[13px] font-semibold transition sm:text-sm ${
+          className={`relative flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-xl text-[13px] font-bold transition sm:text-sm ${
             activeHref === href
-              ? "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
-              : "text-zinc-600 hover:bg-zinc-950/5 dark:text-zinc-400 dark:hover:bg-white/10"
+              ? "bg-[#d4f77d] text-[#132b1e] shadow-sm"
+              : "text-white/65 hover:bg-white/10 hover:text-white"
           }`}
         >
           <Icon className="hidden size-4 sm:block" />
           {label}
-          <LinkPending className="rounded-xl bg-emerald-500/20" />
+          <LinkPending className="rounded-xl bg-white/20" />
         </Link>
       ))}
     </nav>
@@ -53,8 +54,19 @@ export function CompetitionNav({ activeCode = "" }: { activeCode?: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   return (
-    <label className="mb-4 flex items-center justify-between gap-3 text-sm">
-      <span className="shrink-0 font-semibold text-zinc-600 dark:text-zinc-400">리그 순위·일정</span>
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="hidden min-w-0 items-center gap-1 lg:flex" aria-label="주요 리그 바로가기">
+        {COMPETITIONS.filter((item) => ["PL", "PD", "BL1", "SA", "FL1", "CL"].includes(item.code)).map((item) => (
+          <Link key={item.code} href={`/league/${item.code}`} prefetch={false} title={item.name}
+            aria-label={`${item.name} 순위와 일정`} aria-current={activeCode === item.code ? "page" : undefined}
+            className={`flex h-10 items-center gap-2 rounded-xl px-3 text-xs font-bold transition ${activeCode === item.code ? "bg-emerald-700 text-white" : "text-zinc-600 hover:bg-white dark:text-zinc-300 dark:hover:bg-white/5"}`}>
+            <span className="flex size-6 items-center justify-center rounded-md bg-white"><Crest src={item.emblem} size={18} /></span>
+            {item.short}
+          </Link>
+        ))}
+      </div>
+      <label className="flex w-full items-center justify-between gap-3 text-sm lg:w-auto">
+      <span className="shrink-0 text-xs font-semibold text-zinc-500 lg:sr-only dark:text-zinc-400">리그 순위·일정</span>
       <select
         aria-label="리그 순위와 일정 보기"
         aria-busy={pending}
@@ -71,6 +83,7 @@ export function CompetitionNav({ activeCode = "" }: { activeCode?: string }) {
         <option value="" disabled>리그 선택</option>
         {COMPETITIONS.map((competition) => <option key={competition.code} value={competition.code}>{competition.name}</option>)}
       </select>
-    </label>
+      </label>
+    </div>
   );
 }

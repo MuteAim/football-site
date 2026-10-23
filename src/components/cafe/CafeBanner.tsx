@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { bannerLook, isExternalHref, lockNotice } from "@/lib/cafe/banner";
 import type { CafeSettings } from "@/lib/cafe/types";
-import { ChatIcon, ChevronRightIcon, LockIcon, MegaphoneIcon, PitchLines } from "../Icons";
+import { BallIcon, ChevronRightIcon, LockIcon, MegaphoneIcon, PitchLines } from "../Icons";
 
 // 카페 머리의 배너와 그 아래 띠들이에요. 카페 머리와 카페 관리 화면의 미리 보기가 같이 써요.
 
@@ -23,21 +23,23 @@ export function CafeBanner({
   preview?: boolean;
   children?: ReactNode;
 }) {
-  const title = "block truncate text-2xl font-bold tracking-tight";
+  const title = "block truncate text-xl font-extrabold tracking-tight sm:text-3xl";
   return (
-    <div className={`relative h-[104px] rounded-3xl bg-linear-to-br px-5 text-white shadow-sm ${bannerLook(color).banner}`}>
+    <div className={`relative min-h-36 rounded-3xl bg-linear-to-br px-5 py-5 text-white shadow-sm sm:px-7 sm:py-6 ${bannerLook(color).banner}`}>
       {/* 장식만 둥근 모서리 안에 잘라 두고, 계정 메뉴는 배너 밖으로 펼쳐질 수 있게 해요. */}
       <div aria-hidden className="absolute inset-0 overflow-hidden rounded-3xl">
-        <div className="absolute inset-0 bg-[radial-gradient(120%_120%_at_100%_0%,rgb(255_255_255/0.2),transparent_60%)]" />
-        <PitchLines className="absolute top-1/2 -right-16 size-56 -translate-y-1/2 text-white/10" />
+        <div className="absolute inset-0 bg-linear-to-r from-black/35 to-transparent" />
+        <PitchLines className="absolute top-1/2 -right-12 h-60 w-96 -translate-y-1/2 -rotate-12 text-white/10" />
       </div>
-      <div className="relative flex h-full items-center gap-4">
+      <div className="relative">
+        <p className="sport-eyebrow mb-3 text-white/70">THE SUPPORTERS CLUB</p>
+        <div className="flex items-center gap-3 sm:gap-4">
         {/* 휴대폰에서는 카페 이름이 잘리지 않게 아이콘을 숨겨요. */}
         <div className="hidden size-14 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/25 sm:flex">
-          <ChatIcon className="size-7" />
+          <BallIcon className="size-8" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-white/85">{name}</p>
+          <p className="mb-1 truncate text-xs font-semibold text-white/70">{name} · 축구 팬들의 카페</p>
           {preview ? (
             <p className={title}>{tagline}</p>
           ) : (
@@ -47,6 +49,7 @@ export function CafeBanner({
           )}
         </div>
         {children}
+        </div>
       </div>
     </div>
   );

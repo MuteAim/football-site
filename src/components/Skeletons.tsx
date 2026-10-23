@@ -5,8 +5,8 @@ import { cardClass, cardHeadingClass, cardListClass, skeletonClass as bar } from
 
 function MatchRowSkeleton() {
   return (
-    <div className="flex items-center gap-3 py-3">
-      <div className="w-14 shrink-0 space-y-2">
+    <div className="flex items-center gap-3 py-3.5">
+      <div className="w-16 shrink-0 space-y-2">
         <div className={`h-3.5 w-10 ${bar}`} />
         <div className={`h-2.5 w-7 ${bar}`} />
       </div>
@@ -44,16 +44,9 @@ export function ListSkeleton({ rows = 6 }: { rows?: number }) {
 export function DaySkeleton({ rows = 6 }: { rows?: number }) {
   return (
     <div aria-busy="true" aria-label="불러오는 중">
+      <div className="stadium-panel mb-5 h-[194px] animate-pulse rounded-3xl sm:h-[266px]" />
       <div className={`mb-4 h-10 w-44 animate-pulse ${bar}`} />
       <div className={`mb-5 h-[125px] animate-pulse ${cardClass}`} />
-      <div className="mb-4 animate-pulse">
-        <div className="flex h-5 items-center">
-          <div className={`h-3.5 w-20 ${bar}`} />
-        </div>
-        <div className="mt-0.5 flex h-8 items-center">
-          <div className={`h-6 w-32 ${bar}`} />
-        </div>
-      </div>
       <div className={`mb-3 h-20 animate-pulse ${bar}`} />
       <div className={`mb-4 h-32 animate-pulse ${bar}`} />
       <ListSkeleton rows={rows} />
@@ -88,7 +81,7 @@ export function TableSkeleton({ rows = 12, rowClass = "h-11" }: { rows?: number;
 export function HeaderSkeleton() {
   return (
     <div className="mb-5 animate-pulse" aria-hidden>
-      <div className={`h-[104px] rounded-3xl ${bar}`} />
+      <div className={`h-36 rounded-3xl ${bar}`} />
       <div className={`mt-3 h-11 rounded-2xl ${bar}`} />
     </div>
   );

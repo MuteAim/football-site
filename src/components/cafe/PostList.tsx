@@ -31,7 +31,7 @@ function PostRow({ post, showBoard, now }: { post: PostSummary; showBoard: boole
     <li>
       <Link
         href={postHref(post)}
-        className="relative -mx-4 block px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-white/[0.03]"
+        className="group relative -mx-4 block px-4 py-4 transition-colors hover:bg-emerald-50/50 dark:hover:bg-white/[0.03]"
       >
         {showBoard ? <p className="mb-1.5 text-[11px] sm:hidden"><BoardChip slug={post.board} /></p> : null}
         <p className="flex items-start gap-2">
@@ -40,9 +40,9 @@ function PostRow({ post, showBoard, now }: { post: PostSummary; showBoard: boole
               공지
             </span>
           ) : null}
-          <span className="line-clamp-2 min-w-0 flex-1 text-[15px] leading-6 font-medium break-words sm:line-clamp-1">{post.title}</span>
+          <span className="line-clamp-2 min-w-0 flex-1 text-[15px] leading-6 font-semibold break-words transition group-hover:text-emerald-700 sm:line-clamp-1 dark:group-hover:text-emerald-400">{post.title}</span>
           {post.commentCount > 0 ? (
-            <span aria-label={`댓글 ${post.commentCount}개`} className="inline-flex h-6 shrink-0 items-center gap-1 text-xs font-semibold text-emerald-600 tabular-nums dark:text-emerald-400">
+            <span aria-label={`댓글 ${post.commentCount}개`} className="inline-flex h-7 min-w-10 shrink-0 items-center justify-center gap-1 rounded-lg bg-emerald-500/[0.08] px-1.5 text-xs font-bold text-emerald-700 tabular-nums dark:text-emerald-400">
               <ChatIcon className="size-3.5" />
               {post.commentCount}
             </span>

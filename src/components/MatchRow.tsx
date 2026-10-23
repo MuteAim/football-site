@@ -38,7 +38,7 @@ function TeamLine({
           {penalties != null ? (
             <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">({penalties})</span>
           ) : null}
-          <span className={`min-w-5 text-right text-base ${outcome === "won" ? "font-bold" : "font-semibold"}`}>
+          <span className={`flex h-6 min-w-7 items-center justify-center rounded-md text-base ${outcome === "won" ? "bg-emerald-700 font-extrabold text-white dark:bg-emerald-500 dark:text-emerald-950" : "bg-zinc-100 font-bold dark:bg-white/5"}`}>
             {score}
           </span>
         </span>
@@ -53,12 +53,12 @@ function MatchState({ match, note }: { match: Match; note: string | null }) {
 
   if (isLive(match)) {
     return (
-      <span className="inline-flex items-center gap-1 text-xs font-bold text-red-600 dark:text-red-400">
+      <span className="inline-flex w-fit items-center gap-1 rounded-md bg-rose-500/10 px-1.5 py-1 text-[10px] font-extrabold text-red-600 dark:text-red-400">
         <span className="relative flex size-1.5">
           <span className="absolute inset-0 animate-ping rounded-full bg-red-500 opacity-75 motion-reduce:hidden" />
           <span className="relative size-1.5 rounded-full bg-red-500" />
         </span>
-        진행 중
+        LIVE<span className="sr-only"> 진행 중</span>
       </span>
     );
   }
@@ -95,7 +95,7 @@ export function MatchRow({
 
   const content = (
     <>
-      <div className="flex w-14 shrink-0 flex-col gap-1 leading-tight">
+      <div className="flex w-16 shrink-0 flex-col gap-1.5 border-r border-zinc-100 pr-2 leading-tight dark:border-white/[0.07]">
         <MatchState match={match} note={score?.note ?? null} />
         {caption ? (
           <span className="truncate text-[11px] text-zinc-400 dark:text-zinc-500">{caption}</span>
@@ -125,7 +125,7 @@ export function MatchRow({
       <Link
         href={href}
         prefetch={false}
-        className="group relative -mx-4 flex items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-white/[0.03]"
+        className={`group relative -mx-4 flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-emerald-50/60 dark:hover:bg-emerald-400/[0.04] ${live ? "bg-emerald-500/[0.04] before:absolute before:inset-y-3 before:left-0 before:w-0.5 before:rounded-r-full before:bg-emerald-500" : ""}`}
       >
         {content}
         {/* 누르면 응원톡으로 간다는 표시 */}

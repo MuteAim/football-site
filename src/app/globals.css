@@ -9,9 +9,56 @@
 }
 
 html {
-  scroll-padding-top: 4rem;
+  scroll-padding-top: 5.5rem;
   color-scheme: light dark;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* 잔디의 짙은 녹색과 전광판의 라임색을 공통 시각 언어로 써요. */
+.football-shell {
+  background: #f1f4f2;
+}
+
+.stadium-panel {
+  position: relative;
+  isolation: isolate;
+  background: linear-gradient(115deg, #10251c, #173d2c);
+  color: white;
+}
+
+.stadium-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: repeating-linear-gradient(105deg, transparent 0 70px, rgb(255 255 255 / 0.025) 70px 140px);
+}
+
+.sport-eyebrow {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  line-height: 1.5;
+}
+
+.score-digits {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  letter-spacing: -0.055em;
+  line-height: 1;
+}
+
+/* 작은 아이콘 버튼에도 키보드 포커스가 분명하게 보여요. */
+:where(a, button, select, input, textarea):focus-visible {
+  outline: 2px solid #16a36a;
+  outline-offset: 4px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .football-shell {
+    background: #0b120f;
+  }
 }
 
 /* 가로로 넘기는 대회 메뉴의 스크롤바를 숨겨요. */
