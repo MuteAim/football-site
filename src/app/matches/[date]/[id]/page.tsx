@@ -9,6 +9,7 @@ import { PredictionCard } from "@/components/cafe/PredictionCard";
 import { TalkRoom } from "@/components/cafe/TalkRoom";
 import { ChevronLeftIcon } from "@/components/Icons";
 import { MatchSummary } from "@/components/MatchSummary";
+import { ScoreRefresh } from "@/components/ScoreRefresh";
 import { lockNotice } from "@/lib/cafe/banner";
 import { isCafeConfigured } from "@/lib/cafe/config";
 import { countTalkSides, listTalks } from "@/lib/cafe/data";
@@ -18,8 +19,8 @@ import { isStaff } from "@/lib/cafe/profile";
 import { lockFor } from "@/lib/cafe/settings";
 import { getViewer } from "@/lib/cafe/viewer";
 import type { Match } from "@/lib/football-data";
-import { getMatchOnDay } from "@/lib/match-day";
-import { isFinished, isPredictionOpen, matchResult, statusLabel } from "@/lib/match-display";
+import { getMatchOnDay, getMatchOnDaySnapshot } from "@/lib/match-day";
+import { isFinished, isLive, isPredictionOpen, matchResult, statusLabel } from "@/lib/match-display";
 import { teamName } from "@/lib/teams-ko";
 import { formatDayHeading, isDateKey } from "@/lib/time";
 
@@ -111,9 +112,11 @@ async function MatchPrediction({ match, date, path }: { match: Match; date: stri
 }
 
 async function MatchContent({ params }: { params: Params }) {
-  const { date } = await params;
-  const match = await findMatch(params);
-  if (!match) notFound();
+  const { date, id } = await params;
+  if (!isDateKey(date) || !/^\d+$/.test(id) || !Number.isSafeInteger(Number(id))) notFound();
+  const snapshot = await getMatchOnDaySnapshot(date, Number(id));
+  if (!snapshot) notFound();
+  const { match, checkedAt } = snapshot;
   const path = `/matches/${date}/${match.id}`;
 
   return (
@@ -126,6 +129,7 @@ async function MatchContent({ params }: { params: Params }) {
         {formatDayHeading(date)} 경기
       </Link>
       <MatchSummary match={match} />
+      <ScoreRefresh checkedAt={checkedAt} automatic={isLive(match) || match.status === "TIMED" || match.status === "SCHEDULED"} />
       {isCafeConfigured() ? (
         <>
           <Suspense fallback={<PredictionSkeleton />}>

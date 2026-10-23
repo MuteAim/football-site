@@ -20,6 +20,10 @@ export class FootballDataError extends Error {
 }
 
 async function request<T>(path: string, revalidate: number): Promise<T> {
+  return (await requestSnapshot<T>(path, revalidate)).data;
+}
+
+async function requestSnapshot<T>(path: string, revalidate: number): Promise<{ data: T; checkedAt: string }> {
   const token = process.env.FOOTBALL_DATA_API_KEY;
   if (!token) {
     throw new FootballDataError(
@@ -49,7 +53,12 @@ async function request<T>(path: string, revalidate: number): Promise<T> {
     );
   }
 
-  return (await res.json()) as T;
+  // 캐시된 응답을 읽을 때도 원래 응답 시각을 표시해 최신 데이터로 오해하지 않게 해요.
+  const responseDate = res.headers.get("date");
+  const checkedAt = responseDate && Number.isFinite(Date.parse(responseDate))
+    ? new Date(responseDate).toISOString()
+    : new Date().toISOString();
+  return { data: (await res.json()) as T, checkedAt };
 }
 
 // ---------- 타입 ----------
@@ -278,12 +287,16 @@ export async function getScorers(
  * dateTo는 포함되지 않고, 범위는 최대 10일까지만 돼요.
  */
 export async function getMatchesBetween(dateFrom: string, dateTo: string): Promise<Match[]> {
+  return (await getMatchesSnapshot(dateFrom, dateTo)).matches;
+}
+
+export async function getMatchesSnapshot(dateFrom: string, dateTo: string): Promise<{ matches: Match[]; checkedAt: string }> {
   "use cache";
   cacheLife("matches");
 
-  const data = await request<{ matches: RawMatch[] }>(
+  const { data, checkedAt } = await requestSnapshot<{ matches: RawMatch[] }>(
     `/matches?dateFrom=${dateFrom}&dateTo=${dateTo}`,
     CACHE_PROFILES.matches.revalidate,
   );
-  return data.matches.map(slimMatch);
+  return { matches: data.matches.map(slimMatch), checkedAt };
 }

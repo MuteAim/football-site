@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { LeagueHeader } from "@/components/LeagueHeader";
 import { HeaderSkeleton } from "@/components/Skeletons";
+import { CompetitionNav } from "@/components/SiteNav";
 import { getCompetition } from "@/lib/competitions";
 
 // 가장 많이 볼 프리미어리그만 빌드할 때 미리 만들어요.
@@ -15,7 +16,7 @@ async function Header({ params }: { params: LayoutProps<"/league/[code]">["param
   const { code } = await params;
   const competition = getCompetition(code);
   if (!competition) notFound();
-  return <LeagueHeader competition={competition} />;
+  return <><CompetitionNav activeCode={code} /><LeagueHeader competition={competition} /></>;
 }
 
 export default function LeagueLayout({ children, params }: LayoutProps<"/league/[code]">) {

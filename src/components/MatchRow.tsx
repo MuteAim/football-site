@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Match, Team } from "@/lib/football-data";
-import { matchHref } from "@/lib/match-day";
+import { matchHref } from "@/lib/match-dates";
 import { isFinished, isLive, matchScore, statusLabel } from "@/lib/match-display";
 import { teamName } from "@/lib/teams-ko";
 import { formatKickoff, toKstDateKey } from "@/lib/time";

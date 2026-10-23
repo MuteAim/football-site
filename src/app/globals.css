@@ -9,6 +9,7 @@
 }
 
 html {
+  scroll-padding-top: 4rem;
   color-scheme: light dark;
   -webkit-tap-highlight-color: transparent;
 }

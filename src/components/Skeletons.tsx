@@ -44,7 +44,8 @@ export function ListSkeleton({ rows = 6 }: { rows?: number }) {
 export function DaySkeleton({ rows = 6 }: { rows?: number }) {
   return (
     <div aria-busy="true" aria-label="불러오는 중">
-      <div className={`mb-5 h-[68px] animate-pulse ${cardClass}`} />
+      <div className={`mb-4 h-10 w-44 animate-pulse ${bar}`} />
+      <div className={`mb-5 h-[125px] animate-pulse ${cardClass}`} />
       <div className="mb-4 animate-pulse">
         <div className="flex h-5 items-center">
           <div className={`h-3.5 w-20 ${bar}`} />
@@ -53,6 +54,8 @@ export function DaySkeleton({ rows = 6 }: { rows?: number }) {
           <div className={`h-6 w-32 ${bar}`} />
         </div>
       </div>
+      <div className={`mb-3 h-20 animate-pulse ${bar}`} />
+      <div className={`mb-4 h-32 animate-pulse ${bar}`} />
       <ListSkeleton rows={rows} />
     </div>
   );

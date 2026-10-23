@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { AttendanceCheck } from "@/components/cafe/AttendanceCheck";
 import { FeedbackHost, FlashToast } from "@/components/FeedbackHost";
 import { LogoMark } from "@/components/Icons";
-import { ActiveCafeNavLink, ActiveNavLinks, CafeNavLink, NavLinks } from "@/components/SiteNav";
+import { ActiveMainNav, MainNav } from "@/components/SiteNav";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -35,13 +35,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <div className="mx-auto flex h-14 max-w-3xl items-center gap-3 overflow-hidden px-4">
             <Link href="/" className="flex shrink-0 items-center gap-2 text-[17px] font-bold tracking-tight">
               <LogoMark />
-              해외축구
+              <span className="hidden sm:inline">해외축구</span>
+              <span className="sr-only sm:hidden">해외축구 홈</span>
             </Link>
-            <Suspense fallback={<CafeNavLink />}>
-              <ActiveCafeNavLink />
-            </Suspense>
-            <Suspense fallback={<NavLinks />}>
-              <ActiveNavLinks />
+            <Suspense fallback={<MainNav />}>
+              <ActiveMainNav />
             </Suspense>
           </div>
         </header>

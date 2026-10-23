@@ -8,7 +8,7 @@ import { getViewer } from "@/lib/cafe/viewer";
 import { UserIcon } from "../Icons";
 import { LinkPending } from "../LinkPending";
 import { AccountMenu } from "./AccountMenu";
-import { ActiveBoardTabs, BoardTabs } from "./BoardTabs";
+import { ActiveBoardTabs } from "./BoardTabs";
 import { CafeBanner, LockBar, NoticeBar } from "./CafeBanner";
 import { LoginLink } from "./LoginLink";
 
@@ -60,7 +60,7 @@ export async function CafeHeader() {
       </CafeBanner>
       <LockBar lock={settings.lock} />
       <NoticeBar notice={settings.notice} />
-      <Suspense fallback={<BoardTabs active={null} />}>
+      <Suspense fallback={null}>
         <ActiveBoardTabs />
       </Suspense>
     </div>
