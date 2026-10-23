@@ -34,6 +34,12 @@ function formatValue(field: string, value: unknown): string {
 
 /** 기록 한 줄의 내용. 설정이면 바뀐 칸마다 이전 값 → 새 값을, 공지 고정이면 어떤 글인지 보여 줘요. */
 function LogBody({ log }: { log: AdminLog }) {
+  if (log.area === "update") return (
+    <>
+      <p className="font-semibold">업데이트를 등록하고 회원들에게 알렸어요</p>
+      <p className={`mt-0.5 text-sm ${mutedClass}`}>{String(log.changes.version ?? "")} · {String(log.changes.title ?? "")}</p>
+    </>
+  );
   if (log.area === "pin") {
     const title = typeof log.changes.title === "string" ? log.changes.title : `${log.target}번 글`;
     return (

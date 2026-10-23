@@ -5,10 +5,11 @@ import { Avatar } from "@/components/cafe/Avatar";
 import { PostListSkeleton } from "@/components/cafe/CafeSkeletons";
 import { MemberRequired } from "@/components/cafe/CafeNotices";
 import { MarkNotificationsRead } from "@/components/cafe/MarkNotificationsRead";
+import { Pagination } from "@/components/cafe/Pagination";
 import { BallIcon, BellIcon, ChatIcon, HeartIcon, ReplyIcon } from "@/components/Icons";
 import { cardClass, mutedClass } from "@/components/ui";
 import { postHref } from "@/lib/cafe/boards";
-import { listNotifications } from "@/lib/cafe/notifications";
+import { listNotifications, NOTIFICATION_PAGE_SIZE } from "@/lib/cafe/notifications";
 import { nameColorClass } from "@/lib/cafe/shop";
 import type { CafeNotification } from "@/lib/cafe/types";
 import { getViewer } from "@/lib/cafe/viewer";
@@ -19,6 +20,7 @@ export const metadata: Metadata = { title: "내 소식" };
 
 /** 소식을 누르면 갈 곳. 댓글과 답글은 그 댓글 자리로 바로 내려가요. */
 function hrefFor(item: CafeNotification): string {
+  if (item.kind === "update") return item.update ? `/cafe/updates#update-${item.update.id}` : "/cafe/updates";
   if (item.match) return matchHref(item.match.day, item.match.id, todayKst()) ?? "/cafe/predict";
   if (!item.post) return "/cafe";
   if (item.comment && !item.comment.deleted) return `${postHref(item.post)}#comment-${item.comment.id}`;
@@ -26,13 +28,19 @@ function hrefFor(item: CafeNotification): string {
 }
 
 /** 프로필 그림 오른쪽 아래에 붙는 작은 종류 표시 */
-const KIND_MARKS: Record<Exclude<CafeNotification["kind"], "prediction">, { icon: ReactNode; className: string }> = {
+const KIND_MARKS: Record<Exclude<CafeNotification["kind"], "prediction" | "update">, { icon: ReactNode; className: string }> = {
+  mention: { icon: <span className="text-xs font-bold">@</span>, className: "bg-violet-500" },
   comment: { icon: <ChatIcon className="size-3" />, className: "bg-emerald-500" },
   reply: { icon: <ReplyIcon className="size-3" />, className: "bg-sky-500" },
   like: { icon: <HeartIcon className="size-3" filled />, className: "bg-rose-500" },
 };
 
 function Picture({ item }: { item: CafeNotification }) {
+  if (item.kind === "update") return (
+    <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-sky-500/10 text-sky-700 dark:text-sky-400">
+      <BellIcon className="size-5" />
+    </span>
+  );
   if (item.kind === "prediction" || !item.actor) {
     return (
       <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
@@ -56,6 +64,7 @@ function Picture({ item }: { item: CafeNotification }) {
 
 /** 소식 첫 줄. 누가 무엇을 했는지 한 문장으로 말해요. */
 function Headline({ item }: { item: CafeNotification }) {
+  if (item.kind === "update") return <>업데이트 · {item.update?.title ?? "새 기능 소식"}</>;
   if (item.kind === "prediction") {
     const goals = item.match?.goals ?? 0;
     return (
@@ -72,11 +81,13 @@ function Headline({ item }: { item: CafeNotification }) {
   );
   if (item.kind === "comment") return <>{name}님이 내 글에 댓글을 달았어요.</>;
   if (item.kind === "reply") return <>{name}님이 내 댓글에 답글을 달았어요.</>;
+  if (item.kind === "mention") return <>{name}님이 댓글에서 나를 태그했어요.</>;
   return <>{name}님이 내 글을 추천했어요.</>;
 }
 
 /** 소식 둘째 줄. 달린 댓글 내용이나, 하루 예측 골을 다 채운 날의 안내예요. */
 function Detail({ item }: { item: CafeNotification }) {
+  if (item.kind === "update") return <p className={`mt-0.5 line-clamp-2 text-sm ${mutedClass}`}>{item.update?.body}</p>;
   if (item.kind === "prediction") {
     if ((item.match?.goals ?? 0) > 0) return null;
     return <p className={`mt-0.5 text-sm ${mutedClass}`}>이날 받을 수 있는 예측 골(50골)을 다 받아서 골은 없어요.</p>;
@@ -118,53 +129,60 @@ function NotificationItem({ item, now }: { item: CafeNotification; now: Date }) 
   );
 }
 
-async function Notifications() {
+async function Notifications({ searchParams }: Pick<PageProps<"/cafe/notifications">, "searchParams">) {
   const viewer = await getViewer();
   if (!viewer?.profile) {
     return (
       <MemberRequired viewer={viewer} next="/cafe/notifications">
-        회원이 되면 내 글에 달린 댓글과 추천, 승부 예측 결과를 여기서 모아 봐요.
+        회원이 되면 댓글·태그·추천, 업데이트 소식과 승부 예측 결과를 여기서 모아 봐요.
       </MemberRequired>
     );
   }
 
-  const items = await listNotifications();
+  const requested = Number((await searchParams).page);
+  const page = Number.isSafeInteger(requested) && requested > 0 && requested <= 10_000 ? requested : 1;
+  const { items, total } = await listNotifications(page);
   if (items.length === 0) {
     return (
-      <div className={`${cardClass} flex flex-col items-center gap-3 px-5 py-12 text-center`}>
-        <span className="flex size-11 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-          <BellIcon className="size-5" />
-        </span>
-        <p className="font-semibold">아직 소식이 없어요.</p>
-        <p className={`text-sm ${mutedClass}`}>글을 쓰거나 승부 예측에 참여하면 반응이 여기에 모여요.</p>
-      </div>
+      <>
+        <div className={`${cardClass} flex flex-col items-center gap-3 px-5 py-12 text-center`}>
+          <span className="flex size-11 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <BellIcon className="size-5" />
+          </span>
+          <p className="font-semibold">{page > 1 ? "이 쪽에는 소식이 없어요." : "아직 소식이 없어요."}</p>
+          <p className={`text-sm ${mutedClass}`}>댓글·태그·업데이트 등 새로운 소식을 여기에 모아 보여 줘요.</p>
+        </div>
+        <Pagination page={page} total={total} pageSize={NOTIFICATION_PAGE_SIZE} basePath="/cafe/notifications" />
+      </>
     );
   }
 
   const now = new Date();
   return (
     <>
-      {items.some((item) => !item.read) ? <MarkNotificationsRead /> : null}
+      {items.some((item) => !item.read) ? <MarkNotificationsRead ids={items.filter((item) => !item.read).map((item) => item.id)} /> : null}
       <ul className={`${cardClass} divide-y divide-zinc-100 dark:divide-white/[0.06]`}>
         {items.map((item) => (
           <NotificationItem key={item.id} item={item} now={now} />
         ))}
       </ul>
+      <Pagination page={page} total={total} pageSize={NOTIFICATION_PAGE_SIZE} basePath="/cafe/notifications" />
     </>
   );
 }
 
-export default function NotificationsPage() {
+export default function NotificationsPage({ searchParams }: PageProps<"/cafe/notifications">) {
   return (
     <div className="break-keep">
       <div className="mb-4">
         <h1 className="text-2xl font-bold tracking-tight">내 소식</h1>
         <p className={`mt-1 text-sm ${mutedClass}`}>
-          내 글과 댓글에 달린 반응, 승부 예측 결과를 모아 보여 줘요. 60일이 지난 소식은 사라져요.
+          댓글·태그·추천, 업데이트 소식과 승부 예측 결과를 모아 보여 줘요. 60일이 지난 소식은 사라져요.
         </p>
+        <Link href="/cafe/updates" className="mt-2 inline-block text-sm font-semibold text-emerald-700 hover:underline dark:text-emerald-400">업데이트 소식 모두 보기 →</Link>
       </div>
       <Suspense fallback={<PostListSkeleton rows={6} />}>
-        <Notifications />
+        <Notifications searchParams={searchParams} />
       </Suspense>
     </div>
   );

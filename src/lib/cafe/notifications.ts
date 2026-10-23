@@ -7,13 +7,19 @@ import type { CafeNotification } from "./types";
 // 내 소식 읽기예요. 소식은 DB 트리거와 settle_match가 만들고(supabase/schema.sql), 본인만 읽을 수 있어요.
 
 /** 내 소식 화면에 보여 주는 개수. 60일 지난 소식은 DB가 지워요. */
-const LIST_SIZE = 50;
+export const NOTIFICATION_PAGE_SIZE = 50;
+
+function recentSince() {
+  return new Date(Date.now() - 60 * 86_400_000).toISOString();
+}
 
 // 소식과 회원은 받는 사람(user_id)과 소식을 만든 사람(actor_id) 두 갈래로 이어져 있어서 어느 쪽인지 적어 줘요.
 const COLUMNS = `id, kind, read_at, created_at, match_id, match_day, label, amount,
-  actor:profiles!actor_id(${PROFILE_COLUMNS}), post:posts(id, board, title), comment:comments(id, body, deleted_at)`;
+  actor:profiles!actor_id(${PROFILE_COLUMNS}), post:posts(id, board, title), comment:comments(id, body, deleted_at),
+  update:site_updates(id, title, body)`;
 
 type RawNotification = {
+  update: CafeNotification["update"];
   id: number;
   kind: CafeNotification["kind"];
   read_at: string | null;
@@ -30,6 +36,7 @@ type RawNotification = {
 function toNotification(raw: RawNotification): CafeNotification {
   return {
     id: raw.id,
+    update: raw.update,
     kind: raw.kind,
     read: raw.read_at !== null,
     createdAt: raw.created_at,
@@ -49,19 +56,28 @@ export async function getUnreadCount(): Promise<number> {
   const { count, error } = await supabase
     .from("notifications")
     .select("id", { count: "exact", head: true })
+    .gte("created_at", recentSince())
     .is("read_at", null);
   if (error) throw new CafeError(error.message);
   return count ?? 0;
 }
 
 /** 최근 내 소식. 새것부터예요. */
-export async function listNotifications(): Promise<CafeNotification[]> {
+export async function listNotifications(page = 1): Promise<{ items: CafeNotification[]; total: number }> {
   const supabase = await createSessionClient();
-  const { data, error } = await supabase
+  const since = recentSince();
+  const from = (page - 1) * NOTIFICATION_PAGE_SIZE;
+  const { data, error, count } = await supabase
     .from("notifications")
-    .select(COLUMNS)
+    .select(COLUMNS, { count: "exact" })
+    .gte("created_at", since)
     .order("id", { ascending: false })
-    .limit(LIST_SIZE);
+    .range(from, from + NOTIFICATION_PAGE_SIZE - 1);
+  if (error?.code === "PGRST103") {
+    const result = await supabase.from("notifications").select("id", { count: "exact", head: true }).gte("created_at", since);
+    if (result.error) throw new CafeError(result.error.message);
+    return { items: [], total: result.count ?? 0 };
+  }
   if (error) throw new CafeError(error.message);
-  return (data as unknown as RawNotification[]).map(toNotification);
+  return { items: (data as unknown as RawNotification[]).map(toNotification), total: count ?? 0 };
 }

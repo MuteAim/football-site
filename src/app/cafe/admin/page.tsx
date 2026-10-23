@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { BannerForm, LockForm, NoticeForm } from "@/components/cafe/AdminSettingsForms";
+import { BannerForm, LockForm, NoticeForm, UpdateForm } from "@/components/cafe/AdminSettingsForms";
 import { PostListSkeleton } from "@/components/cafe/CafeSkeletons";
 import { AdminOnly } from "@/components/cafe/CafeNotices";
 import { PinButton } from "@/components/cafe/PinButton";
@@ -55,6 +55,7 @@ async function AdminSettings() {
     <>
       <BannerForm settings={settings} />
       <NoticeForm settings={settings} />
+      <UpdateForm />
       <LockForm settings={settings} />
       <PinnedPosts posts={pinned} />
     </>

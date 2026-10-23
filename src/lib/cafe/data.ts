@@ -32,6 +32,7 @@ type RawPost = RawPostSummary & {
 };
 
 type RawComment = {
+  mentions: Comment["mentions"];
   id: number;
   parent_id: number | null;
   deleted_at: string | null;
@@ -163,7 +164,7 @@ export async function listComments(postId: number): Promise<Comment[]> {
   const supabase = await publicClient();
   const { data, error } = await supabase
     .from("comments")
-    .select(`id, parent_id, deleted_at, body, created_at, ${AUTHOR}`)
+    .select(`id, parent_id, deleted_at, body, mentions, created_at, ${AUTHOR}`)
     .eq("post_id", postId)
     .order("id", { ascending: true })
     .limit(500);
@@ -171,6 +172,7 @@ export async function listComments(postId: number): Promise<Comment[]> {
   return (data as RawComment[]).map((raw) => ({
     id: raw.id,
     parentId: raw.parent_id,
+    mentions: raw.mentions ?? [],
     deleted: raw.deleted_at !== null,
     body: raw.body,
     createdAt: raw.created_at,

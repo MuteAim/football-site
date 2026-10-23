@@ -10,12 +10,14 @@ export function Pagination({
   page,
   total,
   basePath,
+  pageSize = PAGE_SIZE,
 }: {
   page: number;
   total: number;
   basePath: string;
+  pageSize?: number;
 }) {
-  const last = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const last = Math.max(1, Math.ceil(total / pageSize));
   if (last === 1 && page === 1) return null;
 
   const start = Math.max(1, Math.min(page - 2, last - 4));

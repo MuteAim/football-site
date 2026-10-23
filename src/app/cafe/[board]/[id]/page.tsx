@@ -117,7 +117,7 @@ function CommentItem({
             ) : null}
           </div>
         </div>
-        <RichText text={comment.body} className="mt-1 text-[15px] leading-relaxed" />
+        <RichText text={comment.body} mentions={comment.mentions} className="mt-1 text-[15px] leading-relaxed" />
       </div>
     </div>
   );

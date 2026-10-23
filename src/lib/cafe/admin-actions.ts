@@ -13,6 +13,30 @@ import type { FormState } from "./types";
 
 const NOT_ADMIN = "운영자만 바꿀 수 있어요.";
 
+/** 버전은 중복 등록할 수 없어서 재전송해도 같은 업데이트 알림이 두 번 생기지 않아요. */
+export async function publishUpdate(_prev: FormState, formData: FormData): Promise<FormState> {
+  const version = text(formData, "version").toLowerCase();
+  const title = text(formData, "title");
+  const body = text(formData, "body");
+  const values = { version, title, body };
+  if (!/^[a-z0-9][a-z0-9._-]{0,59}$/.test(version)) {
+    return { error: "버전은 영문 소문자·숫자로 시작하고 점·밑줄·하이픈을 포함해 60자까지 쓸 수 있어요.", values };
+  }
+  if (!title || title.length > 100 || !body || body.length > 3000) {
+    return { error: "제목은 1~100자, 내용은 1~3,000자로 써 주세요.", values };
+  }
+  const supabase = await requireAdmin();
+  if (typeof supabase === "string") return { error: supabase, values };
+  const { error } = await supabase.from("site_updates").insert(values);
+  if (error) {
+    if (error.code === "23505") return { error: "이미 등록된 버전이에요. 기존 업데이트 소식을 확인해 주세요.", values };
+    console.error(error);
+    return { error: "업데이트를 등록하지 못했어요. 잠시 후 다시 시도해 주세요.", values };
+  }
+  refresh();
+  return { error: null, message: "업데이트를 등록하고 회원들에게 알렸어요." };
+}
+
 async function requireAdmin(): Promise<SupabaseClient | string> {
   if (!isCafeConfigured()) return "카페 설정이 아직 안 됐어요.";
   const supabase = await createSessionClient();

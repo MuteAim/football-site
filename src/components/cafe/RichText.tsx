@@ -1,3 +1,5 @@
+import { mentionMatches, type Mention } from "@/lib/cafe/mentions";
+
 // 글과 댓글 본문. HTML로 해석하지 않고 글자 그대로 보여 줘서 악성 코드를 심을 수 없어요.
 // 줄바꿈은 그대로 살리고, http로 시작하는 주소만 눌러서 열 수 있게 바꿔요.
 const URL_PATTERN = /(https?:\/\/[^\s<>"']+)/g;
@@ -19,7 +21,21 @@ function splitLinks(text: string) {
   return parts;
 }
 
-export function RichText({ text, className = "" }: { text: string; className?: string }) {
+function taggedText(text: string, mentions: Mention[]) {
+  const names = new Set(mentions.map((member) => member.nickname.toLowerCase()));
+  const parts = [];
+  let cursor = 0;
+  for (const match of mentionMatches(text)) {
+    if (!names.has(match.nickname.toLowerCase())) continue;
+    parts.push(text.slice(cursor, match.start));
+    parts.push(<span key={match.start} className="rounded bg-emerald-500/10 px-0.5 font-semibold text-emerald-700 dark:text-emerald-400">{text.slice(match.start, match.end)}</span>);
+    cursor = match.end;
+  }
+  parts.push(text.slice(cursor));
+  return parts;
+}
+
+export function RichText({ text, mentions = [], className = "" }: { text: string; mentions?: Mention[]; className?: string }) {
   return (
     <div className={`break-words whitespace-pre-wrap ${className}`}>
       {splitLinks(text).map((part, i) =>
@@ -34,7 +50,7 @@ export function RichText({ text, className = "" }: { text: string; className?: s
             {part.text}
           </a>
         ) : (
-          <span key={i}>{part.text}</span>
+          <span key={i}>{taggedText(part.text, mentions)}</span>
         ),
       )}
     </div>

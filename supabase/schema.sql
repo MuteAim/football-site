@@ -64,6 +64,8 @@ create index if not exists comments_user_idx on public.comments (user_id, create
 -- 나중에 생긴 칸이라 이미 만든 DB에도 붙도록 따로 추가해요.
 alter table public.comments add column if not exists parent_id bigint references public.comments (id) on delete cascade;
 alter table public.comments add column if not exists deleted_at timestamptz;
+-- 작성 시점의 회원을 저장해서 닉네임이 바뀌어도 태그 대상이 바뀌지 않아요.
+alter table public.comments add column if not exists mentions jsonb not null default '[]'::jsonb;
 create index if not exists comments_parent_idx on public.comments (parent_id);
 alter table public.comments drop constraint if exists comments_body_check;
 alter table public.comments add constraint comments_body_check
@@ -193,6 +195,22 @@ create table if not exists public.notifications (
   created_at timestamptz not null default now()
 );
 create index if not exists notifications_user_idx on public.notifications (user_id, id desc);
+alter table public.notifications drop constraint if exists notifications_kind_check;
+alter table public.notifications add constraint notifications_kind_check
+  check (kind in ('comment', 'reply', 'like', 'prediction', 'mention', 'update'));
+
+-- 같은 버전은 한 번만 등록해요. 등록과 회원 알림은 한 트랜잭션으로 처리해요.
+create table if not exists public.site_updates (
+  id bigint generated always as identity primary key,
+  version text not null unique check (version ~ '^[a-z0-9][a-z0-9._-]{0,59}$'),
+  title text not null check (char_length(btrim(title)) between 1 and 100),
+  body text not null check (char_length(btrim(body)) between 1 and 3000),
+  created_at timestamptz not null default now()
+);
+alter table public.notifications add column if not exists update_id bigint
+  references public.site_updates (id) on delete cascade;
+create unique index if not exists notifications_update_key on public.notifications (user_id, update_id)
+  where update_id is not null;
 
 -- ---------- 카페 운영 ----------
 -- 운영자(is_admin)는 카페 관리 화면(/cafe/admin)에서 배너와 공지, 글쓰기 잠금을 바꾸고 글을 공지로 올려요.
@@ -369,23 +387,47 @@ create trigger comments_remove_empty_parent after delete on public.comments
 -- ---------- 내 소식 만들기 ----------
 -- 내가 한 일은 나에게 알리지 않아요.
 
+-- 클라이언트가 보낸 회원 ID를 믿지 않고 본문에서 실제 카페 회원을 찾아요.
+-- 이메일·URL, 너무 긴 닉네임은 제외하고 대소문자가 다른 태그와 반복 태그는 한 명으로 합쳐요.
+create or replace function public.resolve_comment_mentions() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  select coalesce(jsonb_agg(jsonb_build_object('id', p.id, 'nickname', p.nickname) order by p.nickname), '[]'::jsonb)
+    into new.mentions
+  from public.profiles p
+  where lower(p.nickname) in (
+    select lower(parts[2]) from regexp_matches(new.body,
+      '(^|[[:space:]([{])@([가-힣A-Za-z0-9_]{2,12})(?![가-힣A-Za-z0-9_])', 'g') as parts
+  );
+  return new;
+end $$;
+drop trigger if exists comments_resolve_mentions on public.comments;
+create trigger comments_resolve_mentions before insert on public.comments
+  for each row execute function public.resolve_comment_mentions();
+
 -- 댓글이 달리면 글쓴이에게, 답글이 달리면 댓글 쓴 사람에게 알려요.
--- 답글은 글쓴이에게도 댓글 소식으로 알리는데, 글쓴이가 그 댓글을 쓴 사람이면 답글 소식 하나만 보내요.
+-- 태그 > 답글 > 댓글 순으로 한 사람에게 알림 하나만 보내요.
 create or replace function public.notify_comment() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare
   post_owner uuid;
   parent_owner uuid;
+  tagged uuid[];
 begin
+  select coalesce(array_agg((m->>'id')::uuid), '{}'::uuid[]) into tagged
+    from jsonb_array_elements(new.mentions) m;
+  insert into public.notifications (user_id, kind, actor_id, post_id, comment_id)
+    select target, 'mention', new.user_id, new.post_id, new.id
+    from unnest(tagged) target where target <> new.user_id;
   select p.user_id into post_owner from public.posts p where p.id = new.post_id;
   if new.parent_id is not null then
     select c.user_id into parent_owner from public.comments c where c.id = new.parent_id;
-    if parent_owner <> new.user_id then
+    if parent_owner <> new.user_id and not (parent_owner = any(tagged)) then
       insert into public.notifications (user_id, kind, actor_id, post_id, comment_id)
       values (parent_owner, 'reply', new.user_id, new.post_id, new.id);
     end if;
   end if;
-  if post_owner <> new.user_id and post_owner is distinct from parent_owner then
+  if post_owner <> new.user_id and post_owner is distinct from parent_owner and not (post_owner = any(tagged)) then
     insert into public.notifications (user_id, kind, actor_id, post_id, comment_id)
     values (post_owner, 'comment', new.user_id, new.post_id, new.id);
   end if;
@@ -424,6 +466,14 @@ create trigger post_likes_notify after insert or delete on public.post_likes
 create or replace function public.read_notifications() returns void
 language sql security definer set search_path = '' as $$
   update public.notifications set read_at = now() where user_id = (select auth.uid()) and read_at is null;
+  delete from public.notifications where user_id = (select auth.uid()) and created_at < now() - interval '60 days';
+$$;
+
+-- 화면에 실제로 표시된 소식만 읽어요. 목록을 연 직후 도착한 새 소식은 읽지 않은 채 남아요.
+create or replace function public.read_notification_items(targets bigint[]) returns void
+language sql security definer set search_path = '' as $$
+  update public.notifications set read_at = now()
+    where user_id = (select auth.uid()) and id = any(targets) and read_at is null;
   delete from public.notifications where user_id = (select auth.uid()) and created_at < now() - interval '60 days';
 $$;
 
@@ -700,16 +750,30 @@ begin
 end $$;
 
 -- ---------- 권한 ----------
+-- 운영자가 업데이트를 등록하면 당시 가입한 모든 회원에게 한 번씩 알려요.
+create or replace function public.notify_site_update() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.notifications (user_id, kind, update_id)
+    select id, 'update', new.id from public.profiles
+    on conflict do nothing;
+  perform public.log_admin_action('update', new.id::text, jsonb_build_object('version', new.version, 'title', new.title));
+  return null;
+end $$;
+drop trigger if exists site_updates_notify on public.site_updates;
+create trigger site_updates_notify after insert on public.site_updates
+  for each row execute function public.notify_site_update();
+
 -- 읽기는 누구나, 쓰기는 가입한 회원 본인만 할 수 있어요.
 -- 칸 단위로 권한을 줘서 회원이 매니저 표시나 조회수·추천 수를 직접 바꾸지 못하게 막아요.
 
 revoke all on public.profiles, public.posts, public.comments, public.post_likes, public.match_talks,
   public.match_predictions, public.goal_events, public.settled_matches, public.unsettled_matches,
-  public.shop_items, public.owned_items, public.notifications, public.cafe_settings, public.admin_logs, public.squads
+  public.shop_items, public.owned_items, public.notifications, public.cafe_settings, public.admin_logs, public.squads, public.site_updates
   from anon, authenticated;
 
 grant select on public.posts, public.comments, public.match_talks, public.match_predictions, public.shop_items,
-  public.cafe_settings, public.squads
+  public.cafe_settings, public.squads, public.site_updates
   to anon, authenticated;
 grant select on public.post_likes, public.goal_events, public.owned_items, public.notifications, public.admin_logs
   to authenticated;
@@ -736,6 +800,9 @@ grant execute on function public.equip_item(text, text) to authenticated;
 -- 내 소식은 DB가 만들고, 회원은 읽음 표시만 함수로 해요.
 revoke all on function public.read_notifications() from public, anon;
 grant execute on function public.read_notifications() to authenticated;
+revoke all on function public.read_notification_items(bigint[]) from public, anon;
+grant execute on function public.read_notification_items(bigint[]) to authenticated;
+grant insert (version, title, body) on public.site_updates to authenticated;
 
 -- 운영 기록은 DB 함수와 트리거 안에서만 남겨요. 회원이 직접 부르면 가짜 기록을 남길 수 있어서 막아요.
 revoke all on function public.log_admin_action(text, text, jsonb) from public, anon, authenticated;
@@ -769,6 +836,12 @@ alter table public.notifications enable row level security;
 alter table public.cafe_settings enable row level security;
 alter table public.admin_logs enable row level security;
 alter table public.squads enable row level security;
+alter table public.site_updates enable row level security;
+drop policy if exists site_updates_select on public.site_updates;
+create policy site_updates_select on public.site_updates for select using (true);
+drop policy if exists site_updates_insert on public.site_updates;
+create policy site_updates_insert on public.site_updates for insert to authenticated
+  with check ((select public.is_cafe_admin()));
 
 -- 카페 설정은 누구나 보고, 운영자만 바꿔요. 운영 기록은 운영자만 봐요.
 drop policy if exists cafe_settings_select on public.cafe_settings;
@@ -930,5 +1003,11 @@ begin
     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'match_talks'
   ) then
     alter publication supabase_realtime add table public.match_talks;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'notifications'
+  ) then
+    alter publication supabase_realtime add table public.notifications;
   end if;
 end $$;

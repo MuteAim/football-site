@@ -1,4 +1,5 @@
 import type { SquadPlayer } from "./squad";
+import type { Mention } from "./mentions";
 
 // 카페 화면에 쓰는 데이터 모양이에요. DB 칸 이름(snake_case)은 data.ts에서 이 모양으로 바꿔요.
 
@@ -81,6 +82,7 @@ export type Squad = SquadSummary & {
 };
 
 export type Comment = {
+  mentions: Mention[];
   id: number;
   /** 답글이면 맨 위 댓글 번호, 아니면 null */
   parentId: number | null;
@@ -114,10 +116,11 @@ export type Talk = {
   createdAt: string;
 };
 
-/** 내 소식 한 줄. 종류에 따라 actor·post·comment(댓글, 답글, 추천)나 match(승부 예측)가 채워져요. */
+/** 내 소식 한 줄. 댓글·태그·추천은 actor/post/comment, 예측은 match, 업데이트는 update를 채워요. */
 export type CafeNotification = {
   id: number;
-  kind: "comment" | "reply" | "like" | "prediction";
+  kind: "comment" | "reply" | "like" | "prediction" | "mention" | "update";
+  update: { id: number; title: string; body: string } | null;
   read: boolean;
   createdAt: string;
   actor: Author | null;

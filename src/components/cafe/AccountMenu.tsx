@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { nameColorClass } from "@/lib/cafe/shop";
+import { getBrowserClient } from "@/lib/cafe/supabase-browser";
 import type { Author } from "@/lib/cafe/types";
 import { BagIcon, BellIcon, ChevronDownIcon, SlidersIcon, TrophyIcon, UserIcon } from "../Icons";
 import { cardClass, mutedClass } from "../ui";
@@ -30,36 +31,45 @@ async function fetchUnread(): Promise<number | null> {
 
 /**
  * 안 읽은 내 소식 수. 처음 값은 서버가 그려 주고, 카페 머리는 화면을 옮겨도 다시 그려지지 않아서
- * 화면을 옮길 때와 다른 탭에서 돌아왔을 때 다시 물어봐요. 내 소식 화면에서는 다 읽은 셈이라 0이에요.
+ * 실시간 수신·읽음 처리·화면 이동 때 갱신하고, 연결이 끊겨도 보이는 동안 30초마다 확인해요.
  */
-function useUnreadCount(initial: number): number {
+function useUnreadCount(initial: number, userId: string): number {
   const pathname = usePathname();
   const [count, setCount] = useState(initial);
-  const lastPath = useRef(pathname);
-  const onNotifications = pathname === NOTIFICATIONS_PATH;
-
   useEffect(() => {
-    // 처음 그릴 때는 서버가 준 값이 최신이라 묻지 않아요.
-    if (pathname === lastPath.current) return;
-    lastPath.current = pathname;
-    if (pathname === NOTIFICATIONS_PATH) return;
-    void fetchUnread().then((next) => {
-      if (next !== null) setCount(next);
-    });
-  }, [pathname]);
-
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState !== "visible" || location.pathname === NOTIFICATIONS_PATH) return;
-      void fetchUnread().then((next) => {
-        if (next !== null) setCount(next);
-      });
+    let active = true;
+    let requestId = 0;
+    let scheduled: number | undefined;
+    const sync = () => {
+      if (document.visibilityState !== "visible") return;
+      window.clearTimeout(scheduled);
+      const id = ++requestId;
+      // 여러 알림을 한꺼번에 읽으면 실시간 이벤트가 여러 번 와서 한 요청으로 모아요.
+      scheduled = window.setTimeout(() => {
+        void fetchUnread().then((next) => {
+          if (active && id === requestId && next !== null) setCount(next);
+        });
+      }, 150);
     };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, []);
+    sync();
+    const supabase = getBrowserClient();
+    const channel = supabase.channel(`notifications:${userId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` }, sync)
+      .subscribe((status) => { if (status === "SUBSCRIBED") sync(); });
+    const timer = window.setInterval(sync, 30_000);
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("cafe-notifications-read", sync);
+    return () => {
+      active = false;
+      window.clearTimeout(scheduled);
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("cafe-notifications-read", sync);
+      void supabase.removeChannel(channel);
+    };
+  }, [pathname, userId]);
 
-  return onNotifications ? 0 : count;
+  return count;
 }
 
 function MenuLink({
@@ -119,7 +129,7 @@ export function AccountMenu({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
-  const count = useUnreadCount(unread);
+  const count = useUnreadCount(unread, me.id);
   const close = () => setOpen(false);
 
   useEffect(() => {
@@ -182,7 +192,7 @@ export function AccountMenu({
               href={NOTIFICATIONS_PATH}
               icon={<BellIcon className="size-4" />}
               label="내 소식"
-              hint={count > 0 ? `새 소식 ${count}개` : "댓글·답글·추천과 예측 결과"}
+              hint={count > 0 ? `새 소식 ${count}개` : "댓글·태그·업데이트와 예측 결과"}
               badge={count}
               onPick={close}
             />

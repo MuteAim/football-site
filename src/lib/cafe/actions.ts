@@ -216,14 +216,16 @@ export async function checkIn(): Promise<{ awarded: number; streak: number; goal
 }
 
 /**
- * 내 소식을 모두 읽음으로 바꿔요. 내 소식 화면을 열면 브라우저가 한 번 불러요.
+ * 내 소식 화면에서 실제로 본 소식만 읽음으로 바꿔요.
  * 화면은 다시 그리지 않아서, 방금 본 새 소식 표시는 화면을 떠날 때까지 남아요.
  */
-export async function readNotifications(): Promise<void> {
-  if (!isCafeConfigured()) return;
-  const supabase = await createSessionClient();
-  const { error } = await supabase.rpc("read_notifications");
+export async function readNotifications(ids: number[]): Promise<boolean> {
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > 50 || !ids.every((id) => positiveInt(id) === id)) return false;
+  const member = await requireMember();
+  if (typeof member === "string") return false;
+  const { error } = await member.supabase.rpc("read_notification_items", { targets: ids });
   if (error) console.error(error);
+  return !error;
 }
 
 // ---------- 골 상점 ----------

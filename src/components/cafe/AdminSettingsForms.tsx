@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState, type MouseEvent, type ReactNode } from "react";
-import { saveBanner, saveLock, saveNotice } from "@/lib/cafe/admin-actions";
+import { publishUpdate, saveBanner, saveLock, saveNotice } from "@/lib/cafe/admin-actions";
 import { BANNER_COLORS, DEFAULT_LOCK_MESSAGE, SETTING_LIMITS } from "@/lib/cafe/banner";
 import type { CafeSettings, FormState } from "@/lib/cafe/types";
 import { LockIcon } from "../Icons";
@@ -12,6 +13,34 @@ import { CafeBanner, NoticeBar } from "./CafeBanner";
 // 카페 관리 화면의 설정 폼들이에요. 저장하면 서버가 이 화면과 카페 머리를 새 값으로 다시 그려요.
 
 const initialState: FormState = { error: null };
+
+export function UpdateForm() {
+  const [state, formAction, pending] = useSave(publishUpdate);
+  return (
+    <Section title="업데이트 알림" description="새 기능과 개선 사항을 등록하면 모든 회원의 내 소식에 한 번씩 알려요. 등록한 내용은 업데이트 소식에 남아요.">
+      <form action={formAction} className="space-y-4 p-4">
+        <Field label="버전">
+          <input name="version" required maxLength={60} defaultValue={state.values?.version}
+            placeholder="예: 2026.10.23" className={inputClass} />
+        </Field>
+        <Field label="제목">
+          <input name="title" required maxLength={100} defaultValue={state.values?.title}
+            placeholder="예: 댓글에서 회원을 태그할 수 있어요" className={inputClass} />
+        </Field>
+        <Field label="업데이트 내용">
+          <textarea name="body" required maxLength={3000} rows={5} defaultValue={state.values?.body}
+            placeholder="새로 추가되거나 달라진 기능을 알려 주세요." className={`${inputClass} resize-y`} />
+        </Field>
+        <FormFooter error={state.error}>
+          <Link href="/cafe/updates" className={secondaryButtonClass}>등록된 소식</Link>
+          <button type="submit" disabled={pending} className={primaryButtonClass}>
+            {pending ? "등록 중…" : "등록하고 알림 보내기"}
+          </button>
+        </FormFooter>
+      </form>
+    </Section>
+  );
+}
 
 const dangerButtonClass =
   "inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-rose-600 px-4 text-sm font-semibold text-white shadow-sm shadow-rose-600/20 transition hover:bg-rose-700 active:scale-95 disabled:pointer-events-none disabled:opacity-50";
