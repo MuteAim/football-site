@@ -25,6 +25,7 @@ const E = await load("src/lib/career/engine.ts");
 const D = await load("src/lib/career/data.ts");
 const B = await load("src/lib/career/board.ts");
 const J = await load("src/lib/career/journal.ts");
+const A = await load("src/lib/career/archive.ts");
 
 /** 테스트용 결정적 난수. 같은 순서로 같은 커리어를 만들어요. */
 function lcg(seed) {
@@ -44,6 +45,68 @@ function play(seed, setup, pickChoice) {
 }
 
 const baseSetup = { name: "손흥민2", nation: "KOR", league: "KOR", pos: "WG", pick: 0 };
+
+test("은퇴 보관함은 통산·팀별 합계와 모든 수상·칭호만 남기고 복귀·임대·군 팀도 실제 소속으로 합산한다", () => {
+  const { state, choices } = play(19, baseSetup, () => 0);
+  const save = { v: E.CAREER_VERSION, seed: 19, startYear: 2026, setup: baseSetup, choices };
+  const sample = state.history[0];
+  state.history = [
+    { ...sample, club: "tottenham", apps: 20, goals: 5, assists: 2 },
+    { ...sample, club: "seoul", loan: true, apps: 10, goals: 3, assists: 4 },
+    { ...sample, club: "tottenham", apps: 30, goals: 7, assists: 8 },
+    { ...sample, club: "gimcheon", military: true, apps: 15, goals: 2, assists: 1, trophies: [{ label: "김천 영구 결번", points: 80 }] },
+  ];
+  const record = A.archiveCareer(state, save, false, "2026-10-24T12:00:00.000Z");
+  const summary = E.summarizeCareer(state);
+  assert.equal(record.clubs.length, 3);
+  assert.deepEqual(record.clubs.map(({ club, seasons, apps, goals, assists }) => ({ club, seasons, apps, goals, assists })), [
+    { club: "tottenham", seasons: 2, apps: 50, goals: 12, assists: 10 },
+    { club: "seoul", seasons: 1, apps: 10, goals: 3, assists: 4 },
+    { club: "gimcheon", seasons: 1, apps: 15, goals: 2, assists: 1 },
+  ]);
+  for (const key of ["seasons", "apps", "goals", "assists", "cleanSheets"]) {
+    assert.equal(record.totals[key], summary[key]);
+    assert.equal(record.clubs.reduce((sum, club) => sum + club[key], 0), record.totals[key]);
+  }
+  assert.deepEqual(record.honors, summary.honors);
+  assert.ok(record.honors.some((honor) => honor.label.includes("영구 결번")));
+  assert.equal(record.title, summary.title);
+  assert.deepEqual(Object.keys(record).sort(), ["v", "id", "retiredAt", "ranked", "name", "nation", "pos", "score", "grade", "title", "totals", "clubs", "honors"].sort());
+  assert.equal(A.archiveCareer(state, { ...save, setup: { ...baseSetup, reroll: 0 } }, false).id, record.id, "이전 저장의 생략된 reroll은 0과 같아요");
+  assert.throws(() => A.archiveCareer(E.createCareer(19, 2026, baseSetup), save, false));
+});
+
+test("은퇴 보관함은 10명을 넘어 누적되고 복원·백업 병합은 중복 없이 저장하며 오류 시 원본을 지우지 않는다", () => {
+  const { state, choices } = play(23, { ...baseSetup, pos: "GK" }, () => 0);
+  const save = { v: E.CAREER_VERSION, seed: 23, startYear: 2026, setup: { ...baseSetup, pos: "GK" }, choices };
+  const record = A.archiveCareer(state, save, false, "2026-10-24T12:00:00.000Z");
+  let raw = null;
+  let writes = 0;
+  const storage = { getItem: () => raw, setItem: (_key, value) => { raw = value; writes++; } };
+  const twelve = Array.from({ length: 12 }, (_, i) => ({ ...record, id: `${record.id}-${i}`, name: `선수${i}` }));
+  for (const entry of twelve) A.saveRetirements(storage, [entry]);
+  assert.equal(A.readRetirements(storage).length, 12);
+  A.saveRetirements(storage, [{ ...twelve[0], retiredAt: "2026-10-25T12:00:00.000Z" }]);
+  assert.equal(writes, 12, "새로고침할 때 다시 쓰거나 날짜를 바꾸지 않아요");
+  assert.equal(A.readRetirements(storage)[0].retiredAt, twelve[0].retiredAt);
+  const backup = A.exportRetirements(A.readRetirements(storage));
+  assert.deepEqual(A.importRetirements(backup), twelve);
+  A.saveRetirements(storage, A.importRetirements(backup));
+  assert.equal(A.readRetirements(storage).length, 12);
+  const polluted = JSON.parse(backup);
+  polluted.entries[0].choices = [0, 1];
+  polluted.entries[0].history = state.history;
+  assert.deepEqual(A.importRetirements(JSON.stringify(polluted)), twelve, "요약 외 필드는 가져오지 않아요");
+  polluted.entries[0].totals.goals = -1;
+  assert.throws(() => A.importRetirements(JSON.stringify(polluted)));
+  assert.throws(() => A.importRetirements(JSON.stringify(save)));
+  const before = raw;
+  assert.throws(() => A.saveRetirements({ getItem: () => raw, setItem: () => { throw new Error("quota"); } }, [record]));
+  assert.equal(raw, before);
+  raw = "{broken";
+  assert.throws(() => A.saveRetirements(storage, [record]));
+  assert.equal(raw, "{broken");
+});
 
 test("기록집은 기존 저장에서 성적·능력치·모든 선택을 복원하고 은퇴와 이적도 해당 시즌에 남긴다", () => {
   let moments = 0, transfers = 0;

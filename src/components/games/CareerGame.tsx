@@ -18,6 +18,8 @@ import { DecisionCard, HalfSeason, HistoryTable, OvrChart, PlayerCard, RivalCard
 import { TurnHeader, turnResult, type TurnResult } from "./CareerTurn";
 import { buildCareerJournal } from "@/lib/career/journal";
 import { CareerJournal } from "./CareerJournal";
+import { archiveCareer, mergeRetirements, readRetirements, saveRetirements, type RetiredCareer } from "@/lib/career/archive";
+import { CareerArchive } from "./CareerArchive";
 import styles from "./career.module.css";
 
 /** 브라우저에 남기는 커리어. 상태 대신 시드와 선택만 저장하고 불러올 때 다시 계산해요. */
@@ -92,6 +94,8 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   const [career, setCareer] = useState<CareerState | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [hall, setHall] = useState<HallEntry[]>([]);
+  const [archive, setArchive] = useState<RetiredCareer[]>([]);
+  const [archiveError, setArchiveError] = useState("");
   const [busy, setBusy] = useState<Busy | null>(null);
   const [quick, setQuick] = useState(false);
   const [result, setResult] = useState<TurnResult | null>(null);
@@ -110,8 +114,23 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   const ranked = snapshot.member && snapshot.available;
   const journal = useMemo(() => stored ? buildCareerJournal(stored) : [], [stored]);
 
+  const storeRetirements = useCallback((entries: RetiredCareer[]) => {
+    try {
+      setArchive(saveRetirements(localStorage, entries));
+      setArchiveError("");
+      return true;
+    } catch {
+      // 실패한 기록도 화면과 백업에는 남겨요. 기존 저장을 지우지는 않아요.
+      setArchive((previous) => mergeRetirements(previous, entries));
+      setArchiveError("은퇴 기록을 브라우저에 저장하지 못했어요. 저장 공간과 브라우저 설정을 확인하고 다시 시도해 주세요. 창을 닫기 전 ‘보관함 백업’으로 기록을 내려받을 수 있어요.");
+      return false;
+    }
+  }, []);
+
   const restore = useCallback((value: Stored) => {
     const state = replayCareer(value);
+    // 업데이트 전 은퇴한 현재 선수도 복원할 수 있는 기록으로 보관해요.
+    if (state.phase === "retired") storeRetirements([archiveCareer(state, value, !!value.runId)]);
     setStored(value);
     setCareer(state);
     setResult(value.choices.length ? turnResult(replayCareer({ ...value, choices: value.choices.slice(0, -1) }), state, value.choices.at(-1)!) : null);
@@ -119,7 +138,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     setRank(value.recorded ? { state: "saved", message: `${value.recorded} 순위에 기록된 커리어예요.` }
       : value.runId && state.phase === "retired" ? { state: "failed", message: "" } : { state: "none", message: "" });
     setScreen("play");
-  }, []);
+  }, [storeRetirements]);
 
   // 저장된 커리어를 한 번만 불러와요. 이 화면은 숨겨졌다가 다시 보여도 상태를 그대로 들고 있어요.
   // 불러오기 전에 정리되면(개발 모드의 두 번 실행 등) 다음 실행에서 다시 불러와요.
@@ -128,6 +147,8 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     const frame = requestAnimationFrame(() => {
       loaded.current = true;
       setHall(readHall());
+      try { setArchive(readRetirements(localStorage)); }
+      catch { setArchiveError("기존 은퇴 보관함을 읽지 못했어요. 브라우저 저장 접근을 확인해 주세요. 기존 데이터는 지우지 않았어요."); }
       try { setQuick(localStorage.getItem(QUICK_KEY) === "1"); } catch {}
       const value = readStored();
       if (!value) { setScreen("intro"); return; }
@@ -182,6 +203,11 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
 
   async function begin(practice = false) {
     if (starting || saving) return;
+    // 보관에 실패한 채 새 선수가 현재 저장을 덮어쓰는 일을 막아요.
+    if (career?.phase === "retired" && stored && !storeRetirements([archiveCareer(career, stored, !!stored.runId)])) {
+      setError("은퇴 선수 보관함의 저장 오류를 해결한 뒤 새 커리어를 시작해 주세요.");
+      return;
+    }
     if (career && career.phase !== "retired") {
       const ok = await confirmDialog({ title: "진행 중인 커리어를 그만둘까요?", description: `${career.name}의 기록은 사라지고 새 선수로 시작해요.`, confirmLabel: "새로 시작", tone: "danger" });
       if (!ok) return;
@@ -262,14 +288,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   }
 
   function retire(state: CareerState, value: Stored) {
-    const summary = summarizeCareer(state);
-    const entry: HallEntry = {
-      name: summary.name, pos: summary.pos, nation: summary.nation, score: summary.score, grade: summary.grade, title: summary.title,
-      ballonDor: summary.ballonDor, peakOvr: summary.peakOvr, day: careerDay(), ranked: !!value.runId,
-    };
-    const list = [entry, ...readHall()].slice(0, 10);
-    try { localStorage.setItem(HALL_KEY, JSON.stringify(list)); } catch {}
-    setHall(list);
+    storeRetirements([archiveCareer(state, value, !!value.runId)]);
     if (value.runId) submit(value);
   }
 
@@ -334,7 +353,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
           <>
             <PlayerCard state={displayed} />
             {summary ? (
-              <RetiredCard summary={summary} state={displayed} rank={rank} saving={saving} starting={starting} challenge={challenge}
+              <RetiredCard summary={summary} state={displayed} rank={rank} saving={saving} starting={starting} challenge={challenge} archived={!archiveError && archive.length > 0}
                 onRetry={() => stored && submit(stored)} onShare={() => void share(summary)} onNew={() => void begin()}
                 shareNote={shareNote} shareText={shareText} ranked={ranked} practiceRun={!stored?.runId} />
             ) : (
@@ -374,6 +393,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
             importCode={importCode} onImportCode={setImportCode} onImport={importCareer} />
         )}
         {error ? <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-200">{error}</p> : null}
+        {screen !== "loading" ? <CareerArchive entries={archive} error={archiveError} onImport={storeRetirements} onRetry={() => { if (storeRetirements(archive)) setError(""); }} /> : null}
       </div>
       <CareerBoard snapshot={snapshot} />
     </div>
@@ -411,8 +431,8 @@ function Intro({ ranked, member, starting, hall, onStart, onPractice, importCode
       ) : null}
       {hall.length ? (
         <section className={`${cardClass} p-5`}>
-          <h2 className="font-extrabold">나의 명예의 전당</h2>
-          <p className={`mt-1 text-xs ${mutedClass}`}>이 브라우저에서 은퇴한 선수 최근 10명</p>
+          <h2 className="font-extrabold">이전 명예의 전당</h2>
+          <p className={`mt-1 text-xs ${mutedClass}`}>업데이트 전에 남겨 둔 간단 기록이에요. 당시 팀별 성적은 저장되지 않았어요.</p>
           <ol className="mt-3 divide-y divide-zinc-100 dark:divide-white/5">
             {hall.map((entry, index) => (
               <li key={`${entry.day}-${entry.name}-${index}`} className="flex items-center gap-3 py-2.5">
@@ -442,9 +462,9 @@ function Intro({ ranked, member, starting, hall, onStart, onPractice, importCode
   );
 }
 
-function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked, practiceRun, onRetry, onShare, onNew, shareNote, shareText }: {
+function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked, practiceRun, archived, onRetry, onShare, onNew, shareNote, shareText }: {
   summary: CareerSummary; state: CareerState; rank: RankState; saving: boolean; starting: boolean; challenge: { score: number; day: string } | null;
-  ranked: boolean; practiceRun: boolean; onRetry: () => void; onShare: () => void; onNew: () => void; shareNote: string; shareText: string;
+  ranked: boolean; practiceRun: boolean; archived: boolean; onRetry: () => void; onShare: () => void; onNew: () => void; shareNote: string; shareText: string;
 }) {
   const stats: [string, string][] = [
     ["시즌", `${summary.seasons}`], ["경기", summary.apps.toLocaleString("ko-KR")],
@@ -505,6 +525,10 @@ function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked
           <p className="mt-1 leading-relaxed">{summary.clubs.join(" → ")}</p>
         </div>
         {status ? <p role="status" className="rounded-xl bg-black/20 px-3 py-2 text-xs leading-relaxed text-white/80">{status}</p> : null}
+        <p role="status" className="rounded-xl bg-white/10 px-3 py-2 text-xs leading-relaxed text-white/85">
+          {archived ? "은퇴 요약을 이 브라우저에 보관했어요. 새 커리어를 시작해도 통산·팀별 기록과 수상·칭호는 남아요." : "은퇴 요약을 아직 보관하지 못했어요. 아래 보관함의 저장 상태를 확인해 주세요."}
+          <a href="#career-archive" className="mt-2 block min-h-8 content-center font-bold text-lime-200 underline">은퇴 선수 보관함 보기 ↓</a>
+        </p>
         {rank.state === "failed" ? <button type="button" disabled={saving} onClick={onRetry} className="h-11 w-full rounded-xl border border-white/30 text-sm font-bold disabled:opacity-50">순위 기록 다시 시도</button> : null}
         <button type="button" onClick={onShare} className="h-12 w-full rounded-xl border border-white/20 text-sm font-bold transition hover:bg-white/10">친구에게 도전장 보내기 ↗</button>
         {shareNote ? <p role="status" className="text-xs text-lime-100">{shareNote}</p> : null}

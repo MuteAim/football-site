@@ -248,9 +248,13 @@ try {
   await noOverflow("은퇴 화면 390px");
   await command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }, { name: "prefers-reduced-motion", value: "reduce" }] });
   await screenshot("career-retired.png");
-  const hall = await evaluate(`JSON.parse(localStorage.getItem('football-career-hall-v1'))`);
+  const hall = await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v1'))`);
   assert.equal(hall.length, 1);
   assert.equal(hall[0].name, "테스트맨");
+  assert.ok(hall[0].clubs.length > 0);
+  for (const key of ["seasons", "apps", "goals", "assists"]) assert.equal(hall[0].clubs.reduce((sum, club) => sum + club[key], 0), hall[0].totals[key]);
+  assert.equal(hall[0].choices, undefined);
+  assert.equal(hall[0].history, undefined);
   console.log(`은퇴까지 ${picks}번 선택 · 레전드 점수 ${hall[0].score} · ${hall[0].title} · ${hall[0].grade}`);
 
   // 은퇴 기록집에는 모든 시즌과 실제 선택이 남고, 직접 펼치거나 한꺼번에 볼 수 있어요.
@@ -276,6 +280,7 @@ try {
   const score = await evaluate(`document.querySelector('.text-6xl').textContent`);
   await command("Page.reload");
   await waitFor(`document.body.innerText.includes('LEGEND SCORE')`);
+  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v1'))`), hall, "새로고침해도 보관 날짜·내용이 같고 중복되지 않아요");
   assert.equal(await evaluate(`document.querySelector('.text-6xl').textContent`), score);
   assert.equal(await evaluate(`document.querySelectorAll('[data-journal-season]').length`), seasonCount);
   await clickText("모든 시즌 펼치기");
@@ -287,6 +292,58 @@ try {
   await noOverflow("은퇴 화면 1280px");
   await screenshot("career-retired-desktop.png");
 
+  // 현재 저장만 남아 있던 기존 은퇴 선수도 업데이트 후 자동 보관해요.
+  await evaluate(`localStorage.removeItem('football-career-archive-v1')`);
+  await command("Page.reload");
+  await waitFor(`document.querySelector('[data-retired-career]')`);
+  const restoredArchive = await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v1'))`);
+  assert.equal(restoredArchive.length, 1);
+  assert.equal(restoredArchive[0].id, hall[0].id);
+  assert.deepEqual(restoredArchive[0].totals, hall[0].totals);
+  await evaluate(`document.querySelector('[data-retired-career] > summary').click()`);
+  for (const width of [320, 390, 1280]) {
+    await command("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
+    await noOverflow(`은퇴 보관함 ${width}px`);
+  }
+  await evaluate(`document.getElementById('career-archive').scrollIntoView({ block: 'start', behavior: 'instant' })`);
+  await screenshot("career-archive.png");
+  assert.ok(await evaluate(`document.getElementById('career-archive').innerText.includes('팀별 기록') && document.getElementById('career-archive').innerText.includes('수상·우승 내역')`));
+
+  // 파일 다운로드와 가져오기까지 실제 UI를 거쳐 확인해요.
+  await command("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: directory });
+  await clickText("보관함 백업");
+  const backupName = `legend-road-retirements-${new Date().toISOString().slice(0, 10)}.json`;
+  let backup;
+  for (let i = 0; i < 30; i++) {
+    try { backup = await readFile(join(directory, backupName), "utf8"); break; } catch { await sleep(100); }
+  }
+  assert.deepEqual(JSON.parse(backup).entries, restoredArchive);
+  const { root: dom } = await command("DOM.getDocument");
+  const { nodeId } = await command("DOM.querySelector", { nodeId: dom.nodeId, selector: 'input[aria-label="은퇴 보관함 백업 파일"]' });
+  await command("DOM.setFileInputFiles", { nodeId, files: [join(directory, backupName)] });
+  await waitFor(`document.getElementById('career-archive').innerText.includes('백업 기록을 보관함에 합쳤어요')`);
+  assert.equal(await evaluate(`document.querySelectorAll('[data-retired-career]').length`), 1);
+
+  // 저장 실패를 성공으로 표시하거나 현재 은퇴 선수를 새 선수로 덮어쓰면 안 돼요.
+  const retiredSave = await evaluate(`localStorage.getItem('football-career-v1')`);
+  await evaluate(`(() => {
+    localStorage.removeItem('football-career-archive-v1');
+    window.archiveOriginalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key, value) {
+      if (key === 'football-career-archive-v1') throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      return window.archiveOriginalSetItem.call(this, key, value);
+    };
+  })()`);
+  await clickText("새 커리어");
+  await waitFor(`document.querySelector('#career-archive [role="alert"]')`);
+  assert.equal(await evaluate(`Boolean(document.getElementById('career-name'))`), false);
+  assert.equal(await evaluate(`localStorage.getItem('football-career-v1')`), retiredSave);
+  assert.ok(await evaluate(`document.body.innerText.includes('은퇴 요약을 아직 보관하지 못했어요')`));
+  await evaluate(`Storage.prototype.setItem = window.archiveOriginalSetItem`);
+  await clickText("보관 다시 시도");
+  await waitFor(`!document.querySelector('#career-archive [role="alert"]')`);
+  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v1'))`), restoredArchive);
+
   // 공유 창과 클립보드가 없으면 직접 복사할 도전장을 보여 줘요.
   await evaluate(`Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })`);
   assert.ok(await clickText("도전장 보내기"));
@@ -294,8 +351,16 @@ try {
   assert.ok(await evaluate(`document.querySelector('textarea[aria-label="복사할 도전장"]').value.includes('/games/career?score=')`));
   assert.ok(await clickText("새 커리어"));
   await waitFor("document.getElementById('career-name')");
+  await evaluate("document.getElementById('career-name').focus()");
+  await command("Input.insertText", { text: "다음선수" });
+  await clickText("다음선수의 커리어 시작");
+  await waitFor(`document.querySelector('section[aria-labelledby="career-decision"] button')`);
+  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v1'))`), restoredArchive, "새 선수로 시작해도 이전 은퇴 기록은 남아요");
+  await command("Page.reload");
+  await waitFor(`document.querySelector('[data-retired-career]') && document.querySelector('section[aria-labelledby="career-decision"] button')`);
+  assert.ok(await evaluate(`document.getElementById('career-archive').textContent.includes('테스트맨')`));
   assert.deepEqual(errors, [], "브라우저 실행 오류");
-  console.log("화면 위치·연속 클릭 방지·키보드 초점·빠른 진행·선택 결과 복원·은퇴·공유·브라우저 오류 없음 확인 완료");
+  console.log("화면 위치·연속 클릭 방지·키보드 초점·은퇴 보관·중복 방지·백업과 복원·새 커리어 후 보존·공유·브라우저 오류 없음 확인 완료");
 } finally {
   await closeBrowser?.();
   socket?.close();
