@@ -174,6 +174,26 @@ alter table public.profiles add column if not exists spent_goals integer not nul
 alter table public.profiles add column if not exists name_color text references public.shop_items (id) on delete set null;
 alter table public.profiles add column if not exists avatar_frame text references public.shop_items (id) on delete set null;
 
+-- 내 소식. 내 글에 댓글, 내 댓글에 답글, 내 글에 추천이 달리거나 승부 예측이 맞으면 한 줄씩 생겨요.
+-- 회원은 직접 만들 수 없고 DB 트리거와 settle_match만 적어요. 본 소식은 read_notifications로 읽음 표시해요.
+-- 글이나 댓글, 소식을 만든 회원이 지워지면 소식도 같이 지워져요.
+create table if not exists public.notifications (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  kind text not null check (kind in ('comment', 'reply', 'like', 'prediction')),
+  actor_id uuid references public.profiles (id) on delete cascade,
+  post_id bigint references public.posts (id) on delete cascade,
+  comment_id bigint references public.comments (id) on delete cascade,
+  -- 승부 예측 소식만 써요. 경기 화면 주소를 만들 경기 번호와 한국 날짜, "토트넘 vs 아스널" 같은 경기 이름, 받은 골이에요.
+  match_id integer,
+  match_day date,
+  label text,
+  amount integer,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists notifications_user_idx on public.notifications (user_id, id desc);
+
 -- ---------- 숫자 자동 계산 ----------
 -- 회원은 글의 숫자 칸을 직접 고칠 수 없어서, 추천·댓글이 생기거나 지워질 때 DB가 대신 세요.
 
@@ -246,6 +266,67 @@ drop trigger if exists comments_remove_empty_parent on public.comments;
 create trigger comments_remove_empty_parent after delete on public.comments
   for each row execute function public.remove_empty_deleted_parent();
 
+-- ---------- 내 소식 만들기 ----------
+-- 내가 한 일은 나에게 알리지 않아요.
+
+-- 댓글이 달리면 글쓴이에게, 답글이 달리면 댓글 쓴 사람에게 알려요.
+-- 답글은 글쓴이에게도 댓글 소식으로 알리는데, 글쓴이가 그 댓글을 쓴 사람이면 답글 소식 하나만 보내요.
+create or replace function public.notify_comment() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  post_owner uuid;
+  parent_owner uuid;
+begin
+  select p.user_id into post_owner from public.posts p where p.id = new.post_id;
+  if new.parent_id is not null then
+    select c.user_id into parent_owner from public.comments c where c.id = new.parent_id;
+    if parent_owner <> new.user_id then
+      insert into public.notifications (user_id, kind, actor_id, post_id, comment_id)
+      values (parent_owner, 'reply', new.user_id, new.post_id, new.id);
+    end if;
+  end if;
+  if post_owner <> new.user_id and post_owner is distinct from parent_owner then
+    insert into public.notifications (user_id, kind, actor_id, post_id, comment_id)
+    values (post_owner, 'comment', new.user_id, new.post_id, new.id);
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists comments_notify on public.comments;
+create trigger comments_notify after insert on public.comments
+  for each row execute function public.notify_comment();
+
+-- 추천하면 글쓴이에게 알려요. 추천을 껐다 켜도 소식은 하나만 남고, 읽기 전에 추천을 취소하면 소식도 지워요.
+create or replace function public.notify_like() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if tg_op = 'INSERT' then
+    insert into public.notifications (user_id, kind, actor_id, post_id)
+    select p.user_id, 'like', new.user_id, p.id from public.posts p
+    where p.id = new.post_id
+      and p.user_id <> new.user_id
+      and not exists (
+        select 1 from public.notifications n
+        where n.user_id = p.user_id and n.kind = 'like' and n.post_id = p.id and n.actor_id = new.user_id
+      );
+  else
+    delete from public.notifications n
+    where n.kind = 'like' and n.post_id = old.post_id and n.actor_id = old.user_id and n.read_at is null;
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists post_likes_notify on public.post_likes;
+create trigger post_likes_notify after insert or delete on public.post_likes
+  for each row execute function public.notify_like();
+
+-- 내 소식을 모두 읽음으로 바꿔요. 60일 지난 소식은 이때 지워서 표가 끝없이 커지지 않게 해요.
+create or replace function public.read_notifications() returns void
+language sql security definer set search_path = '' as $$
+  update public.notifications set read_at = now() where user_id = (select auth.uid()) and read_at is null;
+  delete from public.notifications where user_id = (select auth.uid()) and created_at < now() - interval '60 days';
+$$;
+
 -- 예측을 바꾸면 고친 시각을 DB가 적어요.
 create or replace function public.touch_prediction() returns trigger
 language plpgsql set search_path = '' as $$
@@ -313,7 +394,10 @@ $$;
 -- 승부 예측 정산. 서버가 경기 API에서 확인한 결과로 부르고, 서버의 비밀 키(service_role)로만 부를 수 있어요.
 -- 킥오프 전에 고른 예측만 세요. 맞히면 10골, 5명 이상 참여한 경기에서 적중자가 30% 이하면 10골을 더 줘요.
 -- 예측으로 받는 골은 킥오프 날짜(한국) 기준 하루 50골까지예요.
-create or replace function public.settle_match(target integer, outcome text, kickoff timestamptz)
+-- 맞힌 회원에게는 내 소식을 남겨요. match_label은 소식에 보일 "토트넘 vs 아스널" 같은 경기 이름이에요.
+-- 예전에는 경기 이름 없이 불렀어서, 그 모양의 함수는 지우고 새로 만들어요.
+drop function if exists public.settle_match(integer, text, timestamptz);
+create or replace function public.settle_match(target integer, outcome text, kickoff timestamptz, match_label text default null)
 returns integer
 language plpgsql security definer set search_path = '' as $$
 declare
@@ -323,6 +407,7 @@ declare
   minority boolean;
   winner uuid;
   room integer;
+  given integer;
 begin
   insert into public.settled_matches (match_id, result, kickoff) values (target, outcome, kickoff)
   on conflict (match_id) do nothing;
@@ -344,15 +429,21 @@ begin
     select 50 - coalesce(sum(e.amount), 0) into room
     from public.goal_events e
     where e.user_id = winner and e.day = kick_day and e.kind in ('prediction', 'minority');
+    given := 0;
     if room > 0 then
       insert into public.goal_events (user_id, kind, ref, day, amount)
       values (winner, 'prediction', target::text, kick_day, least(10, room));
-      room := room - least(10, room);
+      given := least(10, room);
+      room := room - given;
     end if;
     if minority and room > 0 then
       insert into public.goal_events (user_id, kind, ref, day, amount)
       values (winner, 'minority', target::text, kick_day, least(10, room));
+      given := given + least(10, room);
     end if;
+    -- 하루 상한에 걸려 골을 못 받았어도 맞힌 건 알려 줘요.
+    insert into public.notifications (user_id, kind, match_id, match_day, label, amount)
+    values (winner, 'prediction', target, kick_day, left(match_label, 40), given);
   end loop;
   return hitters;
 end $$;
@@ -438,12 +529,12 @@ $$;
 
 revoke all on public.profiles, public.posts, public.comments, public.post_likes, public.match_talks,
   public.match_predictions, public.goal_events, public.settled_matches, public.unsettled_matches,
-  public.shop_items, public.owned_items
+  public.shop_items, public.owned_items, public.notifications
   from anon, authenticated;
 
 grant select on public.posts, public.comments, public.match_talks, public.match_predictions, public.shop_items
   to anon, authenticated;
-grant select on public.post_likes, public.goal_events, public.owned_items to authenticated;
+grant select on public.post_likes, public.goal_events, public.owned_items, public.notifications to authenticated;
 -- 회원 정보는 공개해도 되는 칸만 보여요. 언제 들어왔는지 알 수 있는 출석 칸은 본인만 my_attendance로 봐요.
 grant select (id, nickname, is_manager, goals, team_id, team_name, team_crest, name_color, avatar_frame, created_at)
   on public.profiles to anon, authenticated;
@@ -453,8 +544,8 @@ grant execute on function public.my_attendance() to authenticated;
 -- 골은 DB 함수로만 생겨요. 출석은 회원이, 예측 정산은 서버의 비밀 키(service_role)만 부를 수 있어요.
 revoke all on function public.check_in() from public, anon;
 grant execute on function public.check_in() to authenticated;
-revoke all on function public.settle_match(integer, text, timestamptz) from public, anon, authenticated;
-grant execute on function public.settle_match(integer, text, timestamptz) to service_role;
+revoke all on function public.settle_match(integer, text, timestamptz, text) from public, anon, authenticated;
+grant execute on function public.settle_match(integer, text, timestamptz, text) to service_role;
 
 -- 상점도 DB 함수로만 사고 써요. 쓴 골(spent_goals)은 본인만 my_balance로 봐요.
 revoke all on function public.my_balance() from public, anon;
@@ -463,6 +554,10 @@ revoke all on function public.buy_item(text) from public, anon;
 grant execute on function public.buy_item(text) to authenticated;
 revoke all on function public.equip_item(text, text) from public, anon;
 grant execute on function public.equip_item(text, text) to authenticated;
+
+-- 내 소식은 DB가 만들고, 회원은 읽음 표시만 함수로 해요.
+revoke all on function public.read_notifications() from public, anon;
+grant execute on function public.read_notifications() to authenticated;
 
 grant insert (nickname), update (nickname, team_id, team_name, team_crest) on public.profiles to authenticated;
 grant insert (board, title, body), update (title, body, updated_at), delete on public.posts to authenticated;
@@ -482,12 +577,18 @@ alter table public.goal_events enable row level security;
 alter table public.settled_matches enable row level security;
 alter table public.shop_items enable row level security;
 alter table public.owned_items enable row level security;
+alter table public.notifications enable row level security;
 
 -- 상점 아이템은 누구나 보고, 산 아이템은 내 것만 보여요.
 drop policy if exists shop_items_select on public.shop_items;
 create policy shop_items_select on public.shop_items for select using (true);
 drop policy if exists owned_items_select on public.owned_items;
 create policy owned_items_select on public.owned_items for select to authenticated
+  using (user_id = (select auth.uid()));
+
+-- 내 소식은 나만 봐요.
+drop policy if exists notifications_select on public.notifications;
+create policy notifications_select on public.notifications for select to authenticated
   using (user_id = (select auth.uid()));
 
 -- 골 내역은 내 것만 보여요. 다른 회원에게는 골 합계(등급)만 보여요.

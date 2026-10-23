@@ -1,25 +1,81 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { nameColorClass } from "@/lib/cafe/shop";
 import type { Author } from "@/lib/cafe/types";
-import { BagIcon, ChevronDownIcon, TrophyIcon, UserIcon } from "../Icons";
+import { BagIcon, BellIcon, ChevronDownIcon, TrophyIcon, UserIcon } from "../Icons";
 import { cardClass, mutedClass } from "../ui";
 import { Avatar, LevelBadge } from "./Avatar";
 import { SignOutButton } from "./SignOutButton";
+
+const NOTIFICATIONS_PATH = "/cafe/notifications";
+
+/** 새 소식 수. 두 자리부터는 9+로 줄여요. */
+function countLabel(count: number): string {
+  return count > 9 ? "9+" : String(count);
+}
+
+/** 안 읽은 내 소식 수를 서버에 다시 물어봐요. 실패하면 null이에요. */
+async function fetchUnread(): Promise<number | null> {
+  try {
+    const response = await fetch(`${NOTIFICATIONS_PATH}/unread`, { cache: "no-store" });
+    if (!response.ok) return null;
+    return ((await response.json()) as { count: number }).count;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 안 읽은 내 소식 수. 처음 값은 서버가 그려 주고, 카페 머리는 화면을 옮겨도 다시 그려지지 않아서
+ * 화면을 옮길 때와 다른 탭에서 돌아왔을 때 다시 물어봐요. 내 소식 화면에서는 다 읽은 셈이라 0이에요.
+ */
+function useUnreadCount(initial: number): number {
+  const pathname = usePathname();
+  const [count, setCount] = useState(initial);
+  const lastPath = useRef(pathname);
+  const onNotifications = pathname === NOTIFICATIONS_PATH;
+
+  useEffect(() => {
+    // 처음 그릴 때는 서버가 준 값이 최신이라 묻지 않아요.
+    if (pathname === lastPath.current) return;
+    lastPath.current = pathname;
+    if (pathname === NOTIFICATIONS_PATH) return;
+    void fetchUnread().then((next) => {
+      if (next !== null) setCount(next);
+    });
+  }, [pathname]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || location.pathname === NOTIFICATIONS_PATH) return;
+      void fetchUnread().then((next) => {
+        if (next !== null) setCount(next);
+      });
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
+  return onNotifications ? 0 : count;
+}
 
 function MenuLink({
   href,
   icon,
   label,
   hint,
+  badge = 0,
   onPick,
 }: {
   href: string;
   icon: ReactNode;
   label: string;
   hint: string;
+  /** 0보다 크면 오른쪽에 빨간 숫자로 보여 줘요. */
+  badge?: number;
   onPick: () => void;
 }) {
   return (
@@ -31,22 +87,28 @@ function MenuLink({
       <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
         {icon}
       </span>
-      <span className="min-w-0">
+      <span className="min-w-0 flex-1">
         <span className="block text-sm font-semibold">{label}</span>
         <span className={`block truncate text-xs ${mutedClass}`}>{hint}</span>
       </span>
+      {badge > 0 ? (
+        <span className="shrink-0 rounded-full bg-rose-500 px-1.5 text-xs leading-5 font-bold text-white tabular-nums">
+          {countLabel(badge)}
+        </span>
+      ) : null}
     </Link>
   );
 }
 
 /**
- * 카페 배너 오른쪽의 내 계정 메뉴. 내 닉네임을 누르면 등급과 골, 내 정보·상점·예측 순위로 가는 길이 펼쳐져요.
- * 바깥을 누르거나 Esc를 누르면 닫혀요.
+ * 카페 배너 오른쪽의 내 계정 메뉴. 내 닉네임을 누르면 등급과 골, 내 소식·내 정보·상점·예측 순위로 가는 길이 펼쳐져요.
+ * 안 읽은 내 소식이 있으면 닉네임 옆 프로필 그림에 빨간 숫자가 붙어요. 바깥을 누르거나 Esc를 누르면 닫혀요.
  */
-export function AccountMenu({ me, chipClass }: { me: Author; chipClass: string }) {
+export function AccountMenu({ me, unread, chipClass }: { me: Author; unread: number; chipClass: string }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
+  const count = useUnreadCount(unread);
   const close = () => setOpen(false);
 
   useEffect(() => {
@@ -74,7 +136,15 @@ export function AccountMenu({ me, chipClass }: { me: Author; chipClass: string }
         onClick={() => setOpen((value) => !value)}
         className={`${chipClass} pl-1.5 ${open ? "bg-white/25" : ""}`}
       >
-        <Avatar id={me.id} nickname={me.nickname} team={me.team} frame={me.frame} size="sm" />
+        <span className="relative shrink-0">
+          <Avatar id={me.id} nickname={me.nickname} team={me.team} frame={me.frame} size="sm" />
+          {count > 0 ? (
+            <span className="absolute -top-1.5 -right-1.5 min-w-[18px] rounded-full bg-rose-500 px-1 text-center text-[11px] leading-[18px] font-bold text-white tabular-nums ring-2 ring-emerald-800">
+              {countLabel(count)}
+              <span className="sr-only">개의 새 소식</span>
+            </span>
+          ) : null}
+        </span>
         <span className="truncate">{me.nickname}</span>
         <ChevronDownIcon className={`-mr-1 size-4 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
@@ -95,6 +165,14 @@ export function AccountMenu({ me, chipClass }: { me: Author; chipClass: string }
             </div>
           </div>
           <nav aria-label="내 메뉴" className="p-1.5">
+            <MenuLink
+              href={NOTIFICATIONS_PATH}
+              icon={<BellIcon className="size-4" />}
+              label="내 소식"
+              hint={count > 0 ? `새 소식 ${count}개` : "댓글·답글·추천과 예측 결과"}
+              badge={count}
+              onPick={close}
+            />
             <MenuLink
               href="/cafe/me"
               icon={<UserIcon className="size-4" />}

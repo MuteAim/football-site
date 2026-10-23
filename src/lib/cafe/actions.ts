@@ -194,6 +194,17 @@ export async function checkIn(): Promise<{ awarded: number; streak: number; goal
   return data;
 }
 
+/**
+ * 내 소식을 모두 읽음으로 바꿔요. 내 소식 화면을 열면 브라우저가 한 번 불러요.
+ * 화면은 다시 그리지 않아서, 방금 본 새 소식 표시는 화면을 떠날 때까지 남아요.
+ */
+export async function readNotifications(): Promise<void> {
+  if (!isCafeConfigured()) return;
+  const supabase = await createSessionClient();
+  const { error } = await supabase.rpc("read_notifications");
+  if (error) console.error(error);
+}
+
 // ---------- 골 상점 ----------
 
 // DB 함수(buy_item, equip_item)가 거절한 이유를 사람이 읽을 문구로 바꿔요.

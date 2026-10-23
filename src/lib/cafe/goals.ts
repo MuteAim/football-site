@@ -2,6 +2,7 @@ import "server-only";
 import { getCompetition } from "../competitions";
 import { getCompetitionMatches, type Match } from "../football-data";
 import { matchResult } from "../match-display";
+import { teamName } from "../teams-ko";
 import { CafeError } from "./data";
 import { SHOP_LOOKS } from "./shop";
 import { adminClient } from "./supabase-admin";
@@ -55,6 +56,8 @@ export async function settlePredictions(): Promise<void> {
         target: id,
         outcome: result,
         kickoff: match.utcDate,
+        // 맞힌 회원의 내 소식에 보일 경기 이름이에요.
+        match_label: `${teamName(match.homeTeam)} vs ${teamName(match.awayTeam)}`,
       });
       if (settleError) console.error(settleError);
     }

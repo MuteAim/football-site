@@ -195,3 +195,13 @@ export function BagIcon({ className = "size-4" }: IconProps) {
     </LineIcon>
   );
 }
+
+/** 내 소식. 종 모양이에요. */
+export function BellIcon({ className = "size-4" }: IconProps) {
+  return (
+    <LineIcon className={className}>
+      <path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15L6 16z" />
+      <path d="M10 20.5a2 2 0 0 0 4 0" />
+    </LineIcon>
+  );
+}

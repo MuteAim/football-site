@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { Avatar, LevelBadge, NameBadge } from "@/components/cafe/Avatar";
 import { PostSkeleton } from "@/components/cafe/CafeSkeletons";
 import { CommentForm } from "@/components/cafe/CommentForm";
+import { CommentJump } from "@/components/cafe/CommentJump";
 import { CommentThread, ReplyButton } from "@/components/cafe/CommentThread";
 import { ConfirmButton } from "@/components/cafe/ConfirmButton";
 import { LikeButton } from "@/components/cafe/LikeButton";
@@ -67,8 +68,12 @@ function CommentItem({
   }
 
   const canDelete = viewer?.id === comment.author.id || viewer?.profile?.isManager === true;
+  // 내 소식에서 누르면 CommentJump가 이 댓글로 내려와서 잠깐 옅게 칠해 보여 줘요. 칠할 때는 바로, 지울 때는 천천히 바뀌어요.
   return (
-    <div className={`flex ${isReply ? "gap-2 py-2.5" : "gap-2.5 py-3"}`}>
+    <div
+      id={`comment-${comment.id}`}
+      className={`-mx-2 flex rounded-lg px-2 transition-colors duration-1000 data-highlight:bg-emerald-500/15 data-highlight:duration-0 ${isReply ? "gap-2 py-2.5" : "gap-2.5 py-3"}`}
+    >
       {arrow}
       <Avatar
         id={comment.author.id}
@@ -140,6 +145,7 @@ function CommentSection({
       <h2 className={cardHeadingClass}>
         댓글 <span className="text-emerald-600 tabular-nums dark:text-emerald-400">{count}</span>
       </h2>
+      {tops.length > 0 ? <CommentJump /> : null}
       {tops.length > 0 ? (
         <ul className={cardListClass}>
           {tops.map((top) => {

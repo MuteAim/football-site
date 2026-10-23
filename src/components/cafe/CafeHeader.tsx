@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { isCafeConfigured } from "@/lib/cafe/config";
+import { getUnreadCount } from "@/lib/cafe/notifications";
 import { getViewer } from "@/lib/cafe/viewer";
 import { ChatIcon, PitchLines, UserIcon } from "../Icons";
 import { LinkPending } from "../LinkPending";
@@ -13,7 +14,7 @@ const chipClass =
 
 /**
  * 배너 오른쪽. 로그인하지 않았으면 로그인 버튼, 닉네임을 정하기 전이면 닉네임 정하기,
- * 회원이면 누르면 내 정보·상점·예측 순위로 가는 계정 메뉴예요.
+ * 회원이면 누르면 내 소식·내 정보·상점·예측 순위로 가는 계정 메뉴예요.
  */
 async function ViewerChip() {
   if (!isCafeConfigured()) return null;
@@ -35,7 +36,7 @@ async function ViewerChip() {
       </Link>
     );
   }
-  return <AccountMenu me={viewer.profile} chipClass={chipClass} />;
+  return <AccountMenu me={viewer.profile} unread={await getUnreadCount()} chipClass={chipClass} />;
 }
 
 /** 카페 머리. 초록 배너와 게시판 탭이에요. 모든 카페 화면 위에 붙어요. */

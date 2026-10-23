@@ -92,6 +92,20 @@ export type Talk = {
   createdAt: string;
 };
 
+/** 내 소식 한 줄. 종류에 따라 actor·post·comment(댓글, 답글, 추천)나 match(승부 예측)가 채워져요. */
+export type CafeNotification = {
+  id: number;
+  kind: "comment" | "reply" | "like" | "prediction";
+  read: boolean;
+  createdAt: string;
+  actor: Author | null;
+  post: { id: number; board: string; title: string } | null;
+  /** 달린 댓글이나 답글. 답글이 남아 "삭제된 댓글" 자리가 됐으면 deleted가 true예요. */
+  comment: { id: number; body: string; deleted: boolean } | null;
+  /** day는 경기 화면 주소에 쓰는 한국 날짜(YYYY-MM-DD), goals는 받은 골이에요. */
+  match: { id: number; day: string; label: string | null; goals: number } | null;
+};
+
 /** 지금 보고 있는 사람. 로그인했지만 닉네임을 아직 안 정했으면 profile이 null이에요. */
 export type Viewer = {
   id: string;
