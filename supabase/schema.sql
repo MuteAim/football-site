@@ -717,10 +717,11 @@ create unique index if not exists quiz_rounds_open_key on public.quiz_rounds (us
 -- 연승. 정답마다 1씩 오르고 틀리면 0이 돼요. 날이 바뀌어도 이어져요.
 alter table public.profiles add column if not exists quiz_streak integer not null default 0;
 
--- 골 내역에 선수 맞히기(quiz)를 더해요.
+-- 골 내역에 선수 맞히기(quiz)와 운영 지급(reward)을 더해요.
+-- 운영 지급은 회원이 받을 수 없고 비밀 키로만 넣어요. ref에 지급 이유를 적어서 같은 이유로 두 번 주지 않아요.
 alter table public.goal_events drop constraint if exists goal_events_kind_check;
 alter table public.goal_events add constraint goal_events_kind_check
-  check (kind in ('attendance', 'streak', 'prediction', 'minority', 'quiz'));
+  check (kind in ('attendance', 'streak', 'prediction', 'minority', 'quiz', 'reward'));
 
 -- ---------- 숫자 자동 계산 ----------
 -- 회원은 글의 숫자 칸을 직접 고칠 수 없어서, 추천·댓글이 생기거나 지워질 때 DB가 대신 세요.

@@ -59,6 +59,7 @@ const GOAL_LABEL: Record<GoalEvent["kind"], string> = {
   prediction: "승부 예측 적중",
   minority: "소수 의견 적중 보너스",
   quiz: "선수 맞히기 정답",
+  reward: "운영 지급",
 };
 
 /** 내 선수 맞히기 상태. 연승과 오늘 푼 문제 수예요. */

@@ -41,7 +41,8 @@ export type ShopItem = {
 /** 골 내역 한 줄 */
 export type GoalEvent = {
   id: number;
-  kind: "attendance" | "streak" | "prediction" | "minority" | "quiz";
+  /** reward는 운영자가 SQL로 직접 준 골이에요. 예: 레전드 로드 초기화 보상 */
+  kind: "attendance" | "streak" | "prediction" | "minority" | "quiz" | "reward";
   amount: number;
   /** 한국 날짜(YYYY-MM-DD). 예측 골은 킥오프 날짜예요. */
   day: string;
