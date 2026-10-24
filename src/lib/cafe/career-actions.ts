@@ -20,15 +20,16 @@ function rankingReady(): boolean {
 export async function getCareerSnapshot(day?: string): Promise<CareerSnapshot> {
   await connection();
   const target = day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : careerDay();
-  const fallback: CareerSnapshot = { day: target, member: false, available: false, board: EMPTY_CAREER_BOARD };
+  const fallback: CareerSnapshot = { day: target, member: false, owner: null, available: false, board: EMPTY_CAREER_BOARD };
   if (!isCafeConfigured()) return fallback;
   try {
     const [viewer, supabase] = await Promise.all([getViewer(), createSessionClient()]);
     fallback.member = !!viewer?.profile;
+    fallback.owner = viewer?.profile ? viewer.id : null;
     if (!rankingReady()) return fallback;
     const { data, error } = await supabase.rpc("career_board", { target_day: target });
     if (error || !data) return fallback;
-    return { day: target, member: !!viewer?.profile, available: true, board: data as CareerBoard };
+    return { ...fallback, available: true, board: data as CareerBoard };
   } catch {
     return fallback;
   }

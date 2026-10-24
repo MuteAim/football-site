@@ -14,7 +14,8 @@ export type CareerBoard = {
   participants: number;
   eleven: CareerElevenEntry[];
 };
-export type CareerSnapshot = { day: string; member: boolean; available: boolean; board: CareerBoard };
+/** owner는 닉네임까지 정한 회원의 번호예요. 브라우저 저장 칸을 계정마다 나눌 때 써요. 비회원은 null이에요. */
+export type CareerSnapshot = { day: string; member: boolean; owner: string | null; available: boolean; board: CareerBoard };
 
 export const EMPTY_CAREER_BOARD: CareerBoard = { leaders: [], personal: null, participants: 0, eleven: [] };
 

@@ -19,6 +19,7 @@ import { TurnHeader, turnResult, type TurnResult } from "./CareerTurn";
 import { buildCareerJournal } from "@/lib/career/journal";
 import { CareerJournal } from "./CareerJournal";
 import { archiveCareer, CAREER_ARCHIVE_BATCH, CAREER_LEGACY_KEYS, mergeRetirements, readRetirements, saveRetirements, type RetiredCareer } from "@/lib/career/archive";
+import { adoptCareerStorage, careerKeys } from "@/lib/career/storage";
 import { CareerArchive, type CloudState } from "./CareerArchive";
 import styles from "./career.module.css";
 
@@ -28,7 +29,6 @@ type Pending = { seed: number; startYear: number; runId: string | null };
 type Busy = { title: string; from: number; to: number; ms: number; previous: CareerState; result: TurnResult | null };
 type RankState = { state: "none" | "saving" | "saved" | "failed"; message: string };
 
-const SAVE_KEY = "football-career-v1";
 const QUICK_KEY = "football-career-quick";
 const SIM_MS = 650;
 
@@ -43,14 +43,15 @@ function parseStored(value: unknown): Stored | null {
   };
 }
 
-function readStored(): Stored | null {
-  try { return parseStored(JSON.parse(localStorage.getItem(SAVE_KEY) ?? "null")); } catch { return null; }
+/** key는 지금 계정의 커리어 칸이에요(careerKeys). */
+function readStored(key: string): Stored | null {
+  try { return parseStored(JSON.parse(localStorage.getItem(key) ?? "null")); } catch { return null; }
 }
 
-function writeStored(value: Stored | null) {
+function writeStored(key: string, value: Stored | null) {
   try {
-    if (value) localStorage.setItem(SAVE_KEY, JSON.stringify(value));
-    else localStorage.removeItem(SAVE_KEY);
+    if (value) localStorage.setItem(key, JSON.stringify(value));
+    else localStorage.removeItem(key);
   } catch {}
 }
 
@@ -104,6 +105,8 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   const focusDecision = useRef(false);
   const gameRoot = useRef<HTMLDivElement>(null);
   const ranked = snapshot.member && snapshot.available;
+  // 같은 브라우저를 여러 계정이 써도 섞이지 않게 계정마다 다른 칸에 저장해요. 계정이 바뀌면 page.tsx가 이 화면을 새로 만들어요.
+  const keys = useMemo(() => careerKeys(initial.owner), [initial.owner]);
   const journal = useMemo(() => stored ? buildCareerJournal(stored) : [], [stored]);
 
   const [cloud, setCloud] = useState<CloudState>(initial.member ? "syncing" : "local");
@@ -124,7 +127,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   const storeRetirements = useCallback((entries: RetiredCareer[]) => {
     let saved = true;
     try {
-      setArchive(saveRetirements(localStorage, entries));
+      setArchive(saveRetirements(localStorage, entries, keys.archive));
       setArchiveError("");
     } catch {
       // 실패한 기록도 화면과 백업에는 남겨요. 기존 저장을 지우지는 않아요.
@@ -138,7 +141,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
       void uploadRetirements(entries).then(setCloud);
     }
     return saved;
-  }, [uploadRetirements]);
+  }, [keys, uploadRetirements]);
 
   /** 계정에 있던 선수는 이 브라우저로 가져오고, 이 브라우저에만 있던 선수는 계정에 올려요. */
   const syncCloud = useCallback(async () => {
@@ -171,24 +174,25 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     if (loaded.current) return;
     const frame = requestAnimationFrame(() => {
       loaded.current = true;
-      // 레전드 로드를 초기화하기 전의 보관함은 지워요.
+      // 레전드 로드를 초기화하기 전의 보관함은 지우고, 계정을 나누기 전 칸과 로그인 전 기록을 지금 계정 칸으로 옮겨요.
       try { for (const key of CAREER_LEGACY_KEYS) localStorage.removeItem(key); } catch {}
-      try { setArchive(readRetirements(localStorage)); }
+      try { adoptCareerStorage(localStorage, initial.owner); } catch {}
+      try { setArchive(readRetirements(localStorage, keys.archive)); }
       catch { setArchiveError("기존 은퇴 보관함을 읽지 못했어요. 브라우저 저장 접근을 확인해 주세요. 기존 데이터는 지우지 않았어요."); }
       try { setQuick(localStorage.getItem(QUICK_KEY) === "1"); } catch {}
-      const value = readStored();
+      const value = readStored(keys.save);
       if (!value) { setScreen("intro"); return; }
       try {
         if (value.v !== CAREER_VERSION) throw new CareerError("레전드 로드가 업데이트되어 진행 중이던 커리어는 이어 할 수 없어요. 새 선수로 다시 시작해 주세요.");
         restore(value);
       } catch (reason) {
-        writeStored(null);
+        writeStored(keys.save, null);
         setNote(reason instanceof CareerError ? reason.message : "저장된 커리어를 불러오지 못했어요.");
         setScreen("intro");
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [restore]);
+  }, [initial.owner, keys, restore]);
 
   useEffect(() => { archiveRef.current = archive; }, [archive]);
 
@@ -234,13 +238,13 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
       const result = await finishCareerRun(value.runId!, value.setup, value.choices, value.v);
       if ("error" in result) { setRank({ state: "failed", message: result.error }); return; }
       const next = { ...value, recorded: result.day };
-      writeStored(next);
+      writeStored(keys.save, next);
       setStored(next);
       setRank({ state: "saved", message: `오늘의 순위에 기록했어요! 레전드 점수 ${result.score.toLocaleString("ko-KR")}점` });
       const board = await getCareerSnapshot(result.day);
       if (board.available) setSnapshot(board);
     });
-  }, []);
+  }, [keys]);
 
   async function begin(practice = false) {
     if (starting || saving) return;
@@ -273,7 +277,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     try {
       const state = createCareer(pending.seed, pending.startYear, setup);
       const value: Stored = { v: CAREER_VERSION, seed: pending.seed, startYear: pending.startYear, setup, choices: [], runId: pending.runId, recorded: null, card: null };
-      writeStored(value);
+      writeStored(keys.save, value);
       setStored(value);
       setCareer(state);
       setPending(null);
@@ -294,7 +298,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   function cancelCreate() {
     if (pending?.runId && stored?.runId && stored.runId !== pending.runId && !stored.recorded) {
       const value = { ...stored, runId: null };
-      writeStored(value);
+      writeStored(keys.save, value);
       setStored(value);
       setNote("새 순위 도전을 시작해서 이 커리어는 연습 커리어로 바뀌었어요.");
     }
@@ -315,7 +319,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     }
     const value = { ...stored, choices: [...stored.choices, index] };
     keepViewport(gameRoot.current);
-    writeStored(value);
+    writeStored(keys.save, value);
     setStored(value);
     setCareer(next);
     setResult(turnResult(career, next, index));
@@ -339,7 +343,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     if (!value) { setError("커리어 코드를 읽지 못했어요. 복사한 코드를 그대로 붙여 넣어 주세요."); return; }
     try {
       restore(value);
-      writeStored(value);
+      writeStored(keys.save, value);
       setImportCode("");
       setError("");
       showToast("커리어를 불러왔어요.");
@@ -389,7 +393,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
       if ("error" in made) { setCardError(made.error); return; }
       code = made.code;
       const next = { ...stored, card: code };
-      writeStored(next);
+      writeStored(keys.save, next);
       setStored(next);
     }
     const text = `⚽ 레전드 로드 · ${summary.number}번 ${summary.name}의 축구 인생\n「${summary.title}」 레전드 점수 ${summary.score.toLocaleString("ko-KR")}점 · ${summary.grade}\n${summary.seasons}시즌 ${summary.apps}경기 ${summary.pos === "GK" ? `무실점 ${summary.cleanSheets}경기` : `${summary.goals}골 ${summary.assists}도움`} · 발롱도르 ${summary.ballonDor}회`;

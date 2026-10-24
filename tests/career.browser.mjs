@@ -109,8 +109,8 @@ try {
   assert.ok(await clickText("테스트맨의 커리어 시작"));
   await waitFor(`document.querySelector('section[aria-labelledby="career-decision"] button')`);
   assert.ok(await evaluate(`document.body.innerText.includes('테스트맨') && document.body.innerText.includes('프리시즌')`));
-  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('football-career-v1')).setup.reroll`), 1, "다시 뽑은 횟수가 저장돼요");
-  assert.deepEqual(await evaluate(`(({ pos, side, foot, number }) => ({ pos, side, foot, number }))(JSON.parse(localStorage.getItem('football-career-v1')).setup)`), { pos: "WG", side: "R", foot: "L", number: 17 });
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('football-career-v1:guest')).setup.reroll`), 1, "다시 뽑은 횟수가 저장돼요");
+  assert.deepEqual(await evaluate(`(({ pos, side, foot, number }) => ({ pos, side, foot, number }))(JSON.parse(localStorage.getItem('football-career-v1:guest')).setup)`), { pos: "WG", side: "R", foot: "L", number: 17 });
   assert.ok(await evaluate(`(() => { const card = document.querySelector('section[aria-label="내 선수"]').innerText; return card.includes('RW') && card.includes('17') && card.includes('오른쪽 윙어 · 왼발'); })()`), "선수 카드에 등번호·측면·주발이 보여요");
   assert.ok(await evaluate(`document.querySelector('section[aria-label="라이벌"]')?.innerText.includes('평생의 라이벌')`), "라이벌 카드");
 
@@ -129,7 +129,7 @@ try {
     await sleep(100);
     const metrics = await evaluate(`new Promise((resolve) => {
       const button = [...document.querySelectorAll('section[aria-labelledby="career-decision"] button')].at(-1);
-      const before = JSON.parse(localStorage.getItem('football-career-v1')).choices.length;
+      const before = JSON.parse(localStorage.getItem('football-career-v1:guest')).choices.length;
       const headingTop = document.getElementById('career-decision').getBoundingClientRect().top;
       const panelTop = document.getElementById('career-decision').closest('[aria-busy]').getBoundingClientRect().top;
       const initialY = window.scrollY;
@@ -147,7 +147,7 @@ try {
           const heading = document.getElementById('career-decision');
           const report = document.getElementById('career-report');
           const sameYear = oldYear && report?.querySelector('[data-season-stats]')?.dataset.seasonStats === oldYear;
-          resolve({ delta, busy, reportPreserved: !sameYear || (report === oldReport && report.open === oldOpen), headingShift: heading.getBoundingClientRect().top - headingTop + (window.scrollY - initialY), panelShift: heading.getBoundingClientRect().top - heading.closest('[aria-busy]').getBoundingClientRect().top - (headingTop - panelTop), count: JSON.parse(localStorage.getItem('football-career-v1')).choices.length - before, focus: document.activeElement.id });
+          resolve({ delta, busy, reportPreserved: !sameYear || (report === oldReport && report.open === oldOpen), headingShift: heading.getBoundingClientRect().top - headingTop + (window.scrollY - initialY), panelShift: heading.getBoundingClientRect().top - heading.closest('[aria-busy]').getBoundingClientRect().top - (headingTop - panelTop), count: JSON.parse(localStorage.getItem('football-career-v1:guest')).choices.length - before, focus: document.activeElement.id });
         }
       }
       requestAnimationFrame(sample);
@@ -210,7 +210,7 @@ try {
   // 나머지 커리어는 움직임 줄이기로 은퇴까지 진행해요.
   // 화면은 빠른 연속 클릭을 0.4초 동안 무시해요. 반영될 때까지 조금씩 쉬며 다시 눌러요.
   const choose = async () => {
-    const count = `JSON.parse(localStorage.getItem('football-career-v1')).choices.length`;
+    const count = `JSON.parse(localStorage.getItem('football-career-v1:guest')).choices.length`;
     const before = await evaluate(count);
     const index = picks % 3;
     for (let attempt = 0; attempt < 40; attempt++) {
@@ -258,7 +258,7 @@ try {
   assert.ok(await evaluate(`(() => { const box = document.querySelector('[data-rank-teaser]'); return !!box && box.innerText.includes('위') && !!box.querySelector('a[href^="/cafe/login?next="]'); })()`), "비회원 연습 커리어 은퇴 화면은 예상 순위와 로그인 버튼을 보여 줘요");
   await command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }, { name: "prefers-reduced-motion", value: "reduce" }] });
   await screenshot("career-retired.png");
-  const hall = await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2'))`);
+  const hall = await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2:guest'))`);
   assert.equal(hall.length, 1);
   assert.equal(hall[0].name, "테스트맨");
   assert.ok(hall[0].clubs.length > 0);
@@ -274,7 +274,7 @@ try {
   await waitFor(`document.querySelector('#career-journal [data-choice-step]')`);
   assert.ok(await evaluate(`document.querySelector('#career-journal').innerText.includes('내 선택과 그 결과')`));
   await clickText("모든 시즌 펼치기");
-  await waitFor(`document.querySelectorAll('#career-journal [data-choice-step]').length === JSON.parse(localStorage.getItem('football-career-v1')).choices.length`);
+  await waitFor(`document.querySelectorAll('#career-journal [data-choice-step]').length === JSON.parse(localStorage.getItem('football-career-v1:guest')).choices.length`);
   const journalText = await evaluate(`document.getElementById('career-journal').innerText`);
   assert.ok(journalText.includes("은퇴하기"), "마지막 은퇴 선택 기록");
   for (const width of [320, 390, 1280]) {
@@ -290,11 +290,11 @@ try {
   const score = await evaluate(`document.querySelector('.text-6xl').textContent`);
   await command("Page.reload");
   await waitFor(`document.body.innerText.includes('LEGEND SCORE')`);
-  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2'))`), hall, "새로고침해도 보관 날짜·내용이 같고 중복되지 않아요");
+  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2:guest'))`), hall, "새로고침해도 보관 날짜·내용이 같고 중복되지 않아요");
   assert.equal(await evaluate(`document.querySelector('.text-6xl').textContent`), score);
   assert.equal(await evaluate(`document.querySelectorAll('[data-journal-season]').length`), seasonCount);
   await clickText("모든 시즌 펼치기");
-  await waitFor(`document.querySelectorAll('#career-journal [data-choice-step]').length === JSON.parse(localStorage.getItem('football-career-v1')).choices.length`);
+  await waitFor(`document.querySelectorAll('#career-journal [data-choice-step]').length === JSON.parse(localStorage.getItem('football-career-v1:guest')).choices.length`);
   assert.equal(await evaluate(`document.getElementById('career-journal').innerText`), journalText, "새로고침 후 전체 기록집 복원");
   await clickText("모두 접기");
   await command("Emulation.setDeviceMetricsOverride", { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false });
@@ -303,10 +303,10 @@ try {
   await screenshot("career-retired-desktop.png");
 
   // 현재 저장만 남아 있던 기존 은퇴 선수도 업데이트 후 자동 보관해요.
-  await evaluate(`localStorage.removeItem('football-career-archive-v2')`);
+  await evaluate(`localStorage.removeItem('football-career-archive-v2:guest')`);
   await command("Page.reload");
   await waitFor(`document.querySelector('[data-retired-career]')`);
-  const restoredArchive = await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2'))`);
+  const restoredArchive = await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2:guest'))`);
   assert.equal(restoredArchive.length, 1);
   assert.equal(restoredArchive[0].id, hall[0].id);
   assert.deepEqual(restoredArchive[0].totals, hall[0].totals);
@@ -335,24 +335,24 @@ try {
   assert.equal(await evaluate(`document.querySelectorAll('[data-retired-career]').length`), 1);
 
   // 저장 실패를 성공으로 표시하거나 현재 은퇴 선수를 새 선수로 덮어쓰면 안 돼요.
-  const retiredSave = await evaluate(`localStorage.getItem('football-career-v1')`);
+  const retiredSave = await evaluate(`localStorage.getItem('football-career-v1:guest')`);
   await evaluate(`(() => {
-    localStorage.removeItem('football-career-archive-v2');
+    localStorage.removeItem('football-career-archive-v2:guest');
     window.archiveOriginalSetItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function(key, value) {
-      if (key === 'football-career-archive-v2') throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      if (key === 'football-career-archive-v2:guest') throw new DOMException('Quota exceeded', 'QuotaExceededError');
       return window.archiveOriginalSetItem.call(this, key, value);
     };
   })()`);
   await clickText("새 커리어");
   await waitFor(`document.querySelector('#career-archive [role="alert"]')`);
   assert.equal(await evaluate(`Boolean(document.getElementById('career-name'))`), false);
-  assert.equal(await evaluate(`localStorage.getItem('football-career-v1')`), retiredSave);
+  assert.equal(await evaluate(`localStorage.getItem('football-career-v1:guest')`), retiredSave);
   assert.ok(await evaluate(`document.body.innerText.includes('은퇴 요약을 아직 보관하지 못했어요')`));
   await evaluate(`Storage.prototype.setItem = window.archiveOriginalSetItem`);
   await clickText("보관 다시 시도");
   await waitFor(`!document.querySelector('#career-archive [role="alert"]')`);
-  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2'))`), restoredArchive);
+  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2:guest'))`), restoredArchive);
 
   // 공유 창과 클립보드가 없으면 직접 복사할 도전장을 보여 줘요.
   await evaluate(`Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })`);
@@ -365,7 +365,7 @@ try {
   await command("Input.insertText", { text: "다음선수" });
   await clickText("다음선수의 커리어 시작");
   await waitFor(`document.querySelector('section[aria-labelledby="career-decision"] button')`);
-  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2'))`), restoredArchive, "새 선수로 시작해도 이전 은퇴 기록은 남아요");
+  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2:guest'))`), restoredArchive, "새 선수로 시작해도 이전 은퇴 기록은 남아요");
   await evaluate(`localStorage.setItem('football-career-archive-v1', '[]'); localStorage.setItem('football-career-hall-v1', '[]')`);
   await command("Page.reload");
   await waitFor(`document.querySelector('[data-retired-career]') && document.querySelector('section[aria-labelledby="career-decision"] button')`);

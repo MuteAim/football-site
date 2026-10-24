@@ -15,7 +15,8 @@ export const metadata: Metadata = {
 async function Game({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const [params, snapshot] = await Promise.all([searchParams, getCareerSnapshot()]);
   const challenge = readCareerChallenge(typeof params.score === "string" ? params.score : null, typeof params.day === "string" ? params.day : null);
-  return <CareerGame initial={snapshot} challenge={challenge} />;
+  // 로그아웃하거나 다른 계정으로 바뀌면 화면을 새로 만들어서, 이전 계정의 커리어를 들고 있지 않게 해요.
+  return <CareerGame key={snapshot.owner ?? "guest"} initial={snapshot} challenge={challenge} />;
 }
 
 export default function CareerPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {

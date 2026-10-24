@@ -29,6 +29,7 @@ const A = await load("src/lib/career/archive.ts");
 const G = await load("src/lib/career/badges.ts");
 const C = await load("src/lib/career/card.ts");
 const K = await load("src/lib/career/crests.ts");
+const T = await load("src/lib/career/storage.ts");
 
 /** 테스트용 결정적 난수. 같은 순서로 같은 커리어를 만들어요. */
 function lcg(seed) {
@@ -82,6 +83,59 @@ test("은퇴 보관함은 통산·팀별 합계와 모든 수상·칭호만 남�
   assert.deepEqual(Object.keys(record).sort(), ["v", "id", "retiredAt", "ranked", "name", "nation", "pos", "number", "foot", "side", "score", "grade", "title", "totals", "clubs", "honors"].sort());
   assert.equal(A.archiveCareer(state, { ...save, setup: S({ reroll: 0 }) }, false).id, record.id, "이전 저장의 생략된 reroll은 0과 같아요");
   assert.throws(() => A.archiveCareer(E.createCareer(19, 2026, baseSetup), save, false));
+});
+
+test("브라우저 저장은 계정마다 나뉘고, 로그인하면 로그인 전 기록만 가져가며 다른 회원 칸은 건드리지 않는다", () => {
+  const { state, choices } = play(29, baseSetup, () => 0);
+  const save = { v: E.CAREER_VERSION, seed: 29, startYear: 2026, setup: baseSetup, choices };
+  const entry = (id) => ({ ...A.archiveCareer(state, save, false, "2026-10-24T12:00:00.000Z"), id });
+  const memory = () => {
+    const map = new Map();
+    return { map, getItem: (key) => map.has(key) ? map.get(key) : null, setItem: (key, value) => { map.set(key, String(value)); }, removeItem: (key) => { map.delete(key); } };
+  };
+  const A1 = "aaaaaaaa-0000-4000-8000-000000000001", B1 = "bbbbbbbb-0000-4000-8000-000000000002";
+  const guest = T.careerKeys(null), a = T.careerKeys(A1), b = T.careerKeys(B1);
+  assert.deepEqual(guest, { save: "football-career-v1:guest", archive: "football-career-archive-v2:guest" });
+  assert.notEqual(a.save, b.save);
+
+  // 계정을 나누기 전 칸은 처음 들어온 사람에게 한 번 넘어가요.
+  const store = memory();
+  store.setItem(T.CAREER_SAVE_KEY, "legacy-save");
+  store.setItem(A.CAREER_ARCHIVE_KEY, JSON.stringify([entry("legacy")]));
+  T.adoptCareerStorage(store, A1);
+  assert.equal(store.getItem(a.save), "legacy-save");
+  assert.deepEqual(A.readRetirements(store, a.archive).map((item) => item.id), ["legacy"]);
+  assert.equal(store.getItem(T.CAREER_SAVE_KEY), null);
+  assert.equal(store.getItem(A.CAREER_ARCHIVE_KEY), null);
+
+  // 로그아웃하면 비회원 칸만 보여요. 회원 A의 칸은 그대로예요.
+  T.adoptCareerStorage(store, null);
+  assert.equal(store.getItem(guest.save), null);
+  assert.equal(store.getItem(a.save), "legacy-save");
+
+  // 비회원으로 하던 기록은 다음에 로그인한 회원 B가 가져가고, A의 칸은 B에게 가지 않아요.
+  store.setItem(guest.save, "guest-save");
+  store.setItem(guest.archive, JSON.stringify([entry("guest")]));
+  T.adoptCareerStorage(store, B1);
+  assert.equal(store.getItem(b.save), "guest-save");
+  assert.deepEqual(A.readRetirements(store, b.archive).map((item) => item.id), ["guest"]);
+  assert.equal(store.getItem(guest.save), null);
+  assert.equal(store.getItem(guest.archive), null);
+  assert.deepEqual(A.readRetirements(store, a.archive).map((item) => item.id), ["legacy"], "A의 보관함은 그대로예요");
+  assert.equal(store.getItem(a.save), "legacy-save");
+
+  // 회원에게 진행 중인 커리어가 있으면 비회원 커리어는 덮어쓰지 않고 남겨 두고, 은퇴 보관함만 합쳐요.
+  store.setItem(guest.save, "second-guest");
+  store.setItem(guest.archive, JSON.stringify([entry("guest2")]));
+  T.adoptCareerStorage(store, B1);
+  assert.equal(store.getItem(b.save), "guest-save");
+  assert.equal(store.getItem(guest.save), "second-guest");
+  assert.deepEqual(A.readRetirements(store, b.archive).map((item) => item.id).sort(), ["guest", "guest2"]);
+
+  // 읽을 수 없는 보관함은 지우지 않아요.
+  store.setItem(guest.archive, "{broken");
+  T.adoptCareerStorage(store, B1);
+  assert.equal(store.getItem(guest.archive), "{broken");
 });
 
 test("은퇴 보관함은 10명을 넘어 누적되고 복원·백업 병합은 중복 없이 저장하며 오류 시 원본을 지우지 않는다", () => {

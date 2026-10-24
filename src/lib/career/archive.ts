@@ -2,6 +2,7 @@ import { clubName, summarizeCareer, type CareerSave, type CareerState, type Care
 
 // 경기 엔진 버전과 별개인 요약 보관함. 선택·사건·시즌 원본은 저장하지 않아요.
 // 등번호·주발·측면이 생기면서 레전드 로드를 초기화해 v2부터 다시 모아요.
+/** 보관함 칸 이름의 앞부분. 실제 칸은 뒤에 계정 칸 이름이 붙어요(storage.ts의 careerKeys). */
 export const CAREER_ARCHIVE_KEY = "football-career-archive-v2";
 /** 초기화 전 브라우저 저장. 불러올 때 지워요. */
 export const CAREER_LEGACY_KEYS = ["football-career-archive-v1", "football-career-hall-v1"];
@@ -91,8 +92,9 @@ export function parseRetirement(value: unknown): RetiredCareer {
   };
 }
 
-export function readRetirements(storage: ArchiveStorage): RetiredCareer[] {
-  return list(JSON.parse(storage.getItem(CAREER_ARCHIVE_KEY) ?? "[]")).map(parseRetirement);
+/** key는 계정마다 나눈 보관함 칸이에요(storage.ts의 careerKeys). */
+export function readRetirements(storage: ArchiveStorage, key: string): RetiredCareer[] {
+  return list(JSON.parse(storage.getItem(key) ?? "[]")).map(parseRetirement);
 }
 
 export function mergeRetirements(existing: RetiredCareer[], incoming: RetiredCareer[]): RetiredCareer[] {
@@ -101,11 +103,11 @@ export function mergeRetirements(existing: RetiredCareer[], incoming: RetiredCar
   return [...entries.values()].sort((a, b) => Date.parse(b.retiredAt) - Date.parse(a.retiredAt));
 }
 
-export function saveRetirements(storage: ArchiveStorage, incoming: RetiredCareer[]): RetiredCareer[] {
+export function saveRetirements(storage: ArchiveStorage, incoming: RetiredCareer[], key: string): RetiredCareer[] {
   // 읽기나 쓰기 실패 시 기존 값을 지우거나 최근 N명으로 잘라서 덮어쓰지 않아요.
-  const existing = readRetirements(storage);
+  const existing = readRetirements(storage, key);
   const entries = mergeRetirements(existing, incoming);
-  if (entries.length !== existing.length) storage.setItem(CAREER_ARCHIVE_KEY, JSON.stringify(entries));
+  if (entries.length !== existing.length) storage.setItem(key, JSON.stringify(entries));
   return entries;
 }
 
