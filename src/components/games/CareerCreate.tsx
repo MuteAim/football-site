@@ -1,8 +1,11 @@
 "use client";
 
 import { useMemo, useRef, useState, type FormEvent } from "react";
-import { CLUBS, LEAGUES, NATION_ORDER, NATIONS, POSITION_ORDER, POSITIONS, YOUTH_LEAGUES, type LeagueCode, type NationCode, type Pos } from "@/lib/career/data";
-import { CAREER_RULES, cleanName, clubName, NAME_PATTERN, scoutCandidates, seasonLabel, type CareerSetup } from "@/lib/career/engine";
+import { CLUBS, LEAGUES, NATION_ORDER, NATIONS, POSITIONS, YOUTH_LEAGUES, type LeagueCode, type NationCode, type Pos } from "@/lib/career/data";
+import {
+  CAREER_RULES, cleanName, clubName, FOOT_NAMES, footFit, NAME_PATTERN, positionCode, positionName, scoutCandidates, seasonLabel,
+  type CareerSetup, type Side,
+} from "@/lib/career/engine";
 import { DiceIcon } from "../Icons";
 import { cardClass, errorTextClass, inputClass, mutedClass, secondaryButtonClass } from "../ui";
 import { AttrBars, ClubBadge, Stars } from "./CareerParts";
@@ -14,6 +17,12 @@ const TIERS = [
   { label: "하위권 유스", hint: "일찍 1군 기회" },
 ];
 
+/** 고를 수 있는 자리. 윙어·풀백은 왼쪽·오른쪽을 따로 골라요. number는 그 자리의 흔한 등번호예요. */
+const SPOTS: { pos: Pos; side?: Side; number: number }[] = [
+  { pos: "ST", number: 9 }, { pos: "WG", side: "L", number: 11 }, { pos: "WG", side: "R", number: 7 }, { pos: "AM", number: 10 }, { pos: "CM", number: 8 },
+  { pos: "DM", number: 6 }, { pos: "FB", side: "L", number: 3 }, { pos: "FB", side: "R", number: 2 }, { pos: "CB", number: 4 }, { pos: "GK", number: 1 },
+];
+
 const chipClass = "flex cursor-pointer items-center justify-center rounded-xl px-2 py-2.5 text-center text-sm font-semibold ring-1 ring-zinc-950/10 transition hover:bg-zinc-50 has-[:checked]:bg-emerald-700 has-[:checked]:text-white has-[:checked]:ring-emerald-700 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-emerald-500 dark:ring-white/10 dark:hover:bg-white/5 dark:has-[:checked]:bg-zinc-100 dark:has-[:checked]:text-zinc-950";
 
 export function CareerCreate({ seed, startYear, ranked, onCreate, onCancel }: {
@@ -23,12 +32,21 @@ export function CareerCreate({ seed, startYear, ranked, onCreate, onCancel }: {
   const [name, setName] = useState("");
   const [nation, setNation] = useState<NationCode>("KOR");
   const [league, setLeague] = useState<LeagueCode>("KOR");
-  const [pos, setPos] = useState<Pos>("ST");
+  const [spot, setSpot] = useState(0);
+  const [foot, setFoot] = useState<Side>("R");
+  // 직접 고치기 전에는 고른 자리의 흔한 등번호를 채워 둬요.
+  const [numberText, setNumberText] = useState<string | null>(null);
   const [pick, setPick] = useState(0);
   // 다시 뽑은 횟수. 연습은 사실상 무제한이고, 순위 도전은 정해진 횟수까지만 돼요.
   const [reroll, setReroll] = useState(0);
   const [touched, setTouched] = useState(false);
   const nameInput = useRef<HTMLInputElement>(null);
+  const numberInput = useRef<HTMLInputElement>(null);
+  const { pos, side } = SPOTS[spot];
+  const numberValue = numberText ?? String(SPOTS[spot].number);
+  const number = /^\d{1,2}$/.test(numberValue) ? Number(numberValue) : 0;
+  const numberError = number >= 1 && number <= 99 ? "" : "등번호는 1~99 사이로 정해 주세요.";
+  const fit = side ? footFit(pos, foot, side) : null;
   const candidates = useMemo(() => scoutCandidates(seed, nation, league, pos, reroll), [seed, nation, league, pos, reroll]);
   const rerollsLeft = (ranked ? CAREER_RULES.rankedRerolls : CAREER_RULES.maxRerolls) - reroll;
   const clean = cleanName(name);
@@ -41,7 +59,11 @@ export function CareerCreate({ seed, startYear, ranked, onCreate, onCancel }: {
       nameInput.current?.focus();
       return;
     }
-    onCreate({ name: clean, nation, league, pos, pick, ...(reroll ? { reroll } : {}) });
+    if (numberError) {
+      numberInput.current?.focus();
+      return;
+    }
+    onCreate({ name: clean, nation, league, pos, pick, ...(reroll ? { reroll } : {}), number, foot, ...(side ? { side } : {}) });
   }
 
   return (
@@ -55,15 +77,28 @@ export function CareerCreate({ seed, startYear, ranked, onCreate, onCancel }: {
         <button type="button" onClick={onCancel} className={`shrink-0 rounded-lg px-2 py-1 text-xs font-semibold ${mutedClass} hover:bg-zinc-950/5 dark:hover:bg-white/10`}>취소</button>
       </div>
 
-      <label className="mt-6 block text-sm font-bold" htmlFor="career-name">선수 이름</label>
-      <input
-        ref={nameInput} id="career-name" value={name} maxLength={CAREER_RULES.nameLength} autoComplete="off" placeholder="예: 김유망"
-        aria-invalid={touched && !!nameError} aria-describedby="career-name-help"
-        onChange={(event) => setName(event.target.value)} onBlur={() => setTouched(true)}
-        className={`mt-2 ${inputClass}`}
-      />
-      <p id="career-name-help" className={`mt-1.5 text-xs ${touched && nameError ? errorTextClass : mutedClass}`}>
-        {touched && nameError ? nameError : "순위에는 닉네임과 함께 이 이름이 보여요. 실명 대신 별명을 추천해요."}
+      <div className="mt-6 flex gap-3">
+        <div className="min-w-0 flex-1">
+          <label className="block text-sm font-bold" htmlFor="career-name">선수 이름</label>
+          <input
+            ref={nameInput} id="career-name" value={name} maxLength={CAREER_RULES.nameLength} autoComplete="off" placeholder="예: 김유망"
+            aria-invalid={touched && !!nameError} aria-describedby="career-name-help"
+            onChange={(event) => setName(event.target.value)} onBlur={() => setTouched(true)}
+            className={`mt-2 ${inputClass}`}
+          />
+        </div>
+        <div className="w-24 shrink-0">
+          <label className="block text-sm font-bold" htmlFor="career-number">등번호</label>
+          <input
+            ref={numberInput} id="career-number" value={numberValue} inputMode="numeric" maxLength={2} autoComplete="off"
+            aria-invalid={!!numberError} aria-describedby="career-name-help"
+            onChange={(event) => setNumberText(event.target.value.replace(/\D/g, "").slice(0, 2))}
+            className={`mt-2 text-center font-black tabular-nums ${inputClass}`}
+          />
+        </div>
+      </div>
+      <p id="career-name-help" className={`mt-1.5 text-xs ${numberError || (touched && nameError) ? errorTextClass : mutedClass}`}>
+        {touched && nameError ? nameError : numberError || "순위에는 닉네임과 함께 이 이름과 등번호가 보여요. 실명 대신 별명을 추천해요."}
       </p>
 
       <fieldset className="mt-6">
@@ -88,15 +123,33 @@ export function CareerCreate({ seed, startYear, ranked, onCreate, onCancel }: {
 
       <fieldset className="mt-6">
         <legend className="text-sm font-bold">포지션</legend>
-        <div className="mt-2 grid grid-cols-4 gap-2">
-          {POSITION_ORDER.map((code) => (
-            <label key={code} className={`${chipClass} flex-col gap-0.5 py-2`}>
-              <input type="radio" name="career-pos" value={code} checked={pos === code} className="sr-only" onChange={() => setPos(code)} />
-              <span className="text-[15px] font-black">{code}</span>
-              <span className="text-[10px] leading-tight font-medium opacity-75">{POSITIONS[code].name}</span>
+        <div className="mt-2 grid grid-cols-5 gap-2">
+          {SPOTS.map((item, index) => {
+            const code = positionCode(item.pos, item.side);
+            return (
+              <label key={code} className={`${chipClass} flex-col gap-0.5 px-1 py-2`}>
+                <input type="radio" name="career-pos" value={code} checked={spot === index} className="sr-only" onChange={() => setSpot(index)} />
+                <span className="text-[15px] font-black">{code}</span>
+                <span className="text-[10px] leading-tight font-medium break-keep opacity-75">{positionName(item.pos, item.side)}</span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+
+      <fieldset className="mt-6">
+        <legend className="text-sm font-bold">주발</legend>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {(["L", "R"] as const).map((code) => (
+            <label key={code} className={chipClass}>
+              <input type="radio" name="career-foot" value={code} checked={foot === code} className="sr-only" onChange={() => setFoot(code)} />
+              {FOOT_NAMES[code]}
             </label>
           ))}
         </div>
+        <p className={`mt-1.5 text-xs ${mutedClass}`}>
+          {fit ? `${fit.label} · 주발과 반대쪽에 서면 안쪽으로 파고들어 골을, 같은 쪽에 서면 크로스로 도움을 노려요.` : "윙어·풀백은 주발과 서는 쪽에 따라 골·도움이 달라져요."}
+        </p>
       </fieldset>
 
       <fieldset className="mt-7">

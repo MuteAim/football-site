@@ -1,11 +1,13 @@
 import type { NationCode, Pos } from "./data";
+import { FLANKS, type CareerSummary, type Side } from "./engine";
 
 // 레전드 로드 순위 화면에서 쓰는 모양이에요. DB의 career_board가 같은 모양으로 돌려줘요.
 export type CareerLeader = {
-  nickname: string; name: string; position: Pos; nation: NationCode; club: string;
+  /** side는 윙어·풀백의 측면이에요. number·side는 schema.sql을 다시 실행하기 전에는 없어요. */
+  nickname: string; name: string; position: Pos; side?: Side | null; number?: number | null; nation: NationCode; club: string;
   score: number; ballonDor: number; peakOvr: number; goals: number; rank: number; isMe: boolean;
 };
-export type CareerElevenEntry = { position: Pos; slot: number; name: string; nickname: string; score: number; peakOvr: number; ballonDor: number };
+export type CareerElevenEntry = { position: Pos; side?: Side | null; number?: number | null; slot: number; name: string; nickname: string; score: number; peakOvr: number; ballonDor: number };
 export type CareerBoard = {
   leaders: CareerLeader[];
   personal: { score: number; rank: number } | null;
@@ -31,4 +33,14 @@ export function readCareerChallenge(score: string | null, day: string | null): {
   const date = new Date(`${day}T00:00:00Z`);
   if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== day || value > MAX_CAREER_SCORE) return null;
   return { score: value, day };
+}
+
+/** DB의 career_record에 보내는 은퇴 기록. 서버가 다시 계산한 요약으로만 만들어요. 측면은 윙어·풀백으로 은퇴했을 때만 남겨요. */
+export function careerRecordOf(summary: CareerSummary) {
+  return {
+    position: summary.pos, side: FLANKS.includes(summary.pos) ? summary.side : null, number: summary.number, foot: summary.foot,
+    name: summary.name, nation: summary.nation, club: summary.lastClub,
+    score: summary.score, ballonDor: summary.ballonDor, peakOvr: summary.peakOvr,
+    goals: summary.goals, assists: summary.assists, apps: summary.apps, trophies: summary.trophies, seasons: summary.seasons,
+  };
 }

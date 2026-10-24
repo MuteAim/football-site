@@ -5,8 +5,8 @@ import { isCafeConfigured } from "./config";
 import { adminClient, isSettlementConfigured } from "./supabase-admin";
 import { createSessionClient } from "./supabase-server";
 import { getViewer } from "./viewer";
-import { careerDay, EMPTY_CAREER_BOARD, type CareerBoard, type CareerSnapshot } from "../career/board";
-import { CAREER_RULES, CAREER_VERSION, CareerError, replayCareer, summarizeCareer, type CareerSave, type CareerSetup } from "../career/engine";
+import { careerDay, careerRecordOf, EMPTY_CAREER_BOARD, type CareerBoard, type CareerSnapshot } from "../career/board";
+import { CAREER_RULES, CAREER_VERSION, CareerError, cleanSetup, replayCareer, summarizeCareer, type CareerSave, type CareerSetup } from "../career/engine";
 import { CAREER_ARCHIVE_BATCH, parseRetirement, retirementId, type RetiredCareer } from "../career/archive";
 import { buildCareerCard } from "../career/card";
 
@@ -72,17 +72,10 @@ export async function finishCareerRun(runId: string, setup: CareerSetup, choices
     if (!run || run.id !== runId) return { error: "다른 곳에서 새 커리어를 시작해서 이 커리어는 순위에 올릴 수 없어요." };
 
     // 화면이 보낸 결과는 믿지 않고 서버가 같은 규칙으로 다시 계산해요.
-    const state = replayCareer({
-      v: CAREER_VERSION, seed: Number(run.seed), startYear: run.start_year, choices,
-      setup: { name: setup.name, nation: setup.nation, league: setup.league, pos: setup.pos, pick: setup.pick, ...(reroll ? { reroll } : {}) },
-    });
+    const state = replayCareer({ v: CAREER_VERSION, seed: Number(run.seed), startYear: run.start_year, choices, setup: cleanSetup(setup) });
     if (state.phase !== "retired") return { error: "은퇴한 커리어만 순위에 올릴 수 있어요." };
     const summary = summarizeCareer(state);
-    const record = {
-      position: summary.pos, name: summary.name, nation: summary.nation, club: summary.lastClub,
-      score: summary.score, ballonDor: summary.ballonDor, peakOvr: summary.peakOvr,
-      goals: summary.goals, assists: summary.assists, apps: summary.apps, trophies: summary.trophies, seasons: summary.seasons,
-    };
+    const record = careerRecordOf(summary);
     const { data, error: saveError } = await admin.rpc("career_record", { target_user: viewer.id, target_run: runId, record })
       .single<{ record_day: string; is_new: boolean }>();
     if (saveError || !data) return { error: saveError?.code === "P0001" ? saveError.message : "기록을 저장하지 못했어요. 아래 버튼으로 다시 시도해 주세요." };
@@ -147,10 +140,7 @@ export async function shareCareerCard(save: CareerSave): Promise<{ code: string 
   try {
     const viewer = await getViewer();
     if (!viewer?.profile) return { error: "로그인하고 닉네임을 정하면 공유 카드를 만들 수 있어요." };
-    const clean: CareerSave = {
-      v: CAREER_VERSION, seed, startYear, choices: [...choices],
-      setup: { name: setup.name, nation: setup.nation, league: setup.league, pos: setup.pos, pick: setup.pick, ...(setup.reroll ? { reroll: setup.reroll } : {}) },
-    };
+    const clean: CareerSave = { v: CAREER_VERSION, seed, startYear, choices: [...choices], setup: cleanSetup(setup) };
     const state = replayCareer(clean);
     if (state.phase !== "retired") return { error: "은퇴한 선수만 공유 카드로 만들 수 있어요." };
     const { data, error } = await admin.rpc("career_card_save", {

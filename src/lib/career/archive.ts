@@ -1,13 +1,16 @@
-import { clubName, summarizeCareer, type CareerSave, type CareerState, type CareerSummary } from "./engine";
+import { clubName, summarizeCareer, type CareerSave, type CareerState, type CareerSummary, type Side } from "./engine";
 
 // 경기 엔진 버전과 별개인 요약 보관함. 선택·사건·시즌 원본은 저장하지 않아요.
-export const CAREER_ARCHIVE_KEY = "football-career-archive-v1";
+// 등번호·주발·측면이 생기면서 레전드 로드를 초기화해 v2부터 다시 모아요.
+export const CAREER_ARCHIVE_KEY = "football-career-archive-v2";
+/** 초기화 전 브라우저 저장. 불러올 때 지워요. */
+export const CAREER_LEGACY_KEYS = ["football-career-archive-v1", "football-career-hall-v1"];
 const TOTAL_KEYS = ["seasons", "firstYear", "lastYear", "retiredAge", "apps", "goals", "assists", "cleanSheets", "caps", "intlGoals", "peakOvr", "ballonDor", "awards", "trophies"] as const;
 type Totals = Pick<CareerSummary, (typeof TOTAL_KEYS)[number]>;
 export type ClubCareer = { club: string; name: string; seasons: number; apps: number; goals: number; assists: number; cleanSheets: number };
 export type RetiredCareer = {
-  v: 1; id: string; retiredAt: string; ranked: boolean;
-  name: string; nation: string; pos: string; score: number; grade: string; title: string;
+  v: 2; id: string; retiredAt: string; ranked: boolean;
+  name: string; nation: string; pos: string; number: number; foot: Side; side: Side; score: number; grade: string; title: string;
   totals: Totals; clubs: ClubCareer[]; honors: { label: string; count: number }[];
 };
 type ArchiveStorage = Pick<Storage, "getItem" | "setItem">;
@@ -17,7 +20,7 @@ export const CAREER_ARCHIVE_BATCH = 100;
 /** 같은 저장을 새로 고치거나 다시 가져와도 한 번만 보관해요. 원본 선택은 식별값 계산에만 사용해요. */
 export function retirementId(save: CareerSave): string {
   const { v, seed, startYear, setup, choices } = save;
-  const text = JSON.stringify([v, seed, startYear, setup.name, setup.nation, setup.pos, setup.league, setup.pick, setup.reroll ?? 0, choices]);
+  const text = JSON.stringify([v, seed, startYear, setup.name, setup.nation, setup.pos, setup.league, setup.pick, setup.reroll ?? 0, setup.number, setup.foot, setup.side ?? "", choices]);
   let a = 2166136261, b = 5381;
   for (let i = 0; i < text.length; i++) {
     a = Math.imul(a ^ text.charCodeAt(i), 16777619);
@@ -40,8 +43,8 @@ export function archiveCareer(state: CareerState, save: CareerSave, ranked: bool
     clubs.set(season.club, row);
   }
   return {
-    v: 1, id: retirementId(save), retiredAt, ranked,
-    name: summary.name, nation: summary.nation, pos: summary.pos, score: summary.score, grade: summary.grade, title: summary.title,
+    v: 2, id: retirementId(save), retiredAt, ranked,
+    name: summary.name, nation: summary.nation, pos: summary.pos, number: summary.number, foot: summary.foot, side: summary.side, score: summary.score, grade: summary.grade, title: summary.title,
     totals: Object.fromEntries(TOTAL_KEYS.map((key) => [key, summary[key]])) as Totals,
     clubs: [...clubs.values()], honors: summary.honors.map((honor) => ({ ...honor })),
   };
@@ -59,6 +62,10 @@ function count(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > 1_000_000_000) throw new Error("보관함의 기록 숫자가 올바르지 않아요.");
   return value;
 }
+function side(value: unknown): Side {
+  if (value !== "L" && value !== "R") throw new Error("보관함의 주발이나 측면이 올바르지 않아요.");
+  return value;
+}
 function list(value: unknown): unknown[] {
   if (!Array.isArray(value)) throw new Error("보관함의 기록 목록이 올바르지 않아요.");
   return value;
@@ -67,12 +74,14 @@ function list(value: unknown): unknown[] {
 /** 가져온 파일의 필요한 필드만 복사해요. 원본 게임 데이터가 섞여 있어도 보관하지 않아요. */
 export function parseRetirement(value: unknown): RetiredCareer {
   const entry = object(value), totals = object(entry.totals);
-  if (entry.v !== 1 || typeof entry.ranked !== "boolean") throw new Error("지원하지 않는 보관함 형식이에요.");
+  if (entry.v !== 2 || typeof entry.ranked !== "boolean") throw new Error("지원하지 않는 보관함 형식이에요.");
+  const number = count(entry.number);
+  if (number < 1 || number > 99) throw new Error("보관함의 등번호가 올바르지 않아요.");
   const retiredAt = text(entry.retiredAt, 40);
   if (!Number.isFinite(Date.parse(retiredAt))) throw new Error("은퇴 날짜가 올바르지 않아요.");
   return {
-    v: 1, id: text(entry.id), retiredAt, ranked: entry.ranked,
-    name: text(entry.name), nation: text(entry.nation), pos: text(entry.pos), score: count(entry.score), grade: text(entry.grade), title: text(entry.title),
+    v: 2, id: text(entry.id), retiredAt, ranked: entry.ranked,
+    name: text(entry.name), nation: text(entry.nation), pos: text(entry.pos), number, foot: side(entry.foot), side: side(entry.side), score: count(entry.score), grade: text(entry.grade), title: text(entry.title),
     totals: Object.fromEntries(TOTAL_KEYS.map((key) => [key, count(totals[key])])) as Totals,
     clubs: list(entry.clubs).map((value) => {
       const row = object(value);
@@ -101,11 +110,12 @@ export function saveRetirements(storage: ArchiveStorage, incoming: RetiredCareer
 }
 
 export function exportRetirements(entries: RetiredCareer[]): string {
-  return JSON.stringify({ format: "legend-road-retirements", version: 1, entries }, null, 2);
+  return JSON.stringify({ format: "legend-road-retirements", version: 2, entries }, null, 2);
 }
 
 export function importRetirements(source: string): RetiredCareer[] {
   const file = object(JSON.parse(source));
-  if (file.format !== "legend-road-retirements" || file.version !== 1) throw new Error("레전드 로드 은퇴 보관함 백업 파일을 골라 주세요.");
+  if (file.format !== "legend-road-retirements") throw new Error("레전드 로드 은퇴 보관함 백업 파일을 골라 주세요.");
+  if (file.version !== 2) throw new Error("레전드 로드 초기화 전에 만든 백업이라 불러올 수 없어요.");
   return list(file.entries).map(parseRetirement);
 }

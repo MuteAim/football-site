@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { finishCareerRun, getCareerRetirements, getCareerSnapshot, saveCareerRetirements, shareCareerCard, startCareerRun } from "@/lib/cafe/career-actions";
 import { careerDay, type CareerSnapshot } from "@/lib/career/board";
-import { NATIONS, POSITIONS } from "@/lib/career/data";
+import { NATIONS } from "@/lib/career/data";
 import {
-  CAREER_RULES, CAREER_VERSION, CareerError, choose, createCareer, legacyBreakdown, replayCareer, seasonLabel, seasonYearOf, summarizeCareer,
+  CAREER_RULES, CAREER_VERSION, CareerError, choose, createCareer, FOOT_NAMES, legacyBreakdown, positionName, replayCareer, seasonLabel, seasonYearOf, summarizeCareer,
   type CareerSave, type CareerSetup, type CareerState, type CareerSummary,
 } from "@/lib/career/engine";
 import { confirmDialog, showToast } from "../feedback";
@@ -18,19 +18,17 @@ import { DecisionCard, HalfSeason, HistoryTable, OvrChart, PlayerCard, RivalCard
 import { TurnHeader, turnResult, type TurnResult } from "./CareerTurn";
 import { buildCareerJournal } from "@/lib/career/journal";
 import { CareerJournal } from "./CareerJournal";
-import { archiveCareer, CAREER_ARCHIVE_BATCH, mergeRetirements, readRetirements, saveRetirements, type RetiredCareer } from "@/lib/career/archive";
+import { archiveCareer, CAREER_ARCHIVE_BATCH, CAREER_LEGACY_KEYS, mergeRetirements, readRetirements, saveRetirements, type RetiredCareer } from "@/lib/career/archive";
 import { CareerArchive, type CloudState } from "./CareerArchive";
 import styles from "./career.module.css";
 
 /** 브라우저에 남기는 커리어. 상태 대신 시드와 선택만 저장하고 불러올 때 다시 계산해요. */
 type Stored = CareerSave & { runId: string | null; recorded: string | null; card?: string | null };
-type HallEntry = { name: string; pos: string; nation: string; score: number; grade: string; title: string; ballonDor: number; peakOvr: number; day: string; ranked: boolean };
 type Pending = { seed: number; startYear: number; runId: string | null };
 type Busy = { title: string; from: number; to: number; ms: number; previous: CareerState; result: TurnResult | null };
 type RankState = { state: "none" | "saving" | "saved" | "failed"; message: string };
 
 const SAVE_KEY = "football-career-v1";
-const HALL_KEY = "football-career-hall-v1";
 const QUICK_KEY = "football-career-quick";
 const SIM_MS = 650;
 
@@ -54,13 +52,6 @@ function writeStored(value: Stored | null) {
     if (value) localStorage.setItem(SAVE_KEY, JSON.stringify(value));
     else localStorage.removeItem(SAVE_KEY);
   } catch {}
-}
-
-function readHall(): HallEntry[] {
-  try {
-    const list = JSON.parse(localStorage.getItem(HALL_KEY) ?? "[]");
-    return Array.isArray(list) ? list.filter((entry) => entry && typeof entry.name === "string" && Number.isInteger(entry.score)).slice(0, 10) : [];
-  } catch { return []; }
 }
 
 /** 다른 기기로 옮기는 커리어 코드. 시드와 선택만 담겨서 짧아요. */
@@ -93,7 +84,6 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   const [stored, setStored] = useState<Stored | null>(null);
   const [career, setCareer] = useState<CareerState | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
-  const [hall, setHall] = useState<HallEntry[]>([]);
   const [archive, setArchive] = useState<RetiredCareer[]>([]);
   const [archiveError, setArchiveError] = useState("");
   const [busy, setBusy] = useState<Busy | null>(null);
@@ -181,14 +171,15 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     if (loaded.current) return;
     const frame = requestAnimationFrame(() => {
       loaded.current = true;
-      setHall(readHall());
+      // 레전드 로드를 초기화하기 전의 보관함은 지워요.
+      try { for (const key of CAREER_LEGACY_KEYS) localStorage.removeItem(key); } catch {}
       try { setArchive(readRetirements(localStorage)); }
       catch { setArchiveError("기존 은퇴 보관함을 읽지 못했어요. 브라우저 저장 접근을 확인해 주세요. 기존 데이터는 지우지 않았어요."); }
       try { setQuick(localStorage.getItem(QUICK_KEY) === "1"); } catch {}
       const value = readStored();
       if (!value) { setScreen("intro"); return; }
       try {
-        if (value.v !== CAREER_VERSION) throw new CareerError("레전드 로드가 업데이트되어 진행 중이던 커리어는 이어 할 수 없어요. 은퇴한 선수는 명예의 전당에 그대로 있어요.");
+        if (value.v !== CAREER_VERSION) throw new CareerError("레전드 로드가 업데이트되어 진행 중이던 커리어는 이어 할 수 없어요. 새 선수로 다시 시작해 주세요.");
         restore(value);
       } catch (reason) {
         writeStored(null);
@@ -382,7 +373,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
 
   function share(summary: CareerSummary) {
     const url = `${location.origin}/games/career?score=${summary.score}&day=${careerDay()}`;
-    const text = `⚽ 레전드 로드 · ${summary.name} (${POSITIONS[summary.pos].name}, ${NATIONS[summary.nation].name})\n「${summary.title}」 레전드 점수 ${summary.score.toLocaleString("ko-KR")}점\n발롱도르 ${summary.ballonDor}회 · 최고 OVR ${summary.peakOvr} · ${summary.apps}경기 ${summary.goals}골\n내 커리어를 넘을 수 있을까?`;
+    const text = `⚽ 레전드 로드 · ${summary.number}번 ${summary.name} (${positionName(summary.pos, summary.side)}, ${NATIONS[summary.nation].name})\n「${summary.title}」 레전드 점수 ${summary.score.toLocaleString("ko-KR")}점\n발롱도르 ${summary.ballonDor}회 · 최고 OVR ${summary.peakOvr} · ${summary.apps}경기 ${summary.goals}골\n내 커리어를 넘을 수 있을까?`;
     return send("내 축구 인생에 도전!", text, url, "도전장을 복사했어요. 친구에게 보내 보세요!");
   }
 
@@ -401,7 +392,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
       writeStored(next);
       setStored(next);
     }
-    const text = `⚽ 레전드 로드 · ${summary.name}의 축구 인생\n「${summary.title}」 레전드 점수 ${summary.score.toLocaleString("ko-KR")}점 · ${summary.grade}\n${summary.seasons}시즌 ${summary.apps}경기 ${summary.pos === "GK" ? `무실점 ${summary.cleanSheets}경기` : `${summary.goals}골 ${summary.assists}도움`} · 발롱도르 ${summary.ballonDor}회`;
+    const text = `⚽ 레전드 로드 · ${summary.number}번 ${summary.name}의 축구 인생\n「${summary.title}」 레전드 점수 ${summary.score.toLocaleString("ko-KR")}점 · ${summary.grade}\n${summary.seasons}시즌 ${summary.apps}경기 ${summary.pos === "GK" ? `무실점 ${summary.cleanSheets}경기` : `${summary.goals}골 ${summary.assists}도움`} · 발롱도르 ${summary.ballonDor}회`;
     await send(`${summary.name} · 레전드 로드`, text, `${location.origin}/games/career/card/${code}`, "공유 카드 링크를 복사했어요. 친구에게 보내 보세요!");
   }
 
@@ -464,7 +455,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
                 {busy ? <div className="absolute inset-0 flex flex-col justify-center p-2"><div className="sticky top-24 bottom-4"><SimulationCard {...busy} /></div></div> : null}
               </div>
             )}
-            {summary ? <CareerJournal seasons={journal} /> : <HistoryTable history={displayed.history} />}
+            {summary ? <CareerJournal seasons={journal} side={displayed.side} /> : <HistoryTable history={displayed.history} />}
             {!summary ? (
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => void copyCode()} className={secondaryButtonClass}>커리어 코드 복사</button>
@@ -475,7 +466,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
             {!summary && shareText ? <textarea aria-label="커리어 코드" readOnly value={shareText} onFocus={(event) => event.target.select()} className="h-24 w-full rounded-xl bg-zinc-100 p-3 text-xs dark:bg-white/[0.06]" /> : null}
           </>
         ) : (
-          <Intro ranked={ranked} member={snapshot.member} starting={starting} hall={hall} onStart={() => void begin()} onPractice={() => void begin(true)}
+          <Intro ranked={ranked} member={snapshot.member} starting={starting} onStart={() => void begin()} onPractice={() => void begin(true)}
             importCode={importCode} onImportCode={setImportCode} onImport={importCareer} />
         )}
         {error ? <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-200">{error}</p> : null}
@@ -486,8 +477,8 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   );
 }
 
-function Intro({ ranked, member, starting, hall, onStart, onPractice, importCode, onImportCode, onImport }: {
-  ranked: boolean; member: boolean; starting: boolean; hall: HallEntry[];
+function Intro({ ranked, member, starting, onStart, onPractice, importCode, onImportCode, onImport }: {
+  ranked: boolean; member: boolean; starting: boolean;
   onStart: () => void; onPractice: () => void; importCode: string; onImportCode: (value: string) => void; onImport: () => void;
 }) {
   return (
@@ -514,26 +505,6 @@ function Intro({ ranked, member, starting, hall, onStart, onPractice, importCode
           <p className="text-sm"><strong>내 닉네임으로 레전드 순위에!</strong><br /><span className={`text-xs ${mutedClass}`}>로그인하면 다음 커리어부터 오늘의 순위에 참여해요.</span></p>
           <Link href="/cafe/login?next=%2Fgames%2Fcareer" prefetch={false} className={primaryButtonClass}>로그인</Link>
         </div>
-      ) : null}
-      {hall.length ? (
-        <section className={`${cardClass} p-5`}>
-          <h2 className="font-extrabold">이전 명예의 전당</h2>
-          <p className={`mt-1 text-xs ${mutedClass}`}>업데이트 전에 남겨 둔 간단 기록이에요. 당시 팀별 성적은 저장되지 않았어요.</p>
-          <ol className="mt-3 divide-y divide-zinc-100 dark:divide-white/5">
-            {hall.map((entry, index) => (
-              <li key={`${entry.day}-${entry.name}-${index}`} className="flex items-center gap-3 py-2.5">
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-bold">{entry.name} <span className={`text-[11px] font-semibold ${mutedClass}`}>{entry.pos} · {NATIONS[entry.nation as keyof typeof NATIONS]?.name ?? ""}</span></span>
-                  <span className={`block truncate text-[11px] ${mutedClass}`}>{entry.title} · {entry.grade}{entry.ballonDor ? ` · 발롱도르 ${entry.ballonDor}회` : ""} · OVR {entry.peakOvr}</span>
-                </span>
-                <span className="shrink-0 text-right">
-                  <span className="block text-sm font-extrabold tabular-nums">{entry.score.toLocaleString("ko-KR")}</span>
-                  <span className={`block text-[10px] ${mutedClass}`}>{entry.ranked ? "순위 도전" : "연습"} · {entry.day.slice(5).replace("-", ".")}</span>
-                </span>
-              </li>
-            ))}
-          </ol>
-        </section>
       ) : null}
       <details className={`${cardClass} group`}>
         <summary className="cursor-pointer list-none px-5 py-4 text-sm font-bold">다른 기기의 커리어 이어 하기</summary>
@@ -566,7 +537,7 @@ function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked
       <div className="px-5 pt-7 pb-6 text-center sm:px-8">
         <p className="text-xs font-bold tracking-widest text-amber-200/80">RETIRED · {summary.firstYear}–{summary.lastYear} · {summary.retiredAge}세 은퇴</p>
         <h2 id="career-decision" tabIndex={-1} className="mt-3 text-3xl font-black tracking-tight outline-none">{summary.name}</h2>
-        <p className="mt-1 text-xs text-white/65">{POSITIONS[summary.pos].name} · {NATIONS[summary.nation].name} · 구단 {summary.clubs.length}곳</p>
+        <p className="mt-1 text-xs text-white/65">{summary.number}번 · {positionName(summary.pos, summary.side)} · {FOOT_NAMES[summary.foot]} · {NATIONS[summary.nation].name} · 구단 {summary.clubs.length}곳</p>
         <p className="mt-4 inline-flex rounded-full bg-amber-300/15 px-4 py-1.5 text-sm font-extrabold text-amber-200">「{summary.title}」</p>
         <p className="mt-5 text-[11px] font-bold tracking-widest text-lime-200/70">LEGEND SCORE</p>
         <p className="mt-1 text-6xl font-black tracking-tighter text-[#d4f77d] tabular-nums">{summary.score.toLocaleString("ko-KR")}<span className="ml-2 text-lg tracking-normal">점</span></p>

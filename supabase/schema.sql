@@ -1731,6 +1731,18 @@ create table if not exists public.career_records (
   achieved_at timestamptz not null default clock_timestamp(),
   primary key (day, user_id, position)
 );
+-- 등번호·주발과 윙어·풀백의 측면(L·R). 측면은 윙어·풀백만 있어요.
+alter table public.career_records add column if not exists side text;
+alter table public.career_records add column if not exists shirt_number integer;
+alter table public.career_records add column if not exists foot text;
+alter table public.career_records drop constraint if exists career_records_side_check;
+alter table public.career_records add constraint career_records_side_check check (
+  case when position in ('WG', 'FB') then side is null or side in ('L', 'R') else side is null end
+);
+alter table public.career_records drop constraint if exists career_records_shirt_number_check;
+alter table public.career_records add constraint career_records_shirt_number_check check (shirt_number between 1 and 99);
+alter table public.career_records drop constraint if exists career_records_foot_check;
+alter table public.career_records add constraint career_records_foot_check check (foot in ('L', 'R'));
 create index if not exists career_records_board_idx on public.career_records(day, score desc);
 alter table public.career_runs enable row level security;
 alter table public.career_records enable row level security;
@@ -1781,12 +1793,14 @@ begin
     raise exception '커리어 진행 시간이 너무 짧아요. 잠시 뒤 다시 시도해 주세요.';
   end if;
   update public.career_runs r set finished_at = clock_timestamp(), recorded_day = today where r.user_id = target_user;
-  insert into public.career_records as c(day, user_id, position, run_id, player_name, nation, club, score, ballon_dor,
+  insert into public.career_records as c(day, user_id, position, side, shirt_number, foot, run_id, player_name, nation, club, score, ballon_dor,
     peak_ovr, goals, assists, apps, trophies, seasons)
-  values (today, target_user, record->>'position', target_run, record->>'name', record->>'nation', record->>'club',
+  values (today, target_user, record->>'position', record->>'side', (record->>'number')::integer, record->>'foot', target_run,
+    record->>'name', record->>'nation', record->>'club',
     (record->>'score')::integer, (record->>'ballonDor')::integer, (record->>'peakOvr')::integer, (record->>'goals')::integer,
     (record->>'assists')::integer, (record->>'apps')::integer, (record->>'trophies')::integer, played)
-  on conflict (day, user_id, position) do update set run_id = excluded.run_id, player_name = excluded.player_name,
+  on conflict (day, user_id, position) do update set run_id = excluded.run_id, side = excluded.side,
+    shirt_number = excluded.shirt_number, foot = excluded.foot, player_name = excluded.player_name,
     nation = excluded.nation, club = excluded.club, score = excluded.score, ballon_dor = excluded.ballon_dor,
     peak_ovr = excluded.peak_ovr, goals = excluded.goals, assists = excluded.assists, apps = excluded.apps,
     trophies = excluded.trophies, seasons = excluded.seasons, achieved_at = clock_timestamp()
@@ -1795,7 +1809,7 @@ begin
 end $$;
 
 -- 회원마다 그날 최고 기록 하나로 겨뤄요. 같은 점수는 같은 순위이고, 먼저 달성한 회원이 앞에 보여요.
--- 베스트 11(4-3-3)은 포지션별 최고 기록이에요. 풀백·센터백·윙어는 두 자리예요.
+-- 베스트 11(4-3-3)은 포지션별 최고 기록이에요. 센터백은 두 자리, 윙어·풀백은 왼쪽·오른쪽에 한 자리씩이에요.
 create or replace function public.career_board(target_day date)
 returns jsonb language sql stable security definer set search_path = public as $$
   with best as (
@@ -1808,23 +1822,24 @@ returns jsonb language sql stable security definer set search_path = public as $
   ), leaders as (
     select * from ranked order by score desc, achieved_at, user_id limit 20
   ), eleven as (
-    select c.position, c.player_name, c.score, c.peak_ovr, c.ballon_dor, p.nickname,
-      row_number() over (partition by c.position order by c.score desc, c.achieved_at, c.user_id) as slot
+    select c.position, c.side, c.shirt_number, c.player_name, c.score, c.peak_ovr, c.ballon_dor, p.nickname,
+      row_number() over (partition by c.position, c.side order by c.score desc, c.achieved_at, c.user_id) as slot
     from public.career_records c join public.profiles p on p.id = c.user_id where c.day = target_day
   )
   select jsonb_build_object(
     'leaders', coalesce((select jsonb_agg(jsonb_build_object(
-      'nickname', nickname, 'name', player_name, 'position', position, 'nation', nation, 'club', club,
+      'nickname', nickname, 'name', player_name, 'position', position, 'side', side, 'number', shirt_number,
+      'nation', nation, 'club', club,
       'score', score, 'ballonDor', ballon_dor, 'peakOvr', peak_ovr, 'goals', goals,
       'rank', place, 'isMe', coalesce(user_id = auth.uid(), false)
     ) order by score desc, achieved_at, user_id) from leaders), '[]'::jsonb),
     'personal', (select jsonb_build_object('score', score, 'rank', place) from ranked where user_id = auth.uid()),
     'participants', (select count(*) from ranked),
     'eleven', coalesce((select jsonb_agg(jsonb_build_object(
-      'position', position, 'slot', slot, 'name', player_name, 'nickname', nickname,
+      'position', position, 'side', side, 'number', shirt_number, 'slot', slot, 'name', player_name, 'nickname', nickname,
       'score', score, 'peakOvr', peak_ovr, 'ballonDor', ballon_dor
     ) order by position, slot) from eleven
-      where slot <= case when position in ('FB', 'CB', 'WG') then 2 else 1 end), '[]'::jsonb)
+      where slot <= case when position = 'CB' then 2 else 1 end), '[]'::jsonb)
   );
 $$;
 revoke all on function public.career_start() from public, anon;

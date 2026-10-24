@@ -47,7 +47,12 @@ function play(seed, setup, pickChoice) {
   return { state, choices };
 }
 
-const baseSetup = { name: "손흥민2", nation: "KOR", league: "KOR", pos: "WG", pick: 0 };
+const baseSetup = { name: "손흥민2", nation: "KOR", league: "KOR", pos: "WG", pick: 0, number: 7, foot: "R", side: "L" };
+/** baseSetup을 바꾼 선수 정보. 측면은 윙어·풀백만 가져요. */
+function S(patch = {}) {
+  const { side, ...rest } = { ...baseSetup, ...patch };
+  return E.FLANKS.includes(rest.pos) ? { ...rest, side: side ?? "L" } : rest;
+}
 
 test("은퇴 보관함은 통산·팀별 합계와 모든 수상·칭호만 남기고 복귀·임대·군 팀도 실제 소속으로 합산한다", () => {
   const { state, choices } = play(19, baseSetup, () => 0);
@@ -74,14 +79,14 @@ test("은퇴 보관함은 통산·팀별 합계와 모든 수상·칭호만 남�
   assert.deepEqual(record.honors, summary.honors);
   assert.ok(record.honors.some((honor) => honor.label.includes("영구 결번")));
   assert.equal(record.title, summary.title);
-  assert.deepEqual(Object.keys(record).sort(), ["v", "id", "retiredAt", "ranked", "name", "nation", "pos", "score", "grade", "title", "totals", "clubs", "honors"].sort());
-  assert.equal(A.archiveCareer(state, { ...save, setup: { ...baseSetup, reroll: 0 } }, false).id, record.id, "이전 저장의 생략된 reroll은 0과 같아요");
+  assert.deepEqual(Object.keys(record).sort(), ["v", "id", "retiredAt", "ranked", "name", "nation", "pos", "number", "foot", "side", "score", "grade", "title", "totals", "clubs", "honors"].sort());
+  assert.equal(A.archiveCareer(state, { ...save, setup: S({ reroll: 0 }) }, false).id, record.id, "이전 저장의 생략된 reroll은 0과 같아요");
   assert.throws(() => A.archiveCareer(E.createCareer(19, 2026, baseSetup), save, false));
 });
 
 test("은퇴 보관함은 10명을 넘어 누적되고 복원·백업 병합은 중복 없이 저장하며 오류 시 원본을 지우지 않는다", () => {
-  const { state, choices } = play(23, { ...baseSetup, pos: "GK" }, () => 0);
-  const save = { v: E.CAREER_VERSION, seed: 23, startYear: 2026, setup: { ...baseSetup, pos: "GK" }, choices };
+  const { state, choices } = play(23, S({ pos: "GK" }), () => 0);
+  const save = { v: E.CAREER_VERSION, seed: 23, startYear: 2026, setup: S({ pos: "GK" }), choices };
   const record = A.archiveCareer(state, save, false, "2026-10-24T12:00:00.000Z");
   let raw = null;
   let writes = 0;
@@ -114,7 +119,7 @@ test("은퇴 보관함은 10명을 넘어 누적되고 복원·백업 병합은 
 test("내 기록실은 통산 합계·포지션별 최고 선수를 계산하고 배지는 처음 달성한 선수와 진행값을 남긴다", () => {
   assert.equal(G.careerBadges([]).filter((badge) => badge.value >= badge.target).length, 0);
   assert.equal(G.careerRecords([]).bestScore, null);
-  const base = { v: 1, ranked: false, nation: "KOR", grade: "성실한 프로", title: "골잡이", honors: [],
+  const base = { v: 2, ranked: false, nation: "KOR", number: 9, foot: "R", side: "R", grade: "성실한 프로", title: "골잡이", honors: [],
     totals: { seasons: 10, firstYear: 2026, lastYear: 2036, retiredAge: 27, apps: 300, goals: 100, assists: 50, cleanSheets: 0, caps: 20, intlGoals: 5, peakOvr: 80, ballonDor: 0, awards: 0, trophies: 2 } };
   const club = (id, seasons) => ({ club: id, name: id, seasons, apps: 1, goals: 0, assists: 0, cleanSheets: 0 });
   const entries = [
@@ -165,7 +170,7 @@ test("공유 카드는 다시 계산한 은퇴 기록과 커리어 곡선·점�
 test("기록집은 기존 저장에서 성적·능력치·모든 선택을 복원하고 은퇴와 이적도 해당 시즌에 남긴다", () => {
   let moments = 0, transfers = 0;
   for (const pos of ["WG", "GK"]) for (let seed = 1; seed <= 24; seed++) {
-    const setup = { ...baseSetup, pos, reroll: seed % 3 };
+    const setup = S({ pos, reroll: seed % 3 });
     const save = { v: E.CAREER_VERSION, seed, startYear: 2026, setup, choices: [] };
     let state = E.createCareer(seed, 2026, setup);
     const expected = [];
@@ -221,7 +226,7 @@ test("같은 시드와 선택이면 커리어가 똑같이 다시 계산되고, 
 });
 
 test("은퇴하는 순간 받은 영구 결번도 마지막 시즌 기록집에 남는다", () => {
-  const setup = { ...baseSetup, nation: "ENG", league: "ENG", pick: 2 };
+  const setup = S({ nation: "ENG", league: "ENG", pick: 2 });
   for (let seed = 1; seed <= 60; seed++) {
     const { state, choices } = play(seed, setup, (s) => {
       const stay = s.pending.options.findIndex((option) => option.value === "stay" || option.value === "renew");
@@ -267,7 +272,7 @@ test("후보를 다시 뽑으면 새 세 명이 나오고, 다시 뽑은 커리�
   }
   assert.deepEqual(E.scoutCandidates(77, "KOR", "ENG", "WG", 2), rolls[1]);
 
-  const setup = { ...baseSetup, league: "ENG", pick: 1, reroll: 3 };
+  const setup = S({ league: "ENG", pick: 1, reroll: 3 });
   const { state, choices } = play(77, setup, (s, step) => (step * 5 + 1) % s.pending.options.length);
   assert.equal(state.setup.reroll, 3);
   assert.equal(state.history[0].club, rolls[2][1].club, "고른 후보의 구단에서 시작해요");
@@ -277,10 +282,10 @@ test("후보를 다시 뽑으면 새 세 명이 나오고, 다시 뽑은 커리�
   try { other = E.replayCareer({ v: E.CAREER_VERSION, seed: 77, startYear: 2026, setup: { ...setup, reroll: 2 }, choices }); } catch {}
   assert.ok(!other || JSON.stringify(other) !== JSON.stringify(state), "다른 횟수로 다시 계산하면 다른 커리어예요");
 
-  assert.equal("reroll" in E.createCareer(77, 2026, { ...baseSetup, reroll: 0 }).setup, false, "0번은 예전 저장 모양 그대로예요");
-  assert.deepEqual(E.createCareer(77, 2026, { ...baseSetup, reroll: 0 }), E.createCareer(77, 2026, baseSetup));
+  assert.equal("reroll" in E.createCareer(77, 2026, S({ reroll: 0 })).setup, false, "0번은 예전 저장 모양 그대로예요");
+  assert.deepEqual(E.createCareer(77, 2026, S({ reroll: 0 })), E.createCareer(77, 2026, baseSetup));
   for (const reroll of [-1, 1.5, E.CAREER_RULES.maxRerolls + 1, "1", null]) {
-    assert.throws(() => E.createCareer(77, 2026, { ...baseSetup, reroll }), E.CareerError, String(reroll));
+    assert.throws(() => E.createCareer(77, 2026, S({ reroll })), E.CareerError, String(reroll));
   }
   assert.ok(E.CAREER_RULES.rankedRerolls < E.CAREER_RULES.maxRerolls);
 });
@@ -321,8 +326,9 @@ test("무작위로 수백 번 골라도 규칙이 깨지지 않고 모든 커리
     const nation = D.NATION_ORDER[random(D.NATION_ORDER.length)];
     const setup = {
       name: "테스트", nation, league: random(2) ? D.NATIONS[nation].home : D.YOUTH_LEAGUES[random(D.YOUTH_LEAGUES.length)],
-      pos: D.POSITION_ORDER[random(D.POSITION_ORDER.length)], pick: random(3),
+      pos: D.POSITION_ORDER[random(D.POSITION_ORDER.length)], pick: random(3), number: 1 + random(99), foot: random(2) ? "L" : "R", side: random(2) ? "L" : "R",
     };
+    if (!E.FLANKS.includes(setup.pos)) delete setup.side;
     const { state, choices } = play(random(2 ** 31) * 2 + random(2), setup, (s) => {
       checkDecision(s, seen);
       return random(s.pending.options.length);
@@ -395,7 +401,7 @@ test("라이벌·결정적 순간·이어지는 사건이 규칙대로 움직인
   let replayedMoment = false;
   for (let n = 0; n < 300; n++) {
     const nation = D.NATION_ORDER[random(D.NATION_ORDER.length)];
-    const setup = { name: "라이벌", nation, league: D.NATIONS[nation].home, pos: D.POSITION_ORDER[random(D.POSITION_ORDER.length)], pick: random(3) };
+    const setup = S({ name: "라이벌", nation, league: D.NATIONS[nation].home, pos: D.POSITION_ORDER[random(D.POSITION_ORDER.length)], pick: random(3) });
     const seed = random(2 ** 31);
     let state = E.createCareer(seed, 2026, setup);
     assert.notEqual(state.rival.club, state.club, "라이벌은 다른 구단 유스에서 시작해요");
@@ -492,14 +498,39 @@ test("엠블럼이 있는 리그의 구단은 모두 엠블럼을 찾는다", ()
   assert.equal(K.clubCrest("전북 현대"), null);
 });
 
+test("주발과 측면이 골·도움에 영향을 주고 화면 표기가 LW·RW·LB·RB로 나온다", () => {
+  assert.deepEqual([["WG", "L"], ["WG", "R"], ["FB", "L"], ["FB", "R"], ["ST", "L"], ["CB", null]].map(([pos, side]) => E.positionCode(pos, side)), ["LW", "RW", "LB", "RB", "ST", "CB"]);
+  assert.equal(E.positionName("FB", "R"), "오른쪽 풀백");
+  const totals = (patch) => {
+    const sum = { goals: 0, assists: 0 };
+    for (let seed = 1; seed <= 40; seed++) {
+      const { state } = play(seed, S({ league: "ENG", ...patch }), () => 0);
+      const t = E.careerTotals(state.history);
+      sum.goals += t.goals;
+      sum.assists += t.assists;
+    }
+    return sum;
+  };
+  const inverted = totals({ foot: "R", side: "L" });
+  const natural = totals({ foot: "L", side: "L" });
+  assert.ok(inverted.goals > natural.goals, `반대발 윙어 골 ${inverted.goals} > 정발 ${natural.goals}`);
+  assert.ok(natural.assists > inverted.assists, `정발 윙어 도움 ${natural.assists} > 반대발 ${inverted.assists}`);
+  const state = E.createCareer(5, 2026, S({ pos: "CM", foot: "L" }));
+  assert.equal(state.side, "L", "윙어·풀백이 아니면 측면은 주발 쪽으로 정해 둬요");
+  assert.equal(state.number, 7);
+});
+
 test("잘못된 선수 정보·선택·버전은 거절한다", () => {
   for (const name of ["", " 공백", "열한글자가넘는이름이야", "<b>", "a\nb"]) {
-    assert.throws(() => E.createCareer(1, 2026, { ...baseSetup, name }), E.CareerError, name);
+    assert.throws(() => E.createCareer(1, 2026, S({ name })), E.CareerError, name);
   }
   assert.equal(E.cleanName("  손   흥민  "), "손 흥민");
-  for (const patch of [{ nation: "XXX" }, { league: "ENG2" }, { league: "KSA" }, { pos: "LW" }, { pick: 3 }, { pick: 1.5 }]) {
+  for (const patch of [{ nation: "XXX" }, { league: "ENG2" }, { league: "KSA" }, { pos: "LW" }, { pick: 3 }, { pick: 1.5 },
+    { number: 0 }, { number: 100 }, { number: 7.5 }, { number: "7" }, { foot: "B" }, { foot: undefined }, { side: undefined }, { side: "C" }]) {
     assert.throws(() => E.createCareer(1, 2026, { ...baseSetup, ...patch }), E.CareerError, JSON.stringify(patch));
   }
+  assert.throws(() => E.createCareer(1, 2026, { ...S({ pos: "ST" }), side: "L" }), E.CareerError, "윙어·풀백이 아니면 측면이 없어요");
+  assert.deepEqual(Object.keys(E.cleanSetup({ ...baseSetup, extra: 1 })).sort(), ["foot", "league", "name", "nation", "number", "pick", "pos", "side"]);
   for (const [seed, year] of [[-1, 2026], [2 ** 32, 2026], [1.5, 2026], [1, 1999]]) {
     assert.throws(() => E.createCareer(seed, year, baseSetup), E.CareerError);
   }
@@ -556,12 +587,7 @@ test("레전드 로드 실제 DB 시작·기록·순위·권한", async (t) => {
     // 포지션을 바꾸지 않아야 베스트 11 자리를 예상할 수 있어요.
     const { choices } = play(seed, setup, (s) => (s.pending.kind === "offseason" ? s.pending.options.length - 1
       : Math.max(0, s.pending.options.findIndex((option) => !option.value.startsWith("move:")))));
-    const summary = E.summarizeCareer(E.replayCareer({ v: E.CAREER_VERSION, seed, startYear, setup, choices }));
-    return {
-      position: summary.pos, name: summary.name, nation: summary.nation, club: summary.lastClub, score: summary.score,
-      ballonDor: summary.ballonDor, peakOvr: summary.peakOvr, goals: summary.goals, assists: summary.assists,
-      apps: summary.apps, trophies: summary.trophies, seasons: summary.seasons,
-    };
+    return B.careerRecordOf(E.summarizeCareer(E.replayCareer({ v: E.CAREER_VERSION, seed, startYear, setup, choices })));
   }
 
   await t.test("회원만 시작하고, 표와 기록 함수는 직접 쓸 수 없다", async () => {
@@ -579,7 +605,7 @@ test("레전드 로드 실제 DB 시작·기록·순위·권한", async (t) => {
     assert.ok(Number(first.seed) >= 0 && Number(first.seed) <= 4294967295);
     assert.ok(first.start_year >= 2025);
     await assert.rejects(start(users[0]), /3초/);
-    entry = retire(Number(first.seed), first.start_year, { ...baseSetup, name: "첫 선수" });
+    entry = retire(Number(first.seed), first.start_year, S({ name: "첫 선수" }));
     await assert.rejects(record(users[0], first.run_id, entry), /너무 짧아요/);
     await assert.rejects(record(users[1], first.run_id, entry), /새 커리어/);
   });
@@ -608,9 +634,10 @@ test("레전드 로드 실제 DB 시작·기록·순위·권한", async (t) => {
   await t.test("회원마다 최고 기록 하나로 순위를 매기고, 베스트 11은 포지션별로 뽑는다", async () => {
     const day = new Date((await db.query("select recorded_day from public.career_runs where user_id = $1", [users[0]])).rows[0].recorded_day).toISOString().slice(0, 10);
     const entries = [
-      [users[1], { ...entry, name: "센터백1", position: "CB", score: entry.score + 500 }],
-      [users[1], { ...entry, name: "윙어", position: "WG", score: 10 }],
-      [users[2], { ...entry, name: "센터백2", position: "CB", score: entry.score + 500 }],
+      [users[1], { ...entry, name: "센터백1", position: "CB", side: null, score: entry.score + 500 }],
+      [users[1], { ...entry, name: "오른쪽윙어", position: "WG", side: "R", score: 10 }],
+      [users[2], { ...entry, name: "센터백2", position: "CB", side: null, score: entry.score + 500 }],
+      [users[2], { ...entry, name: "왼쪽윙어2", position: "WG", side: "L", score: 5 }],
     ];
     for (const [user, item] of entries) {
       await age(user, 4);
@@ -622,18 +649,24 @@ test("레전드 로드 실제 DB 시작·기록·순위·권한", async (t) => {
     assert.equal(result.participants, 3);
     assert.equal(result.personal, null);
     assert.deepEqual(result.leaders.map((leader) => [leader.nickname, leader.rank]), [["감독2", 1], ["감독3", 1], ["감독1", 3]]);
+    assert.deepEqual(result.leaders.map((leader) => [leader.number, leader.side]), [[7, null], [7, null], [7, "L"]]);
     assert.ok(result.leaders.every((leader) => !leader.isMe && !("user_id" in leader)));
     const cbs = result.eleven.filter((slot) => slot.position === "CB");
     assert.deepEqual(cbs.map((slot) => slot.slot), [1, 2]);
     assert.equal(entry.position, "WG");
-    assert.deepEqual(result.eleven.filter((slot) => slot.position === "WG").map((slot) => slot.name), [entry.name, "윙어"]);
+    assert.deepEqual(result.eleven.filter((slot) => slot.position === "WG").map((slot) => [slot.side, slot.slot, slot.name]), [["L", 1, entry.name], ["R", 1, "오른쪽윙어"]],
+      "윙어는 왼쪽·오른쪽 최고 기록이 한 자리씩이에요");
+    await age(users[2], 4);
+    const bad = await start(users[2]);
+    await age(users[2]);
+    await assert.rejects(record(users[2], bad.run_id, { ...entry, position: "CB", side: "L" }), /check/, "센터백에는 측면이 없어요");
     assert.equal((await as(null, "select public.career_board('2000-01-01') as result", [], "anon"))[0].result.leaders.length, 0);
   });
 
   await t.test("은퇴 보관함은 본인 것만 저장·조회하고 같은 선수는 한 번만 남는다", async () => {
     const save = async (user, entries, role) => (await as(user, "select public.career_archive_save($1::jsonb) as added", [JSON.stringify(entries)], role))[0].added;
     const list = async (user) => (await as(user, "select public.career_archive_list() as result"))[0].result;
-    const setup = { ...baseSetup, name: "보관맨" };
+    const setup = S({ name: "보관맨" });
     const { choices } = play(7, setup, () => 0);
     const save7 = { v: E.CAREER_VERSION, seed: 7, startYear: 2026, setup, choices };
     const older = A.archiveCareer(E.replayCareer(save7), save7, false, "2026-10-20T12:00:00.000Z");

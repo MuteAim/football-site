@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import { getCareerCard } from "@/lib/cafe/career-cards";
-import { NATIONS, POSITIONS } from "@/lib/career/data";
+import { cardPlayerLine } from "@/lib/career/card";
+import { NATIONS } from "@/lib/career/data";
 
 export const alt = "레전드 로드 공유 카드";
 export const size = { width: 1200, height: 630 };
@@ -24,7 +25,7 @@ export default async function Image({ params }: { params: Promise<{ code: string
   const card = shared?.card;
   const t = card?.totals;
   const name = card?.name ?? "레전드 로드";
-  const sub = card ? `${POSITIONS[card.pos as keyof typeof POSITIONS]?.name ?? card.pos} · ${NATIONS[card.nation as keyof typeof NATIONS]?.name ?? card.nation} · ${t!.firstYear}–${t!.lastYear}` : "유망주에서 발롱도르까지";
+  const sub = card ? `${cardPlayerLine(card)} · ${NATIONS[card.nation as keyof typeof NATIONS]?.name ?? card.nation} · ${t!.firstYear}–${t!.lastYear}` : "유망주에서 발롱도르까지";
   const title = card ? `「${card.title}」` : "나만의 축구 인생을 만들어 보세요";
   const score = card ? card.score.toLocaleString("ko-KR") : "";
   const stats: [string, string][] = card && t ? [

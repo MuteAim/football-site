@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { clubName, seasonLabel } from "@/lib/career/engine";
+import { clubName, positionCode, seasonLabel, type Side } from "@/lib/career/engine";
 import type { SeasonJournal } from "@/lib/career/journal";
 import { cardClass, mutedClass, secondaryButtonClass } from "../ui";
 import { ClubBadge, SeasonReport } from "./CareerParts";
 
-export function CareerJournal({ seasons }: { seasons: SeasonJournal[] }) {
+export function CareerJournal({ seasons, side }: { seasons: SeasonJournal[]; side: Side }) {
   const [expanded, setExpanded] = useState<number[]>([]);
   if (!seasons.length) return null;
   return (
@@ -32,7 +32,7 @@ export function CareerJournal({ seasons }: { seasons: SeasonJournal[] }) {
             <summary className="cursor-pointer list-none p-4 sm:p-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-sm font-black">{seasonLabel(season.year)} <span className={`ml-1 text-xs font-medium ${mutedClass}`}>{season.age}세 · {season.pos}</span></p>
+                  <p className="text-sm font-black">{seasonLabel(season.year)} <span className={`ml-1 text-xs font-medium ${mutedClass}`}>{season.age}세 · {positionCode(season.pos, side)}</span></p>
                   <p className={`mt-1 flex items-center gap-1.5 text-xs ${mutedClass}`}><ClubBadge name={clubName(season.club)} size={18} />{clubName(season.club)}{season.loan ? " · 임대" : season.military ? " · 군 복무" : ""}</p>
                 </div>
                 <span className={`shrink-0 text-xs ${mutedClass}`}>{open ? "접기 −" : "상세 +"}</span>

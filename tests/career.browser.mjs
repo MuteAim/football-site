@@ -89,7 +89,14 @@ try {
   await waitFor(`document.getElementById('career-name-help').textContent.includes('이름을 지어')`);
   await evaluate("document.getElementById('career-name').focus()");
   await command("Input.insertText", { text: "테스트맨" });
-  await evaluate(`Array.from(document.querySelectorAll('input[name="career-pos"]')).find((input) => input.value === 'WG').click()`);
+  await evaluate(`Array.from(document.querySelectorAll('input[name="career-pos"]')).find((input) => input.value === 'RW').click()`);
+  // 등번호는 고른 자리의 흔한 번호로 채워지고, 직접 고칠 수 있어요. 오른쪽 윙어에 왼발이면 반대발 윙어예요.
+  await waitFor(`document.getElementById('career-number').value === '7'`);
+  await evaluate(`Array.from(document.querySelectorAll('input[name="career-foot"]')).find((input) => input.value === 'L').click()`);
+  await waitFor(`document.body.innerText.includes('반대발 윙어')`);
+  await evaluate("document.getElementById('career-number').select()");
+  await command("Input.insertText", { text: "17" });
+  await waitFor(`document.getElementById('career-number').value === '17'`);
   await evaluate(`document.querySelectorAll('input[name="career-pick"]')[1].click()`);
   // 다시 뽑기를 누르면 고른 자리(빅클럽·중위권·하위권)는 그대로 두고 새 후보 세 명이 나와요.
   const candidateText = `Array.from(document.querySelectorAll('input[name="career-pick"]')).map((input) => input.closest('label').innerText).join('|')`;
@@ -103,6 +110,8 @@ try {
   await waitFor(`document.querySelector('section[aria-labelledby="career-decision"] button')`);
   assert.ok(await evaluate(`document.body.innerText.includes('테스트맨') && document.body.innerText.includes('프리시즌')`));
   assert.equal(await evaluate(`JSON.parse(localStorage.getItem('football-career-v1')).setup.reroll`), 1, "다시 뽑은 횟수가 저장돼요");
+  assert.deepEqual(await evaluate(`(({ pos, side, foot, number }) => ({ pos, side, foot, number }))(JSON.parse(localStorage.getItem('football-career-v1')).setup)`), { pos: "WG", side: "R", foot: "L", number: 17 });
+  assert.ok(await evaluate(`(() => { const card = document.querySelector('section[aria-label="내 선수"]').innerText; return card.includes('RW') && card.includes('17') && card.includes('오른쪽 윙어 · 왼발'); })()`), "선수 카드에 등번호·측면·주발이 보여요");
   assert.ok(await evaluate(`document.querySelector('section[aria-label="라이벌"]')?.innerText.includes('평생의 라이벌')`), "라이벌 카드");
 
   // 실제로 선택 버튼까지 내려간 뒤 연출 전·중·후의 스크롤 위치를 매 프레임 비교해요.
@@ -248,7 +257,7 @@ try {
   await noOverflow("은퇴 화면 390px");
   await command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }, { name: "prefers-reduced-motion", value: "reduce" }] });
   await screenshot("career-retired.png");
-  const hall = await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v1'))`);
+  const hall = await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2'))`);
   assert.equal(hall.length, 1);
   assert.equal(hall[0].name, "테스트맨");
   assert.ok(hall[0].clubs.length > 0);
@@ -280,7 +289,7 @@ try {
   const score = await evaluate(`document.querySelector('.text-6xl').textContent`);
   await command("Page.reload");
   await waitFor(`document.body.innerText.includes('LEGEND SCORE')`);
-  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v1'))`), hall, "새로고침해도 보관 날짜·내용이 같고 중복되지 않아요");
+  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2'))`), hall, "새로고침해도 보관 날짜·내용이 같고 중복되지 않아요");
   assert.equal(await evaluate(`document.querySelector('.text-6xl').textContent`), score);
   assert.equal(await evaluate(`document.querySelectorAll('[data-journal-season]').length`), seasonCount);
   await clickText("모든 시즌 펼치기");
@@ -293,10 +302,10 @@ try {
   await screenshot("career-retired-desktop.png");
 
   // 현재 저장만 남아 있던 기존 은퇴 선수도 업데이트 후 자동 보관해요.
-  await evaluate(`localStorage.removeItem('football-career-archive-v1')`);
+  await evaluate(`localStorage.removeItem('football-career-archive-v2')`);
   await command("Page.reload");
   await waitFor(`document.querySelector('[data-retired-career]')`);
-  const restoredArchive = await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v1'))`);
+  const restoredArchive = await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2'))`);
   assert.equal(restoredArchive.length, 1);
   assert.equal(restoredArchive[0].id, hall[0].id);
   assert.deepEqual(restoredArchive[0].totals, hall[0].totals);
@@ -327,10 +336,10 @@ try {
   // 저장 실패를 성공으로 표시하거나 현재 은퇴 선수를 새 선수로 덮어쓰면 안 돼요.
   const retiredSave = await evaluate(`localStorage.getItem('football-career-v1')`);
   await evaluate(`(() => {
-    localStorage.removeItem('football-career-archive-v1');
+    localStorage.removeItem('football-career-archive-v2');
     window.archiveOriginalSetItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function(key, value) {
-      if (key === 'football-career-archive-v1') throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      if (key === 'football-career-archive-v2') throw new DOMException('Quota exceeded', 'QuotaExceededError');
       return window.archiveOriginalSetItem.call(this, key, value);
     };
   })()`);
@@ -342,7 +351,7 @@ try {
   await evaluate(`Storage.prototype.setItem = window.archiveOriginalSetItem`);
   await clickText("보관 다시 시도");
   await waitFor(`!document.querySelector('#career-archive [role="alert"]')`);
-  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v1'))`), restoredArchive);
+  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2'))`), restoredArchive);
 
   // 공유 창과 클립보드가 없으면 직접 복사할 도전장을 보여 줘요.
   await evaluate(`Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })`);
@@ -355,9 +364,11 @@ try {
   await command("Input.insertText", { text: "다음선수" });
   await clickText("다음선수의 커리어 시작");
   await waitFor(`document.querySelector('section[aria-labelledby="career-decision"] button')`);
-  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v1'))`), restoredArchive, "새 선수로 시작해도 이전 은퇴 기록은 남아요");
+  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2'))`), restoredArchive, "새 선수로 시작해도 이전 은퇴 기록은 남아요");
+  await evaluate(`localStorage.setItem('football-career-archive-v1', '[]'); localStorage.setItem('football-career-hall-v1', '[]')`);
   await command("Page.reload");
   await waitFor(`document.querySelector('[data-retired-career]') && document.querySelector('section[aria-labelledby="career-decision"] button')`);
+  assert.equal(await evaluate(`localStorage.getItem('football-career-archive-v1') ?? localStorage.getItem('football-career-hall-v1')`), null, "초기화 전 브라우저 보관함은 지워요");
   assert.ok(await evaluate(`document.getElementById('career-archive').textContent.includes('테스트맨')`));
   assert.deepEqual(errors, [], "브라우저 실행 오류");
   console.log("화면 위치·연속 클릭 방지·키보드 초점·은퇴 보관·중복 방지·백업과 복원·새 커리어 후 보존·공유·브라우저 오류 없음 확인 완료");

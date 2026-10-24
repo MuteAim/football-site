@@ -1,27 +1,35 @@
 import Link from "next/link";
 import type { CareerSnapshot } from "@/lib/career/board";
-import { POSITIONS, type Pos } from "@/lib/career/data";
+import type { Pos } from "@/lib/career/data";
+import { FLANKS, positionCode, positionName, type Side } from "@/lib/career/engine";
 import { TrophyIcon } from "../Icons";
 import { cardClass, mutedClass } from "../ui";
 
-/** 4-3-3 자리. 좌표는 세로 경기장 안의 % 위치예요. */
-const ELEVEN: { pos: Pos; slot: number; x: number; y: number }[] = [
+/** 4-3-3 자리. 좌표는 세로 경기장 안의 % 위치예요. 윙어·풀백은 왼쪽·오른쪽에 한 명씩이에요. */
+const ELEVEN: { pos: Pos; side?: Side; slot: number; x: number; y: number }[] = [
   { pos: "ST", slot: 1, x: 50, y: 12 },
-  { pos: "WG", slot: 1, x: 17, y: 20 },
-  { pos: "WG", slot: 2, x: 83, y: 20 },
+  { pos: "WG", side: "L", slot: 1, x: 17, y: 20 },
+  { pos: "WG", side: "R", slot: 1, x: 83, y: 20 },
   { pos: "CM", slot: 1, x: 29, y: 39 },
   { pos: "AM", slot: 1, x: 71, y: 39 },
   { pos: "DM", slot: 1, x: 50, y: 55 },
-  { pos: "FB", slot: 1, x: 14, y: 69 },
+  { pos: "FB", side: "L", slot: 1, x: 14, y: 69 },
   { pos: "CB", slot: 1, x: 37, y: 75 },
   { pos: "CB", slot: 2, x: 63, y: 75 },
-  { pos: "FB", slot: 2, x: 86, y: 69 },
+  { pos: "FB", side: "R", slot: 1, x: 86, y: 69 },
   { pos: "GK", slot: 1, x: 50, y: 90 },
 ];
 
+/** DB가 측면을 아직 돌려주지 않으면(schema.sql 적용 전) 윙어·풀백 1·2위를 왼쪽·오른쪽에 세워요. */
+function elevenKey(entry: CareerSnapshot["board"]["eleven"][number]): string {
+  if (entry.side) return `${positionCode(entry.position, entry.side)}-${entry.slot}`;
+  if (FLANKS.includes(entry.position)) return `${positionCode(entry.position, entry.slot === 1 ? "L" : "R")}-1`;
+  return `${entry.position}-${entry.slot}`;
+}
+
 export function CareerBoard({ snapshot }: { snapshot: CareerSnapshot }) {
   const { board } = snapshot;
-  const filled = new Map(board.eleven.map((entry) => [`${entry.position}-${entry.slot}`, entry]));
+  const filled = new Map(board.eleven.map((entry) => [elevenKey(entry), entry]));
   return (
     <aside className="space-y-4">
       <section className={`${cardClass} p-5`}>
@@ -36,7 +44,7 @@ export function CareerBoard({ snapshot }: { snapshot: CareerSnapshot }) {
                   <li key={`${leader.nickname}-${leader.rank}`} className={`flex items-center gap-2 py-2.5 ${leader.isMe ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
                     <span className={`w-6 shrink-0 text-sm font-black tabular-nums ${leader.rank <= 3 ? "text-amber-600 dark:text-amber-300" : mutedClass}`}>{leader.rank}</span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-bold">{leader.name} <span className={`text-[11px] font-semibold ${mutedClass}`}>{leader.position}</span></span>
+                      <span className="block truncate text-sm font-bold">{leader.number ? <span className="mr-1 tabular-nums">{leader.number}</span> : null}{leader.name} <span className={`text-[11px] font-semibold ${mutedClass}`}>{positionCode(leader.position, leader.side)}</span></span>
                       <span className={`block truncate text-[11px] ${mutedClass}`}>{leader.nickname}{leader.isMe ? " (나)" : ""}{leader.ballonDor ? ` · 발롱도르 ${leader.ballonDor}회` : ""} · OVR {leader.peakOvr}</span>
                     </span>
                     <span className="shrink-0 text-sm font-extrabold tabular-nums">{leader.score.toLocaleString("ko-KR")}</span>
@@ -61,12 +69,14 @@ export function CareerBoard({ snapshot }: { snapshot: CareerSnapshot }) {
             <path d="M12 200h276M95 12v52h110V12M95 388v-52h110v52M125 12v20h50V12M125 388v-20h50v20" />
             <circle cx="150" cy="200" r="38" />
           </svg>
-          {ELEVEN.map(({ pos, slot, x, y }) => {
-            const entry = filled.get(`${pos}-${slot}`);
+          {ELEVEN.map(({ pos, side, slot, x, y }) => {
+            const code = positionCode(pos, side);
+            const entry = filled.get(`${code}-${slot}`);
+            const label = positionName(pos, side);
             return (
-              <div key={`${pos}-${slot}`} role="listitem" className="absolute flex w-[4.5rem] -translate-x-1/2 -translate-y-1/2 flex-col items-center text-center" style={{ left: `${x}%`, top: `${y}%` }}
-                aria-label={entry ? `${POSITIONS[pos].name} ${entry.name}, ${entry.nickname}, ${entry.score}점` : `${POSITIONS[pos].name} 빈자리`}>
-                <span className={`flex size-8 items-center justify-center rounded-full text-[10px] font-black ${entry ? "bg-[#d4f77d] text-[#102c26]" : "border border-dashed border-white/30 text-white/40"}`}>{pos}</span>
+              <div key={`${code}-${slot}`} role="listitem" className="absolute flex w-[4.5rem] -translate-x-1/2 -translate-y-1/2 flex-col items-center text-center" style={{ left: `${x}%`, top: `${y}%` }}
+                aria-label={entry ? `${label} ${entry.name}, ${entry.nickname}, ${entry.score}점` : `${label} 빈자리`}>
+                <span className={`flex size-8 items-center justify-center rounded-full text-[10px] font-black ${entry ? "bg-[#d4f77d] text-[#102c26]" : "border border-dashed border-white/30 text-white/40"}`}>{code}</span>
                 <span className="mt-0.5 w-full truncate text-[10px] leading-tight font-bold text-white">{entry ? entry.name : "비어 있음"}</span>
                 {entry ? <span className="w-full truncate text-[9px] leading-tight text-white/60">{entry.nickname}</span> : null}
               </div>

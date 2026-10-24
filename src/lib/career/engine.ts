@@ -9,7 +9,7 @@ import {
   type ClubInfo, type LeagueCode, type NationCode, type Pos,
 } from "./data";
 
-export const CAREER_VERSION = 3;
+export const CAREER_VERSION = 4;
 
 export const CAREER_RULES = {
   startAge: 17,
@@ -33,8 +33,13 @@ export class CareerError extends Error {}
 
 export type Role = "starter" | "rotation" | "bench" | "reserve";
 export type Tone = "good" | "risk" | "neutral";
-/** reroll은 스카우트 후보를 다시 뽑은 횟수예요. 없거나 0이면 처음 후보예요. */
-export type CareerSetup = { name: string; nation: NationCode; league: LeagueCode; pos: Pos; pick: number; reroll?: number };
+/** 주발과 뛰는 쪽. L은 왼쪽, R은 오른쪽이에요. */
+export type Side = "L" | "R";
+/**
+ * reroll은 스카우트 후보를 다시 뽑은 횟수예요. 없거나 0이면 처음 후보예요.
+ * side는 윙어·풀백만 고르고, 다른 포지션에는 없어요.
+ */
+export type CareerSetup = { name: string; nation: NationCode; league: LeagueCode; pos: Pos; pick: number; reroll?: number; number: number; foot: Side; side?: Side };
 export type Traits = {
   /** 전성기 나이 */
   peak: number;
@@ -133,6 +138,8 @@ type Draft = {
 export type CareerState = {
   v: number; seed: number; startYear: number; setup: CareerSetup; rng: number; steps: number;
   name: string; nation: NationCode; pos: Pos; style: string; attrs: number[]; potential: number;
+  /** 등번호와 주발. side는 윙어·풀백으로 뛸 때의 측면이고, 다른 포지션이면 주발 쪽으로 정해 둬요. */
+  number: number; foot: Side; side: Side;
   traits: Traits; revealed: string[];
   age: number; year: number; club: string;
   /** 임대나 군 복무 중일 때 계약한 원 소속팀 */
@@ -246,6 +253,31 @@ export function overall(attrs: number[], pos: Pos): number {
 
 export function attrLabels(pos: Pos): string[] {
   return pos === "GK" ? KEEPER_ATTRS : OUTFIELD_ATTRS;
+}
+
+/** 왼쪽·오른쪽을 나눠 뛰는 포지션 */
+export const FLANKS: readonly Pos[] = ["WG", "FB"];
+export const FOOT_NAMES: Record<Side, string> = { L: "왼발", R: "오른발" };
+
+/** 화면에 보이는 포지션 약어. 윙어는 LW·RW, 풀백은 LB·RB예요. */
+export function positionCode(pos: Pos, side: Side | null | undefined): string {
+  if (!side || !FLANKS.includes(pos)) return pos;
+  return `${side}${pos === "WG" ? "W" : "B"}`;
+}
+
+export function positionName(pos: Pos, side: Side | null | undefined): string {
+  return side && FLANKS.includes(pos) ? `${side === "L" ? "왼쪽" : "오른쪽"} ${POSITIONS[pos].name}` : POSITIONS[pos].name;
+}
+
+/**
+ * 주발과 측면의 궁합. goal·assist는 골·도움 기대값에 곱하는 천분율이에요.
+ * 반대발 윙어는 안쪽으로 파고들어 골이 늘고, 정발 윙어·풀백은 측면 크로스로 도움이 늘어요.
+ */
+export function footFit(pos: Pos, foot: Side, side: Side): { goal: number; assist: number; label: string } {
+  const inverted = foot !== side;
+  if (pos === "WG") return inverted ? { goal: 1150, assist: 920, label: "반대발 윙어 · 골 ↑ 도움 ↓" } : { goal: 930, assist: 1200, label: "정발 윙어 · 도움 ↑ 골 ↓" };
+  if (pos === "FB") return inverted ? { goal: 1250, assist: 950, label: "반대발 풀백 · 골 ↑ 도움 ↓" } : { goal: 1000, assist: 1150, label: "정발 풀백 · 도움 ↑" };
+  return { goal: 1000, assist: 1000, label: "" };
 }
 
 export const ROLE_LABELS: Record<Role, string> = { starter: "주전", rotation: "로테이션", bench: "백업", reserve: "유망주" };
@@ -405,25 +437,40 @@ export function cleanName(raw: string): string {
   return raw.replace(/\s+/g, " ").trim();
 }
 
+const isSide = (value: unknown): value is Side => value === "L" || value === "R";
+
 function validSetup(setup: CareerSetup): boolean {
   return !!setup && typeof setup.name === "string" && NAME_PATTERN.test(setup.name)
     && Object.hasOwn(NATIONS, setup.nation) && Object.hasOwn(LEAGUES, setup.league) && LEAGUES[setup.league].youth
     && Object.hasOwn(POSITIONS, setup.pos) && Number.isInteger(setup.pick) && setup.pick >= 0 && setup.pick <= 2
-    && (setup.reroll === undefined || (Number.isInteger(setup.reroll) && setup.reroll >= 0 && setup.reroll <= CAREER_RULES.maxRerolls));
+    && (setup.reroll === undefined || (Number.isInteger(setup.reroll) && setup.reroll >= 0 && setup.reroll <= CAREER_RULES.maxRerolls))
+    && Number.isInteger(setup.number) && setup.number >= 1 && setup.number <= 99 && isSide(setup.foot)
+    && (FLANKS.includes(setup.pos) ? isSide(setup.side) : setup.side === undefined);
 }
 
-export function createCareer(seed: number, startYear: number, setup: CareerSetup): CareerState {
+/** 화면이나 저장에서 온 선수 정보를 검사하고 필요한 필드만 복사해요. 저장 모양이 늘 같아서 재계산·식별값이 흔들리지 않아요. */
+export function cleanSetup(raw: unknown): CareerSetup {
+  const setup = raw as CareerSetup;
+  if (!raw || typeof raw !== "object" || !validSetup(setup)) throw new CareerError("선수 정보가 올바르지 않아요.");
+  const reroll = setup.reroll ?? 0;
+  return {
+    name: setup.name, nation: setup.nation, league: setup.league, pos: setup.pos, pick: setup.pick, ...(reroll ? { reroll } : {}),
+    number: setup.number, foot: setup.foot, ...(setup.side ? { side: setup.side } : {}),
+  };
+}
+
+export function createCareer(seed: number, startYear: number, raw: CareerSetup): CareerState {
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) throw new CareerError("커리어 번호가 올바르지 않아요.");
   if (!Number.isInteger(startYear) || startYear < 2020 || startYear > 2100) throw new CareerError("시작 시즌이 올바르지 않아요.");
-  if (!validSetup(setup)) throw new CareerError("선수 정보가 올바르지 않아요.");
+  const setup = cleanSetup(raw);
   const reroll = setup.reroll ?? 0;
   const candidate = scoutCandidates(seed, setup.nation, setup.league, setup.pos, reroll)[setup.pick];
   const s: CareerState = {
-    v: CAREER_VERSION, seed, startYear,
-    setup: { name: setup.name, nation: setup.nation, league: setup.league, pos: setup.pos, pick: setup.pick, ...(reroll ? { reroll } : {}) },
+    v: CAREER_VERSION, seed, startYear, setup,
     rng: (seed ^ hash(`${setup.nation}|${setup.league}|${setup.pos}|${setup.pick}|career${reroll ? `|r${reroll}` : ""}`)) >>> 0, steps: 0,
     name: setup.name, nation: setup.nation, pos: setup.pos, style: POSITIONS[setup.pos].styles[candidate.style].name,
-    attrs: [...candidate.attrs], potential: candidate.potential, traits: { ...candidate.traits }, revealed: [],
+    attrs: [...candidate.attrs], potential: candidate.potential, number: setup.number, foot: setup.foot, side: setup.side ?? setup.foot,
+    traits: { ...candidate.traits }, revealed: [],
     age: CAREER_RULES.startAge, year: startYear, club: candidate.club, parent: null, contract: 3, trust: 0, form: 0, injury: 0,
     continentalNext: qualifiesByRating(candidate.club), military: setup.nation === "KOR" ? "pending" : "none",
     apps: 0, goals: 0, caps: 0, intlGoals: 0, peak: candidate.ovr, peakAge: CAREER_RULES.startAge,
@@ -602,10 +649,11 @@ function playMatch(s: CareerState, d: Draft, comp: Competition, opponent: string
   const quality = 1000 + (ovr - 75) * 30;
   const edge = clamp(1000 + (strength - oppRating) * 15, 500, 1500);
   const info = POSITIONS[d.pos];
+  const fit = footFit(d.pos, s.foot, s.side);
   const scale = (base: number) => Math.trunc((((base * Math.max(quality, 250)) / 1000) * edge / 1000) * minutes / 90);
-  const expectedGoals = clamp(scale(info.goal) + (d.freekick && info.goal > 0 ? 12 : 0), 0, 2800);
+  const expectedGoals = clamp(scale(Math.trunc((info.goal * fit.goal) / 1000)) + (d.freekick && info.goal > 0 ? 12 : 0), 0, 2800);
   const goals = count(s, expectedGoals, 4);
-  const assists = count(s, clamp(scale(info.assist), 0, 2000), 3);
+  const assists = count(s, clamp(scale(Math.trunc((info.assist * fit.assist) / 1000)), 0, 2000), 3);
   const cleanSheet = minutes >= 60 && chance(s, clamp(330 + (strength - oppRating) * 25, 80, 760));
   // 평점 ×10. 팀 안에서의 실력 차와 절대 실력을 함께 봐요. 보통 주전이 6.8, 월드 클래스가 7.8쯤이에요.
   let rating = 66 + clamp(Math.trunc((ovr - CLUBS[d.club].rating) / 3), -4, 5) + clamp(Math.trunc((ovr - 70) / 6), -3, 5)
@@ -654,13 +702,14 @@ function reserveMatch(s: CareerState, d: Draft) {
   if (d.age > 22 || d.military || (d.role !== "reserve" && d.role !== "bench") || !chance(s, 800)) return;
   const minutes = between(s, 70, 90);
   const info = POSITIONS[d.pos];
+  const fit = footFit(d.pos, s.foot, s.side);
   // 2군 상대는 또래 유망주라 오버롤 58을 보통 실력으로 봐요.
   const quality = Math.max(250, 1000 + (overall(s.attrs, s.pos) - 58) * 30);
   const scale = (base: number) => Math.trunc((((base * quality) / 1000) * 1150) / 1000 * minutes / 90);
   d.reserveApps++;
   d.reserveMinutes += minutes;
-  d.reserveGoals += count(s, clamp(scale(info.goal), 0, 2800), 4);
-  d.reserveAssists += count(s, clamp(scale(info.assist), 0, 2000), 3);
+  d.reserveGoals += count(s, clamp(scale(Math.trunc((info.goal * fit.goal) / 1000)), 0, 2800), 4);
+  d.reserveAssists += count(s, clamp(scale(Math.trunc((info.assist * fit.assist) / 1000)), 0, 2000), 3);
 }
 
 function injuryCheck(s: CareerState, d: Draft, minutes: number) {
@@ -1031,7 +1080,7 @@ const EVENTS: Record<string, EventDef> = {
       const target = pick(s, positionMoves(s));
       const now = overall(s.attrs, s.pos);
       const after = overall(s.attrs, target);
-      const name = POSITIONS[target].name;
+      const name = positionName(target, s.side);
       const change = after > now ? `${after}까지 올라요` : after < now ? `${after}까지 내려가요` : "그대로예요";
       return {
         title: "포지션 변경 제안",
@@ -1051,7 +1100,7 @@ const EVENTS: Record<string, EventDef> = {
         bump(s, 3);
         // 두 시즌 동안 이 자리를 지키면 완전히 적응해요.
         s.flags.push(`moved-${d.year}:${target}`);
-        const name = POSITIONS[target].name;
+        const name = positionName(target, s.side);
         note(d, `${name}${directionParticle(name)} 포지션 변경`);
         return `${name}${directionParticle(name)} 새 출발을 했어요.`;
       }
@@ -2406,7 +2455,7 @@ export function replayCareer(save: CareerSave): CareerState {
 // ---------- 은퇴 정리 ----------
 
 export type CareerSummary = {
-  name: string; nation: NationCode; pos: Pos; seasons: number; firstYear: number; lastYear: number; retiredAge: number;
+  name: string; nation: NationCode; pos: Pos; number: number; foot: Side; side: Side; seasons: number; firstYear: number; lastYear: number; retiredAge: number;
   apps: number; goals: number; assists: number; cleanSheets: number; caps: number; intlGoals: number;
   peakOvr: number; peakAge: number; ballonDor: number; awards: number; trophies: number;
   honors: { label: string; count: number }[];
@@ -2519,7 +2568,7 @@ export function summarizeCareer(s: CareerState): CareerSummary {
   const unique = [...new Set(s.history.filter((season) => !season.military).map((season) => season.club))];
   const score = legacyScore(s);
   return {
-    name: s.name, nation: s.nation, pos: s.pos, seasons: s.history.length,
+    name: s.name, nation: s.nation, pos: s.pos, number: s.number, foot: s.foot, side: s.side, seasons: s.history.length,
     firstYear: s.startYear, lastYear: s.year, retiredAge: s.age,
     apps: totals.apps, goals: totals.goals, assists: totals.assists, cleanSheets: totals.cleanSheets,
     caps: totals.caps, intlGoals: totals.intlGoals, peakOvr: s.peak, peakAge: s.peakAge,

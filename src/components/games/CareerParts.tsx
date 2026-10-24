@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { CLUBS, CONTINENTALS, LEAGUES, MILITARY_CLUB, NATIONS, POSITIONS, type Pos } from "@/lib/career/data";
 import {
-  attrLabels, careerTotals, clubName, CONTINENTAL_STAGES, CUP_STAGES, expectedRole, formatValue, legacyScore, marketValue, overall,
+  attrLabels, careerTotals, clubName, FOOT_NAMES, positionCode, positionName, CONTINENTAL_STAGES, CUP_STAGES, expectedRole, formatValue, legacyScore, marketValue, overall,
   roleName, seasonLabel, starterLine, type CareerState, type Choice, type Decision, type LegacyBreakdown, type SeasonRecord,
 } from "@/lib/career/engine";
 import { clubCrest } from "@/lib/career/crests";
@@ -134,11 +134,14 @@ export function PlayerCard({ state }: { state: CareerState }) {
       <div className="flex gap-4 px-5 pt-5 sm:px-6">
         <div className="flex w-[4.75rem] shrink-0 flex-col items-center justify-center rounded-2xl bg-[#d4f77d] py-3 text-[#102c26]">
           <span className="text-[2.5rem] leading-none font-black tracking-tight tabular-nums">{ovr}</span>
-          <span className="mt-1 text-[11px] font-black tracking-wider">{state.pos}</span>
+          <span className="mt-1 text-[11px] font-black tracking-wider">{positionCode(state.pos, state.side)}</span>
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-2xl font-black tracking-tight">{state.name}</h2>
-          <p className="mt-0.5 truncate text-xs text-white/70">{POSITIONS[state.pos].name} · {state.age}세 · {NATIONS[state.nation].name} · {state.style}</p>
+          <h2 className="flex min-w-0 items-baseline gap-2 text-2xl font-black tracking-tight">
+            <span className="shrink-0 text-lime-200 tabular-nums" aria-label={`등번호 ${state.number}번`}>{state.number}</span>
+            <span className="truncate">{state.name}</span>
+          </h2>
+          <p className="mt-0.5 truncate text-xs text-white/70">{positionName(state.pos, state.side)} · {FOOT_NAMES[state.foot]} · {state.age}세 · {NATIONS[state.nation].name} · {state.style}</p>
           <p className="mt-3 flex min-w-0 items-center gap-2 text-sm font-bold">
             <ClubBadge name={clubName(state.club)} size={24} />
             <span className="truncate">{clubName(state.club)}</span>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { careerBadges, careerRecords, type Badge } from "@/lib/career/badges";
 import { NATIONS, POSITIONS, type Pos } from "@/lib/career/data";
+import { FOOT_NAMES, positionCode, positionName } from "@/lib/career/engine";
 import { exportRetirements, importRetirements, type RetiredCareer } from "@/lib/career/archive";
 import { LockIcon, TrophyIcon } from "../Icons";
 import { cardClass, mutedClass, secondaryButtonClass, textButtonClass } from "../ui";
@@ -107,7 +108,7 @@ export function CareerArchive({ entries, error, member, cloud, onCloudRetry, onI
           </dl>
           {records.bestScore ? (
             <p className="mx-5 mt-2 rounded-xl bg-[#102c26] px-4 py-3 text-xs text-white/75">
-              최고 레전드 <strong className="text-sm text-white">{records.bestScore.name}</strong> · {records.bestScore.pos} · 「{records.bestScore.title}」
+              최고 레전드 <strong className="text-sm text-white">{records.bestScore.number}번 {records.bestScore.name}</strong> · {positionCode(records.bestScore.pos as Pos, records.bestScore.side)} · 「{records.bestScore.title}」
               <span className="ml-1 font-black text-[#d4f77d] tabular-nums">{records.bestScore.score.toLocaleString("ko-KR")}점</span>
             </p>
           ) : null}
@@ -217,7 +218,10 @@ function ArchiveEntry({ entry }: { entry: RetiredCareer }) {
   return (
     <details data-retired-career={entry.id} className="group rounded-2xl border border-zinc-200 dark:border-white/10">
       <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 text-sm">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#102c26] text-[11px] font-black text-[#d4f77d]">{entry.pos}</span>
+        <span className="flex size-10 shrink-0 flex-col items-center justify-center rounded-xl bg-[#102c26] text-[#d4f77d]">
+          <span className="text-sm leading-none font-black tabular-nums">{entry.number}</span>
+          <span className="mt-0.5 text-[9px] leading-none font-black">{positionCode(entry.pos as Pos, entry.side)}</span>
+        </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate font-extrabold">{entry.name}{t.ballonDor ? <span className="ml-1.5 text-xs font-bold text-amber-600 dark:text-amber-300">발롱도르 {t.ballonDor}</span> : null}</span>
           <span className={`block truncate text-xs ${mutedClass}`}>「{entry.title}」 · {t.seasons}시즌 · {t.firstYear}–{t.lastYear}</span>
@@ -226,7 +230,7 @@ function ArchiveEntry({ entry }: { entry: RetiredCareer }) {
         <span aria-hidden="true" className={`shrink-0 text-xs transition group-open:rotate-180 ${mutedClass}`}>▾</span>
       </summary>
       <div className="space-y-4 border-t border-zinc-100 p-4 dark:border-white/10">
-        <p className={`text-xs leading-relaxed ${mutedClass}`}>{NATIONS[entry.nation as keyof typeof NATIONS]?.name ?? entry.nation} · {POSITIONS[entry.pos as keyof typeof POSITIONS]?.name ?? entry.pos} · {t.retiredAge}세 은퇴 · {entry.grade}<br />{new Date(entry.retiredAt).toLocaleDateString("ko-KR")} 보관 · {entry.ranked ? "순위 도전 커리어" : "연습 커리어"}</p>
+        <p className={`text-xs leading-relaxed ${mutedClass}`}>{NATIONS[entry.nation as keyof typeof NATIONS]?.name ?? entry.nation} · {entry.number}번 · {Object.hasOwn(POSITIONS, entry.pos) ? positionName(entry.pos as Pos, entry.side) : entry.pos} · {FOOT_NAMES[entry.foot]} · {t.retiredAge}세 은퇴 · {entry.grade}<br />{new Date(entry.retiredAt).toLocaleDateString("ko-KR")} 보관 · {entry.ranked ? "순위 도전 커리어" : "연습 커리어"}</p>
         <div>
           <h4 className="text-sm font-bold">통산 기록</h4>
           <dl className="mt-2 grid grid-cols-4 gap-2 rounded-xl bg-zinc-50 p-3 text-center dark:bg-white/5">

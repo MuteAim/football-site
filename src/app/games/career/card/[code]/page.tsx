@@ -8,8 +8,8 @@ import { OvrChart, ScoreBreakdown } from "@/components/games/CareerParts";
 import { cardClass, mutedClass, textButtonClass } from "@/components/ui";
 import { getCareerCard } from "@/lib/cafe/career-cards";
 import { careerDay } from "@/lib/career/board";
-import { cardLastClub } from "@/lib/career/card";
-import { NATIONS, POSITIONS } from "@/lib/career/data";
+import { cardLastClub, cardPlayerLine } from "@/lib/career/card";
+import { NATIONS } from "@/lib/career/data";
 
 type Params = Promise<{ code: string }>;
 
@@ -41,7 +41,7 @@ async function CardContent({ params }: { params: Params }) {
         <div className="px-5 pt-7 pb-6 text-center sm:px-8">
           <p className="text-xs font-bold tracking-widest text-amber-200/80">LEGEND CARD · {t.firstYear}–{t.lastYear} · {t.retiredAge}세 은퇴</p>
           <h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">{card.name}</h1>
-          <p className="mt-1 text-xs text-white/65">{POSITIONS[card.pos as keyof typeof POSITIONS]?.name ?? card.pos} · {NATIONS[card.nation as keyof typeof NATIONS]?.name ?? card.nation} · 마지막 소속 {cardLastClub(card)}</p>
+          <p className="mt-1 text-xs text-white/65">{cardPlayerLine(card)} · {NATIONS[card.nation as keyof typeof NATIONS]?.name ?? card.nation} · 마지막 소속 {cardLastClub(card)}</p>
           <p className="mt-4 inline-flex rounded-full bg-amber-300/15 px-4 py-1.5 text-sm font-extrabold text-amber-200">「{card.title}」</p>
           <p className="mt-5 text-[11px] font-bold tracking-widest text-lime-200/70">LEGEND SCORE</p>
           <p className="mt-1 text-6xl font-black tracking-tighter text-[#d4f77d] tabular-nums">{card.score.toLocaleString("ko-KR")}<span className="ml-2 text-lg tracking-normal">점</span></p>
