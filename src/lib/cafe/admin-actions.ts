@@ -3,7 +3,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { refresh, updateTag } from "next/cache";
 import { isBannerColor, isNoticeHref, SETTING_LIMITS } from "./banner";
-import { isCafeConfigured } from "./config";
+import { GRANT_LIMITS, isCafeConfigured } from "./config";
 import { SETTINGS_TAG } from "./settings";
 import { createSessionClient } from "./supabase-server";
 import type { FormState } from "./types";
@@ -35,6 +35,38 @@ export async function publishUpdate(_prev: FormState, formData: FormData): Promi
   }
   refresh();
   return { error: null, message: "업데이트를 등록하고 회원들에게 알렸어요." };
+}
+
+/**
+ * 회원에게 골을 줘요. 받은 골은 회원의 골 내역에 '운영 지급'과 이유로 남고, 운영 기록에도 남아요.
+ * requestId는 화면이 지급마다 새로 만든 번호라서, 응답 전에 다시 보내도 DB가 한 번만 지급해요.
+ */
+export async function grantGoals(_prev: FormState, formData: FormData): Promise<FormState> {
+  const nickname = text(formData, "nickname");
+  const amountText = text(formData, "amount");
+  const reason = text(formData, "reason");
+  const requestId = text(formData, "requestId");
+  const values = { nickname, amount: amountText, reason };
+  const amount = /^\d{1,5}$/.test(amountText) ? Number(amountText) : 0;
+  if (!nickname) return { error: "골을 받을 회원의 닉네임을 써 주세요.", values };
+  if (amount < 1 || amount > GRANT_LIMITS.amount) {
+    return { error: `골은 한 번에 1~${GRANT_LIMITS.amount.toLocaleString("ko-KR")}골까지 지급할 수 있어요.`, values };
+  }
+  if (!reason || reason.length > GRANT_LIMITS.reason) return { error: `지급 이유를 1~${GRANT_LIMITS.reason}자로 써 주세요.`, values };
+  if (!/^[0-9a-f-]{36}$/i.test(requestId)) return { error: "지급 요청이 올바르지 않아요. 화면을 새로 고쳐 주세요.", values };
+
+  const supabase = await requireAdmin();
+  if (typeof supabase === "string") return { error: supabase, values };
+  const { data, error } = await supabase
+    .rpc("admin_grant_goals", { target_nickname: nickname, grant_amount: amount, grant_reason: reason, request_id: requestId })
+    .single<{ nickname: string; goals: number }>();
+  if (error || !data) {
+    if (error?.code === "PGRST202") return { error: "DB에 골 지급 기능이 아직 없어요. supabase/schema.sql을 다시 실행해 주세요.", values };
+    if (error && ["P0001", "P0002", "42501"].includes(error.code)) return { error: error.message, values };
+    console.error(error);
+    return { error: "골을 지급하지 못했어요. 잠시 후 다시 시도해 주세요.", values };
+  }
+  return { error: null, message: `${data.nickname}님에게 ${amount.toLocaleString("ko-KR")}골을 지급했어요. 모은 골은 이제 ${data.goals.toLocaleString("ko-KR")}골이에요.` };
 }
 
 async function requireAdmin(): Promise<SupabaseClient | string> {

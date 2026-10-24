@@ -40,6 +40,12 @@ function LogBody({ log }: { log: AdminLog }) {
       <p className={`mt-0.5 text-sm ${mutedClass}`}>{String(log.changes.version ?? "")} · {String(log.changes.title ?? "")}</p>
     </>
   );
+  if (log.area === "goals") return (
+    <>
+      <p className="font-semibold">{String(log.changes.nickname ?? "회원")}님에게 {Number(log.changes.amount ?? 0).toLocaleString("ko-KR")}골을 지급했어요</p>
+      <p className={`mt-0.5 truncate text-sm ${mutedClass}`}>{String(log.changes.reason ?? "")}</p>
+    </>
+  );
   if (log.area === "pin") {
     const title = typeof log.changes.title === "string" ? log.changes.title : `${log.target}번 글`;
     return (

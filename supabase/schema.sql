@@ -722,6 +722,10 @@ alter table public.profiles add column if not exists quiz_streak integer not nul
 alter table public.goal_events drop constraint if exists goal_events_kind_check;
 alter table public.goal_events add constraint goal_events_kind_check
   check (kind in ('attendance', 'streak', 'prediction', 'minority', 'quiz', 'reward'));
+-- 운영 지급 이유. 회원의 골 내역에 함께 보여요.
+alter table public.goal_events add column if not exists note text;
+alter table public.goal_events drop constraint if exists goal_events_note_check;
+alter table public.goal_events add constraint goal_events_note_check check (note is null or char_length(note) between 1 and 40);
 
 -- ---------- 숫자 자동 계산 ----------
 -- 회원은 글의 숫자 칸을 직접 고칠 수 없어서, 추천·댓글이 생기거나 지워질 때 DB가 대신 세요.
@@ -1278,6 +1282,44 @@ begin
   end if;
   perform public.log_admin_action('pin', target::text, jsonb_build_object('pinned', pinned, 'title', post_title));
 end $$;
+
+-- 운영자가 회원에게 골을 줘요. 골 내역(운영 지급)과 운영 기록을 함께 남겨요.
+-- request_id는 지급 폼을 열 때마다 새로 만든 번호라서, 같은 폼을 두 번 보내도 한 번만 지급해요.
+create or replace function public.admin_grant_goals(target_nickname text, grant_amount integer, grant_reason text, request_id uuid)
+returns table(nickname text, goals integer)
+language plpgsql security definer set search_path = '' as $$
+declare
+  member public.profiles%rowtype;
+  reason text := btrim(coalesce(grant_reason, ''));
+begin
+  if not public.is_cafe_admin() then
+    raise exception '운영자만 골을 지급할 수 있어요.' using errcode = '42501';
+  end if;
+  if grant_amount is null or grant_amount < 1 or grant_amount > 10000 then
+    raise exception '골은 한 번에 1~10,000골까지 지급할 수 있어요.';
+  end if;
+  if char_length(reason) not between 1 and 40 then
+    raise exception '지급 이유를 1~40자로 써 주세요.';
+  end if;
+  if request_id is null then
+    raise exception '지급 요청이 올바르지 않아요. 화면을 새로 고쳐 주세요.';
+  end if;
+  select * into member from public.profiles p where lower(p.nickname) = lower(btrim(coalesce(target_nickname, ''))) for update;
+  if not found then
+    raise exception '그 닉네임의 회원을 찾지 못했어요.' using errcode = 'P0002';
+  end if;
+  insert into public.goal_events (user_id, kind, ref, day, amount, note)
+    values (member.id, 'reward', 'admin:' || request_id::text, (now() at time zone 'Asia/Seoul')::date, grant_amount, reason)
+    on conflict do nothing;
+  if not found then
+    raise exception '이미 처리한 지급이에요. 같은 지급을 다시 하려면 화면을 새로 고쳐 주세요.';
+  end if;
+  perform public.log_admin_action('goals', member.id::text,
+    jsonb_build_object('nickname', member.nickname, 'amount', grant_amount, 'reason', reason));
+  return query select p.nickname, p.goals from public.profiles p where p.id = member.id;
+end $$;
+revoke all on function public.admin_grant_goals(text, integer, text, uuid) from public, anon;
+grant execute on function public.admin_grant_goals(text, integer, text, uuid) to authenticated;
 
 -- ---------- 권한 ----------
 -- 운영자가 업데이트를 등록하면 당시 가입한 모든 회원에게 한 번씩 알려요.

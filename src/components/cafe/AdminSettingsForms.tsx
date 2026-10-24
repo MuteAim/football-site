@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useState, type MouseEvent, type ReactNode } from "react";
-import { publishUpdate, saveBanner, saveLock, saveNotice } from "@/lib/cafe/admin-actions";
+import { useActionState, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { grantGoals, publishUpdate, saveBanner, saveLock, saveNotice } from "@/lib/cafe/admin-actions";
 import { BANNER_COLORS, DEFAULT_LOCK_MESSAGE, SETTING_LIMITS } from "@/lib/cafe/banner";
+import { GRANT_LIMITS } from "@/lib/cafe/config";
 import type { CafeSettings, FormState } from "@/lib/cafe/types";
 import { LockIcon } from "../Icons";
 import { confirmDialog, showToast } from "../feedback";
@@ -35,6 +36,55 @@ export function UpdateForm() {
           <Link href="/cafe/updates" className={secondaryButtonClass}>등록된 소식</Link>
           <button type="submit" disabled={pending} className={primaryButtonClass}>
             {pending ? "등록 중…" : "등록하고 알림 보내기"}
+          </button>
+        </FormFooter>
+      </form>
+    </Section>
+  );
+}
+
+/** 회원에게 골 지급. 누르면 한 번 더 묻고, 받은 회원의 골 내역에는 '운영 지급'과 이유가 남아요. */
+export function GoalGrantForm() {
+  // 지급마다 새 번호를 붙여서, 응답 전에 다시 눌러도 DB가 한 번만 지급해요. 성공하면 다음 지급용으로 비워요.
+  const request = useRef<string | null>(null);
+  const [state, formAction, pending] = useActionState(async (prev: FormState, formData: FormData) => {
+    const values = { nickname: String(formData.get("nickname") ?? ""), amount: String(formData.get("amount") ?? ""), reason: String(formData.get("reason") ?? "") };
+    const ok = await confirmDialog({
+      title: `${values.nickname.trim() || "회원"}님에게 ${Number(values.amount || 0).toLocaleString("ko-KR")}골을 지급할까요?`,
+      description: `이유: ${values.reason.trim() || "(비어 있음)"} · 지급한 골은 되돌릴 수 없어요.`,
+      confirmLabel: "지급하기",
+    });
+    if (!ok) return { error: null, values };
+    request.current ??= crypto.randomUUID();
+    formData.set("requestId", request.current);
+    const result = await grantGoals(prev, formData);
+    if (!result.error) {
+      request.current = null;
+      if (result.message) showToast(result.message);
+    }
+    return result;
+  }, initialState);
+  return (
+    <Section title="골 지급" description="이벤트 상품이나 보상처럼 회원에게 골을 직접 줘요. 받은 골은 회원의 골 내역에 ‘운영 지급’과 이유로 남고, 운영 기록에도 남아요.">
+      <form action={formAction} className="space-y-4 p-4">
+        <div className="grid gap-4 sm:grid-cols-[1fr_9rem]">
+          <Field label="회원 닉네임">
+            <input name="nickname" required maxLength={12} autoComplete="off" defaultValue={state.values?.nickname}
+              placeholder="예: 강인맘" className={inputClass} />
+          </Field>
+          <Field label="골">
+            <input name="amount" required inputMode="numeric" pattern="[0-9]*" maxLength={5} defaultValue={state.values?.amount}
+              placeholder="예: 100" className={inputClass} />
+          </Field>
+        </div>
+        <Field label="지급 이유">
+          <input name="reason" required maxLength={GRANT_LIMITS.reason} defaultValue={state.values?.reason}
+            placeholder="예: 레전드 로드 초기화 보상" className={inputClass} />
+        </Field>
+        <FormFooter error={state.error}>
+          <Link href="/cafe/admin/logs" className={secondaryButtonClass}>운영 기록</Link>
+          <button type="submit" disabled={pending} className={primaryButtonClass}>
+            {pending ? "지급 중…" : "골 지급"}
           </button>
         </FormFooter>
       </form>

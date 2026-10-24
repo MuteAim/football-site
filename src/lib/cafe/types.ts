@@ -44,6 +44,8 @@ export type GoalEvent = {
   /** reward는 운영자가 SQL로 직접 준 골이에요. 예: 레전드 로드 초기화 보상 */
   kind: "attendance" | "streak" | "prediction" | "minority" | "quiz" | "reward";
   amount: number;
+  /** 운영 지급 이유. 다른 골에는 없어요. */
+  note: string | null;
   /** 한국 날짜(YYYY-MM-DD). 예측 골은 킥오프 날짜예요. */
   day: string;
 };

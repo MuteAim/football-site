@@ -114,6 +114,43 @@ test("실제 PostgreSQL 스키마의 태그·알림·권한", async (t) => {
     assert.equal((await db.query("select count(*)::int as n from public.admin_logs where area = 'update'")).rows[0].n, 1);
   });
 
+  await t.test("운영자만 골을 지급하고 같은 요청은 한 번만 반영하며 내역·운영 기록을 남긴다", () => isolated(async () => {
+    // 실패해도 이 테스트의 트랜잭션이 깨지지 않게 한 번씩 savepoint 안에서 실행해요.
+    async function attempt(by, sql, params) {
+      await db.exec("savepoint attempt");
+      await db.query("select set_config('request.jwt.claim.sub', $1, false)", [by]);
+      await db.exec("set role authenticated");
+      try {
+        const { rows } = await db.query(sql, params);
+        await db.exec("reset role");
+        await db.exec("release savepoint attempt");
+        return rows;
+      } catch (error) {
+        await db.exec("rollback to savepoint attempt");
+        throw error;
+      }
+    }
+    const grant = async (by, nickname, amount, reason, request) =>
+      (await attempt(by, "select * from public.admin_grant_goals($1, $2, $3, $4)", [nickname, amount, reason, request]))[0];
+    const request = "11111111-1111-4111-8111-111111111111";
+    await assert.rejects(grant(owner, "Fan_1", 100, "보상", request), /운영자만/);
+    await assert.rejects(attempt(owner,
+      "insert into public.goal_events (user_id, kind, ref, day, amount) values ($1, 'reward', 'x', current_date, 100)", [owner],
+    ), /permission denied|row-level security/);
+    const before = (await db.query("select goals from public.profiles where id = $1", [tagged])).rows[0].goals;
+    assert.deepEqual(await grant(writer, " fan_1 ", 100, " 레전드 로드 초기화 보상 ", request), { nickname: "Fan_1", goals: before + 100 }, "닉네임은 대소문자·앞뒤 공백을 가리지 않아요");
+    await assert.rejects(grant(writer, "Fan_1", 100, "보상", request), /이미 처리한/);
+    await grant(writer, "Fan_1", 5, "이벤트", "22222222-2222-4222-8222-222222222222");
+    assert.equal((await db.query("select goals from public.profiles where id = $1", [tagged])).rows[0].goals, before + 105);
+    for (const [nickname, amount, reason] of [["없는회원", 10, "보상"], ["Fan_1", 0, "보상"], ["Fan_1", 10001, "보상"], ["Fan_1", 10, " "], ["Fan_1", 10, "가".repeat(41)]]) {
+      await assert.rejects(grant(writer, nickname, amount, reason, "33333333-3333-4333-8333-333333333333"), /찾지 못했|골까지|이유/);
+    }
+    const events = await asUser(tagged, async () => (await db.query("select kind, amount, note from public.goal_events where user_id = $1 order by id", [tagged])).rows);
+    assert.deepEqual(events, [{ kind: "reward", amount: 100, note: "레전드 로드 초기화 보상" }, { kind: "reward", amount: 5, note: "이벤트" }]);
+    const logs = (await db.query("select actor_id, target, changes from public.admin_logs where area = 'goals' order by id")).rows;
+    assert.deepEqual(logs.map((log) => [log.actor_id, log.target, log.changes.amount, log.changes.reason]), [[writer, tagged, 100, "레전드 로드 초기화 보상"], [writer, tagged, 5, "이벤트"]]);
+  }));
+
   await t.test("화면에 보인 내 알림만 읽고 새 알림과 다른 회원의 알림은 남긴다", () => isolated(async () => {
     const mine = (await db.query("select id from public.notifications where user_id = $1", [owner])).rows[0].id;
     const other = (await db.query("select id from public.notifications where user_id = $1", [tagged])).rows[0].id;

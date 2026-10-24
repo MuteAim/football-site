@@ -78,7 +78,7 @@ export async function getMyGoals(userId: string): Promise<{
     supabase.rpc("my_balance"),
     supabase
       .from("goal_events")
-      .select("id, kind, amount, day")
+      .select("id, kind, amount, note, day")
       .eq("user_id", userId)
       .order("id", { ascending: false })
       .limit(10),

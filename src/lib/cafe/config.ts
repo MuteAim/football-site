@@ -35,6 +35,9 @@ export const NICKNAME_HINT = "2~12자, 한글·영문·숫자·밑줄(_)만 쓸 
 
 export const PAGE_SIZE = 20;
 
+/** 카페 관리의 골 지급 한도. DB의 admin_grant_goals와 같아요. */
+export const GRANT_LIMITS = { amount: 10000, reason: 40 } as const;
+
 /** 추천을 이만큼 받으면 인기글 게시판에 올라가요. */
 export const BEST_LIKES = 3;
 

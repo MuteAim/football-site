@@ -134,7 +134,7 @@ async function GoalSection({ userId, goals }: { userId: string; goals: number })
         <ul className="mt-3 divide-y divide-zinc-100 rounded-xl bg-zinc-50 px-3 text-sm dark:divide-white/[0.06] dark:bg-white/[0.03]">
           {events.map((event) => (
             <li key={event.id} className="flex items-center gap-2 py-2">
-              <span className="min-w-0 flex-1 truncate">{GOAL_LABEL[event.kind]}</span>
+              <span className="min-w-0 flex-1 truncate">{GOAL_LABEL[event.kind]}{event.note ? ` · ${event.note}` : ""}</span>
               <span className={`shrink-0 text-xs tabular-nums ${mutedClass}`}>{event.day.slice(5).replace("-", ".")}</span>
               <span className="w-12 shrink-0 text-right font-semibold text-emerald-700 tabular-nums dark:text-emerald-400">
                 +{event.amount}
