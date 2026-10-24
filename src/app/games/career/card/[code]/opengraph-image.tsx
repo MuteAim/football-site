@@ -32,7 +32,7 @@ export default async function Image({ params }: { params: Promise<{ code: string
     card.pos === "GK" ? ["무실점", `${t.cleanSheets}`] : ["골", `${t.goals}`], ["발롱도르", `${t.ballonDor}`], ["트로피", `${t.trophies}`],
   ] : [];
   const by = shared ? `${shared.nickname} 님의 선수 · ${card!.grade}` : "";
-  const text = [name, sub, title, score, by, "LEGEND ROAD 레전드 점수 점 해외축구 MATCHDAY", ...stats.flat()].join("");
+  const text = [name, sub, title, score, by, "LEGEND ROAD SCORE 레전드 점수 점 해외축구 MATCHDAY", ...stats.flat()].join("");
   const [bold, regular] = await Promise.all([koreanFont(text, 900), koreanFont(text, 500)]);
   const fonts = [
     ...(bold ? [{ name: "Noto Sans KR", data: bold, weight: 900 as const, style: "normal" as const }] : []),
