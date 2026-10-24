@@ -1,12 +1,17 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { NATIONS, POSITIONS } from "@/lib/career/data";
 import { exportRetirements, importRetirements, type RetiredCareer } from "@/lib/career/archive";
 import { cardClass, mutedClass, secondaryButtonClass } from "../ui";
 
-export function CareerArchive({ entries, error, onImport, onRetry }: {
-  entries: RetiredCareer[]; error: string; onImport: (entries: RetiredCareer[]) => boolean; onRetry: () => void;
+/** 계정 보관함 상태. local은 비회원이거나 계정 보관을 아직 쓸 수 없는 경우예요. */
+export type CloudState = "local" | "syncing" | "synced" | "failed";
+
+export function CareerArchive({ entries, error, member, cloud, onCloudRetry, onImport, onRetry }: {
+  entries: RetiredCareer[]; error: string; member: boolean; cloud: CloudState; onCloudRetry: () => void;
+  onImport: (entries: RetiredCareer[]) => boolean; onRetry: () => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState("");
@@ -41,7 +46,16 @@ export function CareerArchive({ entries, error, onImport, onRetry }: {
   return (
     <section id="career-archive" aria-labelledby="career-archive-heading" className={`${cardClass} scroll-mt-24 p-5`}>
       <h2 id="career-archive-heading" className="font-extrabold">은퇴 선수 보관함 <span className="text-emerald-600 dark:text-emerald-400">{entries.length}명</span></h2>
-      <p className={`mt-2 text-xs leading-relaxed ${mutedClass}`}>은퇴하면 통산 기록·팀별 성적·수상 내역·칭호를 이 브라우저에 자동 보관해요. 새 커리어를 시작해도 남아요. 계정 동기화는 지원하지 않으며, 브라우저 데이터를 지우기 전에는 파일로 백업해 주세요.</p>
+      <p className={`mt-2 text-xs leading-relaxed ${mutedClass}`}>{member && cloud !== "local"
+        ? "은퇴하면 통산 기록·팀별 성적·수상 내역·칭호를 내 계정에 자동 보관해요. 다른 기기에서 로그인해도 볼 수 있어요."
+        : "은퇴하면 통산 기록·팀별 성적·수상 내역·칭호를 이 브라우저에 자동 보관해요. 새 커리어를 시작해도 남아요. 브라우저 데이터를 지우기 전에는 파일로 백업해 주세요."}</p>
+      {!member ? <p className={`mt-2 text-xs leading-relaxed ${mutedClass}`}><Link href="/cafe/login?next=%2Fgames%2Fcareer" prefetch={false} className="font-bold text-emerald-700 underline dark:text-emerald-300">로그인</Link>하면 이 브라우저의 기록까지 계정에 저장돼 어느 기기에서든 볼 수 있어요.</p>
+        : cloud === "syncing" ? <p role="status" className={`mt-2 text-xs ${mutedClass}`}>계정 보관함과 맞추는 중…</p>
+        : cloud === "synced" ? <p role="status" className="mt-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">계정에 저장됨</p>
+        : cloud === "failed" ? <div role="alert" className="mt-3 rounded-xl bg-amber-50 p-3 text-xs leading-relaxed text-amber-900 dark:bg-amber-300/10 dark:text-amber-100">
+          <p>계정 보관함에 저장하지 못했어요. 기록은 이 브라우저에 남아 있어요.</p>
+          <button type="button" onClick={onCloudRetry} className="mt-2 min-h-10 font-bold underline">계정 저장 다시 시도</button>
+        </div> : null}
       {error ? <div role="alert" className="mt-3 rounded-xl bg-rose-50 p-3 text-xs leading-relaxed text-rose-700 dark:bg-rose-500/10 dark:text-rose-200">
         <p>{error}</p><button type="button" onClick={onRetry} className="mt-2 min-h-10 font-bold underline">보관 다시 시도</button>
       </div> : null}

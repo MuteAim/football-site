@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { finishCareerRun, getCareerSnapshot, startCareerRun } from "@/lib/cafe/career-actions";
+import { finishCareerRun, getCareerRetirements, getCareerSnapshot, saveCareerRetirements, startCareerRun } from "@/lib/cafe/career-actions";
 import { careerDay, type CareerSnapshot } from "@/lib/career/board";
 import { NATIONS, POSITIONS } from "@/lib/career/data";
 import {
@@ -18,8 +18,8 @@ import { DecisionCard, HalfSeason, HistoryTable, OvrChart, PlayerCard, RivalCard
 import { TurnHeader, turnResult, type TurnResult } from "./CareerTurn";
 import { buildCareerJournal } from "@/lib/career/journal";
 import { CareerJournal } from "./CareerJournal";
-import { archiveCareer, mergeRetirements, readRetirements, saveRetirements, type RetiredCareer } from "@/lib/career/archive";
-import { CareerArchive } from "./CareerArchive";
+import { archiveCareer, CAREER_ARCHIVE_BATCH, mergeRetirements, readRetirements, saveRetirements, type RetiredCareer } from "@/lib/career/archive";
+import { CareerArchive, type CloudState } from "./CareerArchive";
 import styles from "./career.module.css";
 
 /** 브라우저에 남기는 커리어. 상태 대신 시드와 선택만 저장하고 불러올 때 다시 계산해요. */
@@ -114,18 +114,51 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   const ranked = snapshot.member && snapshot.available;
   const journal = useMemo(() => stored ? buildCareerJournal(stored) : [], [stored]);
 
+  const [cloud, setCloud] = useState<CloudState>(initial.member ? "syncing" : "local");
+  const archiveRef = useRef<RetiredCareer[]>([]);
+  const cloudStarted = useRef(false);
+  const cloudReady = useRef(false);
+
+  /** 계정 보관함에 나눠 보내요. 이미 있는 선수는 DB가 건너뛰어요. */
+  const uploadRetirements = useCallback(async (entries: RetiredCareer[]): Promise<CloudState> => {
+    for (let i = 0; i < entries.length; i += CAREER_ARCHIVE_BATCH) {
+      const saved = await saveCareerRetirements(entries.slice(i, i + CAREER_ARCHIVE_BATCH));
+      if ("unavailable" in saved) return "local";
+      if ("error" in saved) return "failed";
+    }
+    return "synced";
+  }, []);
+
   const storeRetirements = useCallback((entries: RetiredCareer[]) => {
+    let saved = true;
     try {
       setArchive(saveRetirements(localStorage, entries));
       setArchiveError("");
-      return true;
     } catch {
       // 실패한 기록도 화면과 백업에는 남겨요. 기존 저장을 지우지는 않아요.
       setArchive((previous) => mergeRetirements(previous, entries));
       setArchiveError("은퇴 기록을 브라우저에 저장하지 못했어요. 저장 공간과 브라우저 설정을 확인하고 다시 시도해 주세요. 창을 닫기 전 ‘보관함 백업’으로 기록을 내려받을 수 있어요.");
-      return false;
+      saved = false;
     }
-  }, []);
+    // 계정 보관함을 처음 맞춘 뒤부터는 새로 보관한 선수만 바로 보내요.
+    if (cloudReady.current) {
+      setCloud("syncing");
+      void uploadRetirements(entries).then(setCloud);
+    }
+    return saved;
+  }, [uploadRetirements]);
+
+  /** 계정에 있던 선수는 이 브라우저로 가져오고, 이 브라우저에만 있던 선수는 계정에 올려요. */
+  const syncCloud = useCallback(async () => {
+    const remote = await getCareerRetirements();
+    if ("unavailable" in remote) { setCloud("local"); return; }
+    if ("error" in remote) { setCloud("failed"); return; }
+    const known = new Set(remote.entries.map((entry) => entry.id));
+    const missing = archiveRef.current.filter((entry) => !known.has(entry.id));
+    storeRetirements(remote.entries);
+    cloudReady.current = true;
+    setCloud(missing.length ? await uploadRetirements(missing) : "synced");
+  }, [storeRetirements, uploadRetirements]);
 
   const restore = useCallback((value: Stored) => {
     const state = replayCareer(value);
@@ -163,6 +196,21 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     });
     return () => cancelAnimationFrame(frame);
   }, [restore]);
+
+  useEffect(() => { archiveRef.current = archive; }, [archive]);
+
+  // 브라우저 보관함을 읽은 뒤 계정 보관함과 한 번 맞춰요.
+  useEffect(() => {
+    if (screen === "loading" || !snapshot.member || cloudStarted.current) return;
+    cloudStarted.current = true;
+    void syncCloud();
+  }, [screen, snapshot.member, syncCloud]);
+
+  function retryCloud() {
+    cloudReady.current = false;
+    setCloud("syncing");
+    void syncCloud();
+  }
 
   useEffect(() => {
     if (!busy) return;
@@ -353,7 +401,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
           <>
             <PlayerCard state={displayed} />
             {summary ? (
-              <RetiredCard summary={summary} state={displayed} rank={rank} saving={saving} starting={starting} challenge={challenge} archived={!archiveError && archive.length > 0}
+              <RetiredCard summary={summary} state={displayed} rank={rank} saving={saving} starting={starting} challenge={challenge} archived={!archiveError && archive.length > 0} cloud={cloud}
                 onRetry={() => stored && submit(stored)} onShare={() => void share(summary)} onNew={() => void begin()}
                 shareNote={shareNote} shareText={shareText} ranked={ranked} practiceRun={!stored?.runId} />
             ) : (
@@ -393,7 +441,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
             importCode={importCode} onImportCode={setImportCode} onImport={importCareer} />
         )}
         {error ? <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-200">{error}</p> : null}
-        {screen !== "loading" ? <CareerArchive entries={archive} error={archiveError} onImport={storeRetirements} onRetry={() => { if (storeRetirements(archive)) setError(""); }} /> : null}
+        {screen !== "loading" ? <CareerArchive entries={archive} error={archiveError} member={snapshot.member} cloud={cloud} onCloudRetry={retryCloud} onImport={storeRetirements} onRetry={() => { if (storeRetirements(archive)) setError(""); }} /> : null}
       </div>
       <CareerBoard snapshot={snapshot} />
     </div>
@@ -462,9 +510,9 @@ function Intro({ ranked, member, starting, hall, onStart, onPractice, importCode
   );
 }
 
-function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked, practiceRun, archived, onRetry, onShare, onNew, shareNote, shareText }: {
+function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked, practiceRun, archived, cloud, onRetry, onShare, onNew, shareNote, shareText }: {
   summary: CareerSummary; state: CareerState; rank: RankState; saving: boolean; starting: boolean; challenge: { score: number; day: string } | null;
-  ranked: boolean; practiceRun: boolean; archived: boolean; onRetry: () => void; onShare: () => void; onNew: () => void; shareNote: string; shareText: string;
+  ranked: boolean; practiceRun: boolean; archived: boolean; cloud: CloudState; onRetry: () => void; onShare: () => void; onNew: () => void; shareNote: string; shareText: string;
 }) {
   const stats: [string, string][] = [
     ["시즌", `${summary.seasons}`], ["경기", summary.apps.toLocaleString("ko-KR")],
@@ -526,7 +574,7 @@ function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked
         </div>
         {status ? <p role="status" className="rounded-xl bg-black/20 px-3 py-2 text-xs leading-relaxed text-white/80">{status}</p> : null}
         <p role="status" className="rounded-xl bg-white/10 px-3 py-2 text-xs leading-relaxed text-white/85">
-          {archived ? "은퇴 요약을 이 브라우저에 보관했어요. 새 커리어를 시작해도 통산·팀별 기록과 수상·칭호는 남아요." : "은퇴 요약을 아직 보관하지 못했어요. 아래 보관함의 저장 상태를 확인해 주세요."}
+          {archived ? `은퇴 요약을 ${cloud === "synced" ? "내 계정과 이 브라우저에" : "이 브라우저에"} 보관했어요. 새 커리어를 시작해도 통산·팀별 기록과 수상·칭호는 남아요.` : "은퇴 요약을 아직 보관하지 못했어요. 아래 보관함의 저장 상태를 확인해 주세요."}
           <a href="#career-archive" className="mt-2 block min-h-8 content-center font-bold text-lime-200 underline">은퇴 선수 보관함 보기 ↓</a>
         </p>
         {rank.state === "failed" ? <button type="button" disabled={saving} onClick={onRetry} className="h-11 w-full rounded-xl border border-white/30 text-sm font-bold disabled:opacity-50">순위 기록 다시 시도</button> : null}

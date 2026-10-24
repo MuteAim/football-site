@@ -569,9 +569,32 @@ test("레전드 로드 실제 DB 시작·기록·순위·권한", async (t) => {
     assert.equal((await as(null, "select public.career_board('2000-01-01') as result", [], "anon"))[0].result.leaders.length, 0);
   });
 
+  await t.test("은퇴 보관함은 본인 것만 저장·조회하고 같은 선수는 한 번만 남는다", async () => {
+    const save = async (user, entries, role) => (await as(user, "select public.career_archive_save($1::jsonb) as added", [JSON.stringify(entries)], role))[0].added;
+    const list = async (user) => (await as(user, "select public.career_archive_list() as result"))[0].result;
+    const setup = { ...baseSetup, name: "보관맨" };
+    const { choices } = play(7, setup, () => 0);
+    const save7 = { v: E.CAREER_VERSION, seed: 7, startYear: 2026, setup, choices };
+    const older = A.archiveCareer(E.replayCareer(save7), save7, false, "2026-10-20T12:00:00.000Z");
+    const newer = { ...older, id: "career-test-newer", retiredAt: "2026-10-24T12:00:00.000Z" };
+
+    await assert.rejects(save(null, [older], "anon"), /permission denied/);
+    await assert.rejects(save(users[3], [older]), /닉네임/);
+    await assert.rejects(as(users[0], "select * from public.career_retirements"), /permission denied/);
+    assert.equal(await save(users[0], [older, newer]), 2);
+    assert.equal(await save(users[0], [{ ...older, name: "덮어쓰기" }]), 0, "다른 기기에서 다시 보내도 처음 내용을 지켜요");
+    assert.deepEqual((await list(users[0])).map((entry) => [entry.id, entry.name]), [[newer.id, newer.name], [older.id, older.name]]);
+    assert.deepEqual((await list(users[0])).map(A.parseRetirement)[1], older);
+    assert.deepEqual(await list(users[1]), []);
+    assert.deepEqual(await list(null), []);
+    await assert.rejects(save(users[0], Array.from({ length: 101 }, (_, i) => ({ ...older, id: `many-${i}` }))), /100명/);
+    await assert.rejects(save(users[0], [{ ...older, id: "huge", clubs: Array.from({ length: 400 }, (_, i) => ({ ...older.clubs[0], club: `c${i}` })) }]), /check/);
+    assert.equal((await list(users[0])).length, 2, "거절한 요청은 아무것도 남기지 않아요");
+  });
+
   await t.test("스키마를 다시 실행해도 기록이 남는다", async () => {
-    const before = (await db.query("select count(*)::int as count from public.career_records")).rows[0].count;
+    const before = (await db.query("select (select count(*) from public.career_records) + (select count(*) from public.career_retirements) as count")).rows[0].count;
     await db.exec(schema);
-    assert.equal((await db.query("select count(*)::int as count from public.career_records")).rows[0].count, before);
+    assert.equal((await db.query("select (select count(*) from public.career_records) + (select count(*) from public.career_retirements) as count")).rows[0].count, before);
   });
 });

@@ -11,6 +11,8 @@ export type RetiredCareer = {
   totals: Totals; clubs: ClubCareer[]; honors: { label: string; count: number }[];
 };
 type ArchiveStorage = Pick<Storage, "getItem" | "setItem">;
+/** 계정 보관함에 한 번에 보내는 최대 인원. DB의 career_archive_save와 같아요. */
+export const CAREER_ARCHIVE_BATCH = 100;
 
 /** 같은 저장을 새로 고치거나 다시 가져와도 한 번만 보관해요. 원본 선택은 식별값 계산에만 사용해요. */
 function retirementId(save: CareerSave): string {
@@ -63,7 +65,7 @@ function list(value: unknown): unknown[] {
 }
 
 /** 가져온 파일의 필요한 필드만 복사해요. 원본 게임 데이터가 섞여 있어도 보관하지 않아요. */
-function parseEntry(value: unknown): RetiredCareer {
+export function parseRetirement(value: unknown): RetiredCareer {
   const entry = object(value), totals = object(entry.totals);
   if (entry.v !== 1 || typeof entry.ranked !== "boolean") throw new Error("지원하지 않는 보관함 형식이에요.");
   const retiredAt = text(entry.retiredAt, 40);
@@ -81,7 +83,7 @@ function parseEntry(value: unknown): RetiredCareer {
 }
 
 export function readRetirements(storage: ArchiveStorage): RetiredCareer[] {
-  return list(JSON.parse(storage.getItem(CAREER_ARCHIVE_KEY) ?? "[]")).map(parseEntry);
+  return list(JSON.parse(storage.getItem(CAREER_ARCHIVE_KEY) ?? "[]")).map(parseRetirement);
 }
 
 export function mergeRetirements(existing: RetiredCareer[], incoming: RetiredCareer[]): RetiredCareer[] {
@@ -105,5 +107,5 @@ export function exportRetirements(entries: RetiredCareer[]): string {
 export function importRetirements(source: string): RetiredCareer[] {
   const file = object(JSON.parse(source));
   if (file.format !== "legend-road-retirements" || file.version !== 1) throw new Error("레전드 로드 은퇴 보관함 백업 파일을 골라 주세요.");
-  return list(file.entries).map(parseEntry);
+  return list(file.entries).map(parseRetirement);
 }

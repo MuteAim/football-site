@@ -1833,3 +1833,47 @@ revoke all on function public.career_board(date) from public;
 grant execute on function public.career_start() to authenticated;
 grant execute on function public.career_record(uuid, uuid, jsonb) to service_role;
 grant execute on function public.career_board(date) to anon, authenticated;
+
+-- 회원의 은퇴 선수 보관함이에요. 화면의 보관함(archive.ts)과 같은 요약을 본인만 저장하고 봐요.
+-- 연습 커리어도 남기는 개인 기록이라 서버가 다시 계산하지 않고, 순위에는 쓰지 않아요.
+create table if not exists public.career_retirements (
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  id text not null check (char_length(id) between 1 and 160),
+  retired_at timestamptz not null,
+  entry jsonb not null check (jsonb_typeof(entry) = 'object' and octet_length(entry::text) <= 16384),
+  saved_at timestamptz not null default clock_timestamp(),
+  primary key (user_id, id)
+);
+create index if not exists career_retirements_user_idx on public.career_retirements(user_id, retired_at desc);
+alter table public.career_retirements enable row level security;
+revoke all on public.career_retirements from public, anon, authenticated;
+
+-- 같은 선수는 한 번만 남겨요. 다른 기기에서 다시 보내도 처음 저장한 내용을 지켜요.
+create or replace function public.career_archive_save(entries jsonb)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  me uuid := auth.uid();
+  added integer;
+begin
+  perform 1 from public.profiles p where p.id = me for update;
+  if not found then raise exception '로그인하고 닉네임을 정하면 계정에 보관할 수 있어요.'; end if;
+  if jsonb_typeof(entries) is distinct from 'array' or jsonb_array_length(entries) > 100 then
+    raise exception '한 번에 100명까지 보관할 수 있어요.';
+  end if;
+  insert into public.career_retirements(user_id, id, retired_at, entry)
+    select me, e->>'id', (e->>'retiredAt')::timestamptz, e from jsonb_array_elements(entries) e
+    on conflict (user_id, id) do nothing;
+  get diagnostics added = row_count;
+  if (select count(*) from public.career_retirements r where r.user_id = me) > 2000 then
+    raise exception '계정 보관함은 2,000명까지 저장할 수 있어요.';
+  end if;
+  return added;
+end $$;
+
+create or replace function public.career_archive_list()
+returns jsonb language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(r.entry order by r.retired_at desc, r.id), '[]'::jsonb)
+  from public.career_retirements r where r.user_id = auth.uid();
+$$;
+revoke all on function public.career_archive_save(jsonb), public.career_archive_list() from public, anon;
+grant execute on function public.career_archive_save(jsonb), public.career_archive_list() to authenticated;
