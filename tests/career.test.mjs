@@ -28,6 +28,7 @@ const J = await load("src/lib/career/journal.ts");
 const A = await load("src/lib/career/archive.ts");
 const G = await load("src/lib/career/badges.ts");
 const C = await load("src/lib/career/card.ts");
+const K = await load("src/lib/career/crests.ts");
 
 /** 테스트용 결정적 난수. 같은 순서로 같은 커리어를 만들어요. */
 function lcg(seed) {
@@ -482,6 +483,13 @@ test("라이벌·결정적 순간·이어지는 사건이 규칙대로 움직인
   }
   const ratio = hints.right / hints.total;
   assert.ok(hints.total >= 100 && ratio > 0.7 && ratio < 0.9, `스카우팅 리포트 적중률 ${ratio}`);
+});
+
+test("엠블럼이 있는 리그의 구단은 모두 엠블럼을 찾는다", () => {
+  for (const league of ["ENG", "ENG2", "ESP", "GER", "ITA", "FRA", "NED", "POR", "BRA"]) {
+    for (const [name] of D.LEAGUES[league].clubs) assert.match(K.clubCrest(name) ?? "", /^https:\/\/crests\.football-data\.org\/.+\.png$/, name);
+  }
+  assert.equal(K.clubCrest("전북 현대"), null);
 });
 
 test("잘못된 선수 정보·선택·버전은 거절한다", () => {

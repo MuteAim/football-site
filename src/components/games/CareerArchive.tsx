@@ -7,6 +7,7 @@ import { NATIONS, POSITIONS, type Pos } from "@/lib/career/data";
 import { exportRetirements, importRetirements, type RetiredCareer } from "@/lib/career/archive";
 import { LockIcon, TrophyIcon } from "../Icons";
 import { cardClass, mutedClass, secondaryButtonClass, textButtonClass } from "../ui";
+import { ClubBadge } from "./CareerParts";
 
 /** 계정 보관함 상태. local은 비회원이거나 계정 보관을 아직 쓸 수 없는 경우예요. */
 export type CloudState = "local" | "syncing" | "synced" | "failed";
@@ -253,7 +254,7 @@ export function ClubTable({ name, clubs }: { name: string; clubs: RetiredCareer[
       <table className="w-full text-xs tabular-nums">
         <caption className="sr-only">{name}의 팀별 시즌 수와 경기·골·도움</caption>
         <thead className={mutedClass}><tr>{["팀", "시즌", "경기", "골", "도움"].map((label, i) => <th key={label} scope="col" className={`py-2 ${i ? "pl-2 text-right whitespace-nowrap" : "text-left"}`}>{label}</th>)}</tr></thead>
-        <tbody>{clubs.map((club) => <tr key={club.club} className="border-t border-zinc-100 dark:border-white/5"><th scope="row" className="py-2 text-left font-semibold break-words">{club.name}</th>{[club.seasons, club.apps, club.goals, club.assists].map((value, i) => <td key={i} className="py-2 pl-2 text-right">{value.toLocaleString("ko-KR")}</td>)}</tr>)}</tbody>
+        <tbody>{clubs.map((club) => <tr key={club.club} className="border-t border-zinc-100 dark:border-white/5"><th scope="row" className="py-2 text-left font-semibold break-words"><span className="flex items-center gap-1.5"><ClubBadge name={club.name} size={18} />{club.name}</span></th>{[club.seasons, club.apps, club.goals, club.assists].map((value, i) => <td key={i} className="py-2 pl-2 text-right">{value.toLocaleString("ko-KR")}</td>)}</tr>)}</tbody>
       </table>
     </div>
   );

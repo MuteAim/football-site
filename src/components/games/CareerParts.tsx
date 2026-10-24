@@ -6,6 +6,8 @@ import {
   attrLabels, careerTotals, clubName, CONTINENTAL_STAGES, CUP_STAGES, expectedRole, formatValue, legacyScore, marketValue, overall,
   roleName, seasonLabel, starterLine, type CareerState, type Choice, type Decision, type LegacyBreakdown, type SeasonRecord,
 } from "@/lib/career/engine";
+import { clubCrest } from "@/lib/career/crests";
+import { Crest } from "../Crest";
 import { BallIcon, TrophyIcon } from "../Icons";
 import { cardClass, mutedClass } from "../ui";
 import type { SeasonJournal } from "@/lib/career/journal";
@@ -14,13 +16,24 @@ import styles from "./career.module.css";
 
 // 레전드 로드 화면 조각이에요. 상태는 CareerGame이 들고, 여기서는 그리기만 해요.
 
-/** 구단 엠블럼 대신 쓰는 동그란 표시. 이름에서 색을 정해서 같은 구단은 늘 같은 색이에요. */
-export function ClubBadge({ name, className = "size-7 text-xs" }: { name: string; className?: string }) {
+/**
+ * 구단 엠블럼. 짙은 엠블럼도 어두운 화면에서 보이게 흰 동그라미 위에 올려요.
+ * 엠블럼이 없는 구단은 이름 첫 글자를 이름에서 정한 색 위에 보여서, 같은 구단은 늘 같은 색이에요.
+ */
+export function ClubBadge({ name, size = 28 }: { name: string; size?: number }) {
+  const crest = clubCrest(name);
+  if (crest) {
+    return (
+      <span aria-hidden="true" className="inline-flex shrink-0 items-center justify-center rounded-full bg-white ring-1 ring-zinc-950/10" style={{ width: size, height: size }}>
+        <Crest src={crest} size={Math.round(size * 0.72)} />
+      </span>
+    );
+  }
   let hue = 0;
   for (const char of name) hue = (hue * 31 + char.charCodeAt(0)) % 360;
   const initial = name.replace(/^(FC|AC|AS)\s+/, "").charAt(0);
   return (
-    <span aria-hidden="true" className={`inline-flex shrink-0 items-center justify-center rounded-full font-black text-white ring-2 ring-white/25 ${className}`} style={{ backgroundColor: `hsl(${hue} 45% 34%)` }}>
+    <span aria-hidden="true" className="inline-flex shrink-0 items-center justify-center rounded-full font-black text-white ring-2 ring-white/25" style={{ width: size, height: size, fontSize: Math.round(size * 0.42), backgroundColor: `hsl(${hue} 45% 34%)` }}>
       {initial}
     </span>
   );
@@ -127,7 +140,7 @@ export function PlayerCard({ state }: { state: CareerState }) {
           <h2 className="truncate text-2xl font-black tracking-tight">{state.name}</h2>
           <p className="mt-0.5 truncate text-xs text-white/70">{POSITIONS[state.pos].name} · {state.age}세 · {NATIONS[state.nation].name} · {state.style}</p>
           <p className="mt-3 flex min-w-0 items-center gap-2 text-sm font-bold">
-            <ClubBadge name={clubName(state.club)} className="size-6 text-[11px]" />
+            <ClubBadge name={clubName(state.club)} size={24} />
             <span className="truncate">{clubName(state.club)}</span>
             <span className="shrink-0 text-xs font-normal text-white/55">{league.name} · 전력 {CLUBS[state.club].rating}</span>
           </p>
@@ -206,7 +219,7 @@ export function DecisionCard({ decision, onPick, disabled }: { decision: Decisio
           {decision.options.map((option, index) => (
             <button key={`${option.value}-${option.club ?? index}`} type="button" disabled={disabled} onClick={(event) => onPick(index, event.timeStamp, event.detail === 0)}
               className={`flex min-h-16 w-full items-center gap-3 rounded-2xl px-4 py-3 text-left ring-1 transition active:scale-[0.99] disabled:opacity-50 ${TONE_CLASS[option.tone]}`}>
-              {option.club ? <ClubBadge name={clubName(option.club)} className="size-9 text-sm" /> : null}
+              {option.club ? <ClubBadge name={clubName(option.club)} size={36} /> : null}
               <span className="min-w-0 flex-1">
                 <span className="block text-[15px] leading-snug font-extrabold">{option.label}</span>
                 <span className={`mt-0.5 block text-xs leading-relaxed ${mutedClass}`}>{option.detail}</span>
@@ -310,7 +323,7 @@ export function SeasonReport({ season, previous, journal, expandedDetails = fals
           <p className="sport-eyebrow text-emerald-700 dark:text-emerald-400">SEASON REPORT</p>
           <h2 id={heading} className="mt-1 text-lg font-black tracking-tight">{seasonLabel(season.year)} 시즌 · {season.age}세</h2>
           <p className={`mt-1 flex min-w-0 items-center gap-1.5 text-sm ${mutedClass}`}>
-            <ClubBadge name={clubName(season.club)} className="size-5 text-[10px]" />
+            <ClubBadge name={clubName(season.club)} size={20} />
             <span className="truncate">{clubName(season.club)}{season.loan ? " (임대)" : season.military ? " (군 복무)" : ""} · {roleName(season.role, season.age)}</span>
           </p>
         </div>

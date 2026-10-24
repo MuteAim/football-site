@@ -124,7 +124,7 @@ export function CareerCreate({ seed, startYear, ranked, onCreate, onCancel }: {
                   <span className="min-w-0">
                     <span className="block text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{TIERS[index].label}</span>
                     <span className="mt-1 flex min-w-0 items-center gap-1.5 text-sm font-extrabold">
-                      <ClubBadge name={club.name} className="size-5 text-[10px]" />
+                      <ClubBadge name={club.name} size={20} />
                       <span className="truncate">{clubName(candidate.club)}</span>
                     </span>
                   </span>
