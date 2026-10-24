@@ -255,6 +255,7 @@ try {
   assert.ok(await evaluate(`document.body.innerText.includes('평생의 라이벌 ·') && document.body.innerText.includes('맞대결')`), "은퇴 화면의 라이벌 비교");
   console.log(sawMoment ? "결정적 순간 화면 확인" : "이번 커리어에는 결정적 순간이 없었어요");
   await noOverflow("은퇴 화면 390px");
+  assert.ok(await evaluate(`(() => { const box = document.querySelector('[data-rank-teaser]'); return !!box && box.innerText.includes('위') && !!box.querySelector('a[href^="/cafe/login?next="]'); })()`), "비회원 연습 커리어 은퇴 화면은 예상 순위와 로그인 버튼을 보여 줘요");
   await command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }, { name: "prefers-reduced-motion", value: "reduce" }] });
   await screenshot("career-retired.png");
   const hall = await evaluate(`JSON.parse(localStorage.getItem('football-career-archive-v2'))`);

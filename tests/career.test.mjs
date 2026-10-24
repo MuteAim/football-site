@@ -544,6 +544,13 @@ test("잘못된 선수 정보·선택·버전은 거절한다", () => {
 
 test("도전장 링크는 유효한 날짜와 범위 안의 점수만 받는다", () => {
   assert.deepEqual(B.readCareerChallenge("4321", "2026-10-23"), { score: 4321, day: "2026-10-23" });
+  const leaders = (scores) => ({ ...B.EMPTY_CAREER_BOARD, leaders: scores.map((score) => ({ score })) });
+  assert.equal(B.wouldRank(B.EMPTY_CAREER_BOARD, 10), 1, "아무도 없으면 1위");
+  assert.equal(B.wouldRank(leaders([900, 500, 500, 100]), 500), 2, "같은 점수는 공동 순위");
+  assert.equal(B.wouldRank(leaders([900, 500]), 50), 3);
+  const full = Array.from({ length: B.BOARD_SIZE }, (_, i) => 1000 - i * 10);
+  assert.equal(B.wouldRank(leaders(full), full.at(-1)), B.BOARD_SIZE, "20위와 같으면 공동 20위");
+  assert.equal(B.wouldRank(leaders(full), full.at(-1) - 1), null, "상위 20명 밖");
   for (const value of ["100001", "-1", "1e3", "12.5", "NaN", null]) assert.equal(B.readCareerChallenge(value, "2026-10-23"), null);
   assert.equal(B.readCareerChallenge("100", "2026-02-30"), null);
   assert.equal(B.careerDay(new Date("2026-10-23T14:59:59Z")), "2026-10-23");

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { finishCareerRun, getCareerRetirements, getCareerSnapshot, saveCareerRetirements, shareCareerCard, startCareerRun } from "@/lib/cafe/career-actions";
-import { careerDay, type CareerSnapshot } from "@/lib/career/board";
+import { BOARD_SIZE, careerDay, wouldRank, type CareerBoard as CareerBoardData, type CareerSnapshot } from "@/lib/career/board";
 import { NATIONS } from "@/lib/career/data";
 import {
   CAREER_RULES, CAREER_VERSION, CareerError, choose, createCareer, FOOT_NAMES, legacyBreakdown, positionName, replayCareer, seasonLabel, seasonYearOf, summarizeCareer,
@@ -423,7 +423,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
                 <RetiredCard summary={summary} state={displayed} rank={rank} saving={saving} starting={starting} challenge={challenge} archived={!archiveError && archive.length > 0} cloud={cloud}
                   onRetry={() => stored && submit(stored)} onShare={() => void share(summary)} onNew={() => void begin()}
                   member={snapshot.member} card={stored?.card ?? null} makingCard={makingCard} cardError={cardError} onCard={() => void shareCard(summary)}
-                  shareNote={shareNote} shareText={shareText} ranked={ranked} practiceRun={!stored?.runId} />
+                  shareNote={shareNote} shareText={shareText} ranked={ranked} practiceRun={!stored?.runId} board={snapshot.available ? snapshot.board : null} />
                 <details className={`${cardClass} group/player`}>
                   <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 text-sm font-bold">
                     은퇴 당시 선수 카드
@@ -501,9 +501,16 @@ function Intro({ ranked, member, starting, onStart, onPractice, importCode, onIm
       </section>
       {ranked ? <button type="button" disabled={starting} onClick={onPractice} className={`w-full ${secondaryButtonClass}`}>순위 부담 없이 연습 커리어</button> : null}
       {!member ? (
-        <div className={`flex flex-wrap items-center justify-between gap-3 p-4 ${cardClass}`}>
-          <p className="text-sm"><strong>내 닉네임으로 레전드 순위에!</strong><br /><span className={`text-xs ${mutedClass}`}>로그인하면 다음 커리어부터 오늘의 순위에 참여해요.</span></p>
-          <Link href="/cafe/login?next=%2Fgames%2Fcareer" prefetch={false} className={primaryButtonClass}>로그인</Link>
+        <div className={`p-4 ${cardClass}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm"><strong>로그인하면 내 닉네임으로 순위에!</strong><br /><span className={`text-xs ${mutedClass}`}>카카오·구글 계정으로 바로 시작해요. 로그인 없이 하던 커리어도 그대로 남아요.</span></p>
+            <Link href="/cafe/login?next=%2Fgames%2Fcareer" prefetch={false} className={primaryButtonClass}>로그인</Link>
+          </div>
+          <ul className={`mt-3 grid gap-1.5 text-xs sm:grid-cols-3 ${mutedClass}`}>
+            <li className="rounded-lg bg-zinc-950/[0.04] px-2.5 py-2 dark:bg-white/[0.05]">🏆 오늘의 순위·베스트 11 등재</li>
+            <li className="rounded-lg bg-zinc-950/[0.04] px-2.5 py-2 dark:bg-white/[0.05]">🗂️ 은퇴 기록을 어느 기기에서나</li>
+            <li className="rounded-lg bg-zinc-950/[0.04] px-2.5 py-2 dark:bg-white/[0.05]">📇 친구에게 보낼 공유 카드</li>
+          </ul>
         </div>
       ) : null}
       <details className={`${cardClass} group`}>
@@ -519,7 +526,47 @@ function Intro({ ranked, member, starting, onStart, onPractice, importCode, onIm
   );
 }
 
-function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked, practiceRun, archived, cloud, onRetry, onShare, onNew, shareNote, shareText, member, card, makingCard, cardError, onCard }: {
+/**
+ * 연습 커리어가 은퇴하면 "순위 도전이었다면 몇 위"인지 보여 주고, 다음 커리어를 순위 도전으로 이어 줘요.
+ * 비회원에게는 로그인하면 달라지는 점을 함께 보여 줘요. 로그인하고 돌아와도 이 은퇴 화면은 그대로예요.
+ */
+function RankTeaser({ score, board, member, starting, onNew }: {
+  score: number; board: CareerBoardData | null; member: boolean; starting: boolean; onNew: () => void;
+}) {
+  const place = board ? wouldRank(board, score) : null;
+  const headline = !board ? "다음 커리어는 오늘의 순위에 도전해 보세요"
+    : !board.leaders.length ? "오늘 첫 번째 레전드가 될 수 있는 기록이에요!"
+      : place ? `이 기록이면 오늘의 순위 ${place}위예요!` : `오늘 상위 ${BOARD_SIZE}명까지 조금 더! 다음 커리어로 도전해 보세요`;
+  return (
+    <div className="mx-5 mb-4 rounded-2xl bg-[#d4f77d] p-4 text-[#102c26] sm:mx-8" data-rank-teaser>
+      <p className="text-base font-black">{headline}</p>
+      <p className="mt-1 text-xs leading-relaxed text-[#102c26]/75">
+        연습 커리어라 순위에는 오르지 않았어요. {member ? "‘오늘의 순위에 도전’으로 시작하면 은퇴하는 순간 순위에 올라가요." : "로그인하고 시작한 커리어는 은퇴하는 순간 오늘의 순위에 올라가요."}
+      </p>
+      {member ? (
+        <button type="button" disabled={starting} onClick={onNew}
+          className="mt-3 h-12 w-full rounded-xl bg-[#102c26] text-sm font-black text-[#d4f77d] transition hover:bg-[#173d34] disabled:opacity-60">
+          {starting ? "구단과 계약하는 중…" : "오늘의 순위에 도전 →"}
+        </button>
+      ) : (
+        <>
+          <ul className="mt-3 grid gap-1 text-xs font-semibold sm:grid-cols-3">
+            <li>🏆 오늘의 순위·베스트 11에 내 닉네임</li>
+            <li>🗂️ 은퇴 기록을 계정에 보관</li>
+            <li>📇 친구에게 보낼 공유 카드</li>
+          </ul>
+          <Link href="/cafe/login?next=%2Fgames%2Fcareer" prefetch={false}
+            className="mt-3 flex h-12 items-center justify-center rounded-xl bg-[#102c26] text-sm font-black text-[#d4f77d] transition hover:bg-[#173d34]">
+            로그인하고 순위에 도전 →
+          </Link>
+        </>
+      )}
+    </div>
+  );
+}
+
+function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked, practiceRun, archived, cloud, onRetry, onShare, onNew, shareNote, shareText, member, card, makingCard, cardError, onCard, board }: {
+  board: CareerBoardData | null;
   summary: CareerSummary; state: CareerState; rank: RankState; saving: boolean; starting: boolean; challenge: { score: number; day: string } | null;
   ranked: boolean; practiceRun: boolean; archived: boolean; cloud: CloudState; onRetry: () => void; onShare: () => void; onNew: () => void; shareNote: string; shareText: string;
   member: boolean; card: string | null; makingCard: boolean; cardError: string; onCard: () => void;
@@ -530,8 +577,7 @@ function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked
     ["A매치", `${summary.caps}`], ["최고 OVR", `${summary.peakOvr}`], ["발롱도르", `${summary.ballonDor}`], ["트로피", `${summary.trophies}`],
   ];
   const status = rank.state === "saving" ? "오늘의 순위에 기록하는 중…" : rank.state === "saved" ? rank.message
-    : rank.state === "failed" ? `아직 순위에 기록되지 않았어요. ${rank.message}`
-      : practiceRun ? (ranked ? "연습 커리어라 순위에는 오르지 않아요. ‘오늘의 순위에 도전’으로 시작하면 기록돼요." : "로그인하면 다음 커리어부터 오늘의 순위에 오를 수 있어요.") : "";
+    : rank.state === "failed" ? `아직 순위에 기록되지 않았어요. ${rank.message}` : "";
   return (
     <section className={`overflow-hidden rounded-3xl bg-[#102c26] text-white ${styles.reveal}`} aria-labelledby="career-decision">
       <div className="px-5 pt-7 pb-6 text-center sm:px-8">
@@ -549,6 +595,7 @@ function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked
           </p>
         ) : null}
       </div>
+      {practiceRun && (ranked || !member) ? <RankTeaser score={summary.score} board={board} member={member} starting={starting} onNew={onNew} /> : null}
       <dl className="mx-5 grid grid-cols-4 gap-y-4 rounded-2xl bg-white/[0.05] py-4 text-center sm:mx-8">
         {stats.map(([label, value]) => (
           <div key={label}><dt className="text-[10px] text-white/55">{label}</dt><dd className={`mt-0.5 text-lg font-extrabold tabular-nums ${label === "발롱도르" && value !== "0" ? "text-amber-300" : ""}`}>{value}</dd></div>

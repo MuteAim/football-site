@@ -18,6 +18,18 @@ export type CareerSnapshot = { day: string; member: boolean; available: boolean;
 
 export const EMPTY_CAREER_BOARD: CareerBoard = { leaders: [], personal: null, participants: 0, eleven: [] };
 
+/** 순위 화면에 보이는 인원. DB의 career_board가 상위 20명을 돌려줘요. */
+export const BOARD_SIZE = 20;
+
+/**
+ * 이 점수가 오늘의 순위에 올랐다면 몇 위인지. 연습 커리어에 "순위 도전이었다면"을 보여 줄 때 써요.
+ * 같은 점수는 공동 순위예요. 상위 20명 안에 들지 못하면 null이에요.
+ */
+export function wouldRank(board: CareerBoard, score: number): number | null {
+  const ahead = board.leaders.filter((leader) => leader.score > score).length;
+  return ahead < BOARD_SIZE ? ahead + 1 : null;
+}
+
 /** 레전드 점수 상한. DB의 career_records 점수 조건과 같아요. */
 export const MAX_CAREER_SCORE = 100000;
 
