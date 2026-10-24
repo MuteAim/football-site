@@ -72,17 +72,17 @@ export async function getMyGoals(userId: string): Promise<{
   events: GoalEvent[];
 }> {
   const supabase = await createSessionClient();
-  const [attendance, balance, events] = await Promise.all([
+  const recent = (columns: string) =>
+    supabase.from("goal_events").select(columns).eq("user_id", userId).order("id", { ascending: false }).limit(10)
+      .overrideTypes<GoalEvent[], { merge: false }>();
+  const [attendance, balance, first] = await Promise.all([
     // 출석 칸과 쓴 골은 다른 회원에게 숨겨 둬서 본인 전용 함수로 읽어요.
     supabase.rpc("my_attendance").maybeSingle<{ streak: number; last_attended: string | null }>(),
     supabase.rpc("my_balance"),
-    supabase
-      .from("goal_events")
-      .select("id, kind, amount, note, day")
-      .eq("user_id", userId)
-      .order("id", { ascending: false })
-      .limit(10),
+    recent("id, kind, amount, note, day"),
   ]);
+  // schema.sql을 다시 실행하기 전 DB에는 지급 이유(note) 칸이 없어서, 그때는 빼고 읽어요.
+  const events = first.error?.code === "42703" ? await recent("id, kind, amount, day") : first;
   if (attendance.error) throw new CafeError(attendance.error.message);
   if (balance.error) throw new CafeError(balance.error.message);
   if (events.error) throw new CafeError(events.error.message);
@@ -90,7 +90,7 @@ export async function getMyGoals(userId: string): Promise<{
     streak: attendance.data?.streak ?? 0,
     lastAttended: attendance.data?.last_attended ?? null,
     balance: (balance.data as number | null) ?? 0,
-    events: events.data as GoalEvent[],
+    events: events.data ?? [],
   };
 }
 
