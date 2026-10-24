@@ -26,6 +26,8 @@ const D = await load("src/lib/career/data.ts");
 const B = await load("src/lib/career/board.ts");
 const J = await load("src/lib/career/journal.ts");
 const A = await load("src/lib/career/archive.ts");
+const G = await load("src/lib/career/badges.ts");
+const C = await load("src/lib/career/card.ts");
 
 /** 테스트용 결정적 난수. 같은 순서로 같은 커리어를 만들어요. */
 function lcg(seed) {
@@ -106,6 +108,57 @@ test("은퇴 보관함은 10명을 넘어 누적되고 복원·백업 병합은 
   raw = "{broken";
   assert.throws(() => A.saveRetirements(storage, [record]));
   assert.equal(raw, "{broken");
+});
+
+test("내 기록실은 통산 합계·포지션별 최고 선수를 계산하고 배지는 처음 달성한 선수와 진행값을 남긴다", () => {
+  assert.equal(G.careerBadges([]).filter((badge) => badge.value >= badge.target).length, 0);
+  assert.equal(G.careerRecords([]).bestScore, null);
+  const base = { v: 1, ranked: false, nation: "KOR", grade: "성실한 프로", title: "골잡이", honors: [],
+    totals: { seasons: 10, firstYear: 2026, lastYear: 2036, retiredAge: 27, apps: 300, goals: 100, assists: 50, cleanSheets: 0, caps: 20, intlGoals: 5, peakOvr: 80, ballonDor: 0, awards: 0, trophies: 2 } };
+  const club = (id, seasons) => ({ club: id, name: id, seasons, apps: 1, goals: 0, assists: 0, cleanSheets: 0 });
+  const entries = [
+    { ...base, id: "a", name: "첫째", pos: "ST", score: 1200, retiredAt: "2026-10-01T00:00:00Z", clubs: [club("KOR:0", 3), club("ENG:0", 7)],
+      honors: [{ label: "챔피언스리그 우승", count: 1 }, { label: "AFC 챔피언스리그 우승", count: 2 }] },
+    { ...base, id: "b", name: "둘째", pos: "GK", score: 9500, retiredAt: "2026-10-02T00:00:00Z", clubs: [club("ESP:0", 13), club("KOR:11", 2)],
+      totals: { ...base.totals, seasons: 15, ballonDor: 5, cleanSheets: 220, goals: 0 }, honors: [{ label: "월드컵 우승", count: 1 }, { label: "U-20 월드컵 우승", count: 1 }] },
+    { ...base, id: "c", name: "셋째", pos: "ST", score: 3000, retiredAt: "2026-10-03T00:00:00Z", clubs: [club("GER:0", 5), club("ITA:0", 4), club("FRA:0", 3)],
+      totals: { ...base.totals, ballonDor: 1 }, honors: [{ label: "AFC 챔피언스리그 우승", count: 1 }] },
+  ];
+  const records = G.careerRecords(entries);
+  assert.equal(records.players, 3);
+  assert.equal(records.bestScore.name, "둘째");
+  assert.equal(records.goals, 200);
+  assert.equal(records.ballonDor, 6);
+  assert.equal(records.byPosition.find((row) => row.pos === "ST").entry.name, "셋째");
+  assert.equal(records.byPosition.find((row) => row.pos === "CB").entry, null);
+  const badges = Object.fromEntries(G.careerBadges([...entries].reverse()).map((badge) => [badge.id, badge]));
+  const got = (id) => badges[id].value >= badges[id].target;
+  assert.equal(badges.first.by, "첫째", "은퇴 순서로 처음 달성한 선수를 찾아요");
+  assert.equal(badges.ballon.by, "둘째");
+  assert.ok(got("ballon5") && got("goat") && got("worldcup") && got("sheets"));
+  assert.equal(badges.ucl.by, "첫째", "AFC 챔피언스리그는 빅이어가 아니에요");
+  assert.ok(got("oneclub"), "군 팀은 원클럽맨 판정에서 빼요");
+  assert.ok(got("k2big") && got("big3"));
+  assert.equal(badges.k2big.by, "첫째");
+  assert.ok(!got("hall10") && badges.hall10.value === 3);
+  assert.equal(badges.allpos.value, 2);
+  assert.ok(!got("goals") && badges.goals.value === 100);
+});
+
+test("공유 카드는 다시 계산한 은퇴 기록과 커리어 곡선·점수 출처·라이벌을 담는다", () => {
+  const { state, choices } = play(31, baseSetup, () => 0);
+  const save = { v: E.CAREER_VERSION, seed: 31, startYear: 2026, setup: baseSetup, choices };
+  const card = C.buildCareerCard(E.replayCareer(save), save);
+  const summary = E.summarizeCareer(state);
+  assert.equal(card.score, summary.score);
+  assert.equal(card.curve.length, summary.seasons);
+  assert.equal(card.curve.at(-1).ovrEnd, state.history.at(-1).ovrEnd);
+  assert.equal(Object.values(card.breakdown).reduce((a, b) => a + b, 0), card.score);
+  assert.equal(card.rival.name, summary.rival.name);
+  assert.equal(card.id, undefined);
+  assert.equal(card.choices, undefined);
+  assert.ok(JSON.stringify(card).length < 32768, "DB 카드 크기 제한 안쪽");
+  assert.ok(C.CARD_CODE.test("Ab3dE6gH9k") && !C.CARD_CODE.test("short") && !C.CARD_CODE.test("Ab3dE6gH9k/"));
 });
 
 test("기록집은 기존 저장에서 성적·능력치·모든 선택을 복원하고 은퇴와 이적도 해당 시즌에 남긴다", () => {
@@ -592,9 +645,28 @@ test("레전드 로드 실제 DB 시작·기록·순위·권한", async (t) => {
     assert.equal((await list(users[0])).length, 2, "거절한 요청은 아무것도 남기지 않아요");
   });
 
+  await t.test("공유 카드는 서버 키로만 만들고 같은 선수는 같은 주소, 누구나 주소로 읽는다", async () => {
+    const make = async (user, career, card) => (await as(null, "select public.career_card_save($1, $2, $3::jsonb) as code", [user, career, JSON.stringify(card)], "service_role"))[0].code;
+    const read = async (code, role = "anon") => (await as(null, "select public.career_card($1) as result", [code], role))[0].result;
+    const card = { name: "카드맨", score: 1234 };
+    await assert.rejects(as(users[0], "select public.career_card_save($1, 'x', '{}'::jsonb)", [users[0]]), /permission denied/);
+    await assert.rejects(as(null, "select * from public.career_cards", [], "anon"), /permission denied/);
+    await assert.rejects(make(users[3], "career-x", card), /닉네임/);
+    const code = await make(users[0], "career-x", card);
+    assert.match(code, /^[A-Za-z0-9]{10}$/);
+    assert.equal(await make(users[0], "career-x", { ...card, score: 9 }), code, "다시 공유하면 같은 주소");
+    assert.notEqual(await make(users[1], "career-x", card), code, "다른 회원은 다른 주소");
+    const shared = await read(code);
+    assert.deepEqual(shared.card, card);
+    assert.equal(shared.nickname, "감독1");
+    assert.ok(!("user_id" in shared));
+    assert.equal(await read("AAAAAAAAAA"), null);
+    await assert.rejects(make(users[0], "huge", { blob: "x".repeat(40000) }), /check/);
+  });
+
   await t.test("스키마를 다시 실행해도 기록이 남는다", async () => {
-    const before = (await db.query("select (select count(*) from public.career_records) + (select count(*) from public.career_retirements) as count")).rows[0].count;
+    const before = (await db.query("select (select count(*) from public.career_records) + (select count(*) from public.career_retirements) + (select count(*) from public.career_cards) as count")).rows[0].count;
     await db.exec(schema);
-    assert.equal((await db.query("select (select count(*) from public.career_records) + (select count(*) from public.career_retirements) as count")).rows[0].count, before);
+    assert.equal((await db.query("select (select count(*) from public.career_records) + (select count(*) from public.career_retirements) + (select count(*) from public.career_cards) as count")).rows[0].count, before);
   });
 });

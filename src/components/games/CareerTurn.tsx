@@ -47,7 +47,7 @@ export function TurnHeader({ state, result, quick, onQuick, children }: {
         </label>
       </div>
       {children}
-      <div id="career-turn-result" role="status" aria-live="polite" aria-atomic="true" className="min-h-24 rounded-2xl bg-emerald-500/[0.07] px-4 py-3 text-xs leading-relaxed dark:bg-emerald-400/[0.07]">
+      <div id="career-turn-result" role="status" aria-live="polite" aria-atomic="true" className="flex min-h-24 flex-col justify-center rounded-2xl bg-emerald-500/[0.07] px-4 py-3 text-xs leading-relaxed dark:bg-emerald-400/[0.07]">
         {result ? (
           <>
             <p className="font-bold text-emerald-800 dark:text-emerald-200">지난 선택 · {result.label}</p>

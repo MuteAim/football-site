@@ -15,7 +15,7 @@ type ArchiveStorage = Pick<Storage, "getItem" | "setItem">;
 export const CAREER_ARCHIVE_BATCH = 100;
 
 /** 같은 저장을 새로 고치거나 다시 가져와도 한 번만 보관해요. 원본 선택은 식별값 계산에만 사용해요. */
-function retirementId(save: CareerSave): string {
+export function retirementId(save: CareerSave): string {
   const { v, seed, startYear, setup, choices } = save;
   const text = JSON.stringify([v, seed, startYear, setup.name, setup.nation, setup.pos, setup.league, setup.pick, setup.reroll ?? 0, choices]);
   let a = 2166136261, b = 5381;

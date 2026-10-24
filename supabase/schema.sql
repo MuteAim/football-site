@@ -1877,3 +1877,53 @@ returns jsonb language sql stable security definer set search_path = public as $
 $$;
 revoke all on function public.career_archive_save(jsonb), public.career_archive_list() from public, anon;
 grant execute on function public.career_archive_save(jsonb), public.career_archive_list() to authenticated;
+
+-- 레전드 로드 공유 카드예요. 서버가 시드와 선택 기록으로 다시 계산한 은퇴 기록만 남기고, 주소를 아는 누구나 봐요.
+-- 같은 회원이 같은 선수를 다시 공유하면 처음 만든 주소를 돌려줘요.
+create table if not exists public.career_cards (
+  code text primary key check (code ~ '^[A-Za-z0-9]{10}$'),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  career_id text not null check (char_length(career_id) between 1 and 160),
+  card jsonb not null check (jsonb_typeof(card) = 'object' and octet_length(card::text) <= 32768),
+  created_at timestamptz not null default clock_timestamp(),
+  unique (user_id, career_id)
+);
+alter table public.career_cards enable row level security;
+revoke all on public.career_cards from public, anon, authenticated;
+
+-- 비밀 키(service_role)로만 불러요. 카드 내용은 서버가 다시 계산해서 넘겨요.
+create or replace function public.career_card_save(target_user uuid, target_career text, target_card jsonb)
+returns text language plpgsql security definer set search_path = public as $$
+declare
+  chars constant text := 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  made text;
+begin
+  perform 1 from public.profiles p where p.id = target_user for update;
+  if not found then raise exception '로그인하고 닉네임을 정하면 공유 카드를 만들 수 있어요.'; end if;
+  select c.code into made from public.career_cards c where c.user_id = target_user and c.career_id = target_career;
+  if found then return made; end if;
+  if (select count(*) from public.career_cards c where c.user_id = target_user) >= 500 then
+    raise exception '공유 카드는 500장까지 만들 수 있어요.';
+  end if;
+  loop
+    made := array_to_string(array(select substr(chars, 1 + floor(random() * length(chars))::integer, 1) from generate_series(1, 10)), '');
+    begin
+      insert into public.career_cards(code, user_id, career_id, card) values (made, target_user, target_career, target_card)
+        on conflict (code) do nothing;
+      if found then return made; end if;
+    exception when unique_violation then
+      -- 같은 선수를 동시에 두 번 공유했어요. 먼저 만든 주소를 돌려줘요.
+      select c.code into made from public.career_cards c where c.user_id = target_user and c.career_id = target_career;
+      return made;
+    end;
+  end loop;
+end $$;
+
+create or replace function public.career_card(target_code text)
+returns jsonb language sql stable security definer set search_path = public as $$
+  select jsonb_build_object('card', c.card, 'nickname', p.nickname, 'createdAt', c.created_at)
+  from public.career_cards c join public.profiles p on p.id = c.user_id where c.code = target_code;
+$$;
+revoke all on function public.career_card_save(uuid, text, jsonb), public.career_card(text) from public, anon, authenticated;
+grant execute on function public.career_card_save(uuid, text, jsonb) to service_role;
+grant execute on function public.career_card(text) to anon, authenticated;

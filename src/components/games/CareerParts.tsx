@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { CLUBS, CONTINENTALS, LEAGUES, MILITARY_CLUB, NATIONS, POSITIONS, type Pos } from "@/lib/career/data";
 import {
@@ -380,7 +382,7 @@ export function SimulationCard({ title, from, to, ms }: { title: string; from: n
 }
 
 /** 시즌이 끝날 때의 오버롤을 나이 순서로 잇는 선 그래프. 표는 커리어 기록에 그대로 있어요. */
-export function OvrChart({ history, dark = false }: { history: SeasonRecord[]; dark?: boolean }) {
+export function OvrChart({ history, dark = false }: { history: Pick<SeasonRecord, "age" | "ovrEnd" | "club">[]; dark?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [active, setActive] = useState<number | null>(null);

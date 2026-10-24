@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { finishCareerRun, getCareerRetirements, getCareerSnapshot, saveCareerRetirements, startCareerRun } from "@/lib/cafe/career-actions";
+import { finishCareerRun, getCareerRetirements, getCareerSnapshot, saveCareerRetirements, shareCareerCard, startCareerRun } from "@/lib/cafe/career-actions";
 import { careerDay, type CareerSnapshot } from "@/lib/career/board";
 import { NATIONS, POSITIONS } from "@/lib/career/data";
 import {
@@ -23,7 +23,7 @@ import { CareerArchive, type CloudState } from "./CareerArchive";
 import styles from "./career.module.css";
 
 /** 브라우저에 남기는 커리어. 상태 대신 시드와 선택만 저장하고 불러올 때 다시 계산해요. */
-type Stored = CareerSave & { runId: string | null; recorded: string | null };
+type Stored = CareerSave & { runId: string | null; recorded: string | null; card?: string | null };
 type HallEntry = { name: string; pos: string; nation: string; score: number; grade: string; title: string; ballonDor: number; peakOvr: number; day: string; ranked: boolean };
 type Pending = { seed: number; startYear: number; runId: string | null };
 type Busy = { title: string; from: number; to: number; ms: number; previous: CareerState; result: TurnResult | null };
@@ -41,7 +41,7 @@ function parseStored(value: unknown): Stored | null {
     || !Array.isArray(item.choices) || item.choices.length > CAREER_RULES.maxChoices || !item.choices.every((choice) => Number.isInteger(choice))) return null;
   return {
     v: item.v, seed: item.seed!, startYear: item.startYear!, setup: item.setup as CareerSetup, choices: item.choices,
-    runId: typeof item.runId === "string" ? item.runId : null, recorded: typeof item.recorded === "string" ? item.recorded : null,
+    runId: typeof item.runId === "string" ? item.runId : null, recorded: typeof item.recorded === "string" ? item.recorded : null, card: typeof item.card === "string" ? item.card : null,
   };
 }
 
@@ -105,6 +105,8 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   const [shareNote, setShareNote] = useState("");
   const [shareText, setShareText] = useState("");
   const [importCode, setImportCode] = useState("");
+  const [makingCard, setMakingCard] = useState(false);
+  const [cardError, setCardError] = useState("");
   const [starting, startAction] = useTransition();
   const [saving, saveAction] = useTransition();
   const loaded = useRef(false);
@@ -279,7 +281,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     if (!pending) return;
     try {
       const state = createCareer(pending.seed, pending.startYear, setup);
-      const value: Stored = { v: CAREER_VERSION, seed: pending.seed, startYear: pending.startYear, setup, choices: [], runId: pending.runId, recorded: null };
+      const value: Stored = { v: CAREER_VERSION, seed: pending.seed, startYear: pending.startYear, setup, choices: [], runId: pending.runId, recorded: null, card: null };
       writeStored(value);
       setStored(value);
       setCareer(state);
@@ -287,6 +289,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
       setRank({ state: "none", message: "" });
       setShareNote("");
       setShareText("");
+      setCardError("");
       setResult(null);
       setScreen("play");
       focusDecision.current = true;
@@ -365,17 +368,41 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     }
   }
 
-  async function share(summary: CareerSummary) {
-    const day = careerDay();
-    const url = `${location.origin}/games/career?score=${summary.score}&day=${day}`;
-    const text = `⚽ 레전드 로드 · ${summary.name} (${POSITIONS[summary.pos].name}, ${NATIONS[summary.nation].name})\n「${summary.title}」 레전드 점수 ${summary.score.toLocaleString("ko-KR")}점\n발롱도르 ${summary.ballonDor}회 · 최고 OVR ${summary.peakOvr} · ${summary.apps}경기 ${summary.goals}골\n내 커리어를 넘을 수 있을까?`;
+  /** 공유 창이 없으면 클립보드로, 그것도 안 되면 직접 복사할 글을 보여 줘요. */
+  async function send(title: string, text: string, url: string, copied: string) {
     setShareNote("");
+    setShareText("");
     if (navigator.share) {
-      try { await navigator.share({ title: "내 축구 인생에 도전!", text, url }); return; }
+      try { await navigator.share({ title, text, url }); return; }
       catch (reason) { if (reason instanceof Error && reason.name === "AbortError") return; }
     }
-    try { await navigator.clipboard.writeText(`${text}\n${url}`); setShareNote("도전장을 복사했어요. 친구에게 보내 보세요!"); }
+    try { await navigator.clipboard.writeText(`${text}\n${url}`); setShareNote(copied); }
     catch { setShareText(`${text}\n${url}`); setShareNote("아래 내용을 복사해서 친구에게 보내 주세요."); }
+  }
+
+  function share(summary: CareerSummary) {
+    const url = `${location.origin}/games/career?score=${summary.score}&day=${careerDay()}`;
+    const text = `⚽ 레전드 로드 · ${summary.name} (${POSITIONS[summary.pos].name}, ${NATIONS[summary.nation].name})\n「${summary.title}」 레전드 점수 ${summary.score.toLocaleString("ko-KR")}점\n발롱도르 ${summary.ballonDor}회 · 최고 OVR ${summary.peakOvr} · ${summary.apps}경기 ${summary.goals}골\n내 커리어를 넘을 수 있을까?`;
+    return send("내 축구 인생에 도전!", text, url, "도전장을 복사했어요. 친구에게 보내 보세요!");
+  }
+
+  /** 공유 카드는 처음 한 번만 서버에서 만들고, 받은 주소를 저장해 두었다가 다시 써요. */
+  async function shareCard(summary: CareerSummary) {
+    if (!stored || makingCard) return;
+    let code = stored.card ?? null;
+    if (!code) {
+      setCardError("");
+      setMakingCard(true);
+      const made = await shareCareerCard({ v: stored.v, seed: stored.seed, startYear: stored.startYear, setup: stored.setup, choices: stored.choices });
+      setMakingCard(false);
+      if ("error" in made) { setCardError(made.error); return; }
+      code = made.code;
+      const next = { ...stored, card: code };
+      writeStored(next);
+      setStored(next);
+    }
+    const text = `⚽ 레전드 로드 · ${summary.name}의 축구 인생\n「${summary.title}」 레전드 점수 ${summary.score.toLocaleString("ko-KR")}점 · ${summary.grade}\n${summary.seasons}시즌 ${summary.apps}경기 ${summary.pos === "GK" ? `무실점 ${summary.cleanSheets}경기` : `${summary.goals}골 ${summary.assists}도움`} · 발롱도르 ${summary.ballonDor}회`;
+    await send(`${summary.name} · 레전드 로드`, text, `${location.origin}/games/career/card/${code}`, "공유 카드 링크를 복사했어요. 친구에게 보내 보세요!");
   }
 
   const displayed = busy?.previous ?? career;
@@ -399,11 +426,22 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
           <CareerCreate key={pending.seed} seed={pending.seed} startYear={pending.startYear} ranked={!!pending.runId} onCreate={create} onCancel={cancelCreate} />
         ) : screen === "play" && displayed ? (
           <>
-            <PlayerCard state={displayed} />
+            {summary ? null : <PlayerCard state={displayed} />}
             {summary ? (
-              <RetiredCard summary={summary} state={displayed} rank={rank} saving={saving} starting={starting} challenge={challenge} archived={!archiveError && archive.length > 0} cloud={cloud}
-                onRetry={() => stored && submit(stored)} onShare={() => void share(summary)} onNew={() => void begin()}
-                shareNote={shareNote} shareText={shareText} ranked={ranked} practiceRun={!stored?.runId} />
+              <>
+                <RetiredCard summary={summary} state={displayed} rank={rank} saving={saving} starting={starting} challenge={challenge} archived={!archiveError && archive.length > 0} cloud={cloud}
+                  onRetry={() => stored && submit(stored)} onShare={() => void share(summary)} onNew={() => void begin()}
+                  member={snapshot.member} card={stored?.card ?? null} makingCard={makingCard} cardError={cardError} onCard={() => void shareCard(summary)}
+                  shareNote={shareNote} shareText={shareText} ranked={ranked} practiceRun={!stored?.runId} />
+                <details className={`${cardClass} group/player`}>
+                  <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 text-sm font-bold">
+                    은퇴 당시 선수 카드
+                    <span className={`text-xs font-semibold ${mutedClass} group-open/player:hidden`}>펼치기</span>
+                    <span className={`hidden text-xs font-semibold ${mutedClass} group-open/player:inline`}>접기</span>
+                  </summary>
+                  <div className="p-3 pt-0"><PlayerCard state={displayed} /></div>
+                </details>
+              </>
             ) : (
               <div className="relative" aria-busy={!!busy}>
                 <div inert={!!busy} aria-hidden={busy ? true : undefined} className={`space-y-3 ${busy ? "opacity-25" : ""}`}>
@@ -510,9 +548,10 @@ function Intro({ ranked, member, starting, hall, onStart, onPractice, importCode
   );
 }
 
-function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked, practiceRun, archived, cloud, onRetry, onShare, onNew, shareNote, shareText }: {
+function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked, practiceRun, archived, cloud, onRetry, onShare, onNew, shareNote, shareText, member, card, makingCard, cardError, onCard }: {
   summary: CareerSummary; state: CareerState; rank: RankState; saving: boolean; starting: boolean; challenge: { score: number; day: string } | null;
   ranked: boolean; practiceRun: boolean; archived: boolean; cloud: CloudState; onRetry: () => void; onShare: () => void; onNew: () => void; shareNote: string; shareText: string;
+  member: boolean; card: string | null; makingCard: boolean; cardError: string; onCard: () => void;
 }) {
   const stats: [string, string][] = [
     ["시즌", `${summary.seasons}`], ["경기", summary.apps.toLocaleString("ko-KR")],
@@ -544,6 +583,24 @@ function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked
           <div key={label}><dt className="text-[10px] text-white/55">{label}</dt><dd className={`mt-0.5 text-lg font-extrabold tabular-nums ${label === "발롱도르" && value !== "0" ? "text-amber-300" : ""}`}>{value}</dd></div>
         ))}
       </dl>
+      <div className="mx-5 mt-4 rounded-2xl bg-white/[0.06] p-4 sm:mx-8">
+        <h3 className="text-sm font-extrabold">내 선수의 축구 인생을 자랑해 보세요</h3>
+        <p className="mt-1 text-xs leading-relaxed text-white/65">공유 카드에는 통산·팀별 기록, 수상 내역, 커리어 곡선이 담겨요. 서버가 다시 계산한 기록이라 조작할 수 없어요.</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {member ? (
+            <button type="button" disabled={makingCard} onClick={onCard} className="h-12 rounded-xl bg-[#d4f77d] text-sm font-black text-[#102c26] transition hover:bg-lime-200 disabled:opacity-60">
+              {makingCard ? "카드 만드는 중…" : card ? "공유 카드 보내기 ↗" : "공유 카드 만들기 ↗"}
+            </button>
+          ) : (
+            <Link href="/cafe/login?next=%2Fgames%2Fcareer" prefetch={false} className="flex h-12 items-center justify-center rounded-xl bg-white/10 text-sm font-bold hover:bg-white/15">로그인하고 공유 카드 만들기</Link>
+          )}
+          <button type="button" onClick={onShare} className="h-12 rounded-xl border border-white/20 text-sm font-bold transition hover:bg-white/10">친구에게 도전장 보내기 ↗</button>
+        </div>
+        {card ? <a href={`/games/career/card/${card}`} target="_blank" rel="noopener" className="mt-2 inline-flex min-h-9 items-center text-xs font-bold text-lime-200 underline">내 공유 카드 열어 보기 ↗</a> : null}
+        {cardError ? <p role="alert" className="mt-2 text-xs text-rose-200">{cardError}</p> : null}
+        {shareNote ? <p role="status" className="mt-2 text-xs text-lime-100">{shareNote}</p> : null}
+        {shareText ? <textarea aria-label="복사할 도전장" readOnly value={shareText} onFocus={(event) => event.target.select()} className="mt-2 h-28 w-full rounded-xl bg-black/20 p-3 text-xs" /> : null}
+      </div>
       <div className="space-y-4 px-5 py-6 text-sm sm:px-8">
         {summary.honors.length ? (
           <div>
@@ -575,12 +632,9 @@ function RetiredCard({ summary, state, rank, saving, starting, challenge, ranked
         {status ? <p role="status" className="rounded-xl bg-black/20 px-3 py-2 text-xs leading-relaxed text-white/80">{status}</p> : null}
         <p role="status" className="rounded-xl bg-white/10 px-3 py-2 text-xs leading-relaxed text-white/85">
           {archived ? `은퇴 요약을 ${cloud === "synced" ? "내 계정과 이 브라우저에" : "이 브라우저에"} 보관했어요. 새 커리어를 시작해도 통산·팀별 기록과 수상·칭호는 남아요.` : "은퇴 요약을 아직 보관하지 못했어요. 아래 보관함의 저장 상태를 확인해 주세요."}
-          <a href="#career-archive" className="mt-2 block min-h-8 content-center font-bold text-lime-200 underline">은퇴 선수 보관함 보기 ↓</a>
+          <a href="#career-archive" className="mt-2 block min-h-8 content-center font-bold text-lime-200 underline">내 기록실 보기 ↓</a>
         </p>
         {rank.state === "failed" ? <button type="button" disabled={saving} onClick={onRetry} className="h-11 w-full rounded-xl border border-white/30 text-sm font-bold disabled:opacity-50">순위 기록 다시 시도</button> : null}
-        <button type="button" onClick={onShare} className="h-12 w-full rounded-xl border border-white/20 text-sm font-bold transition hover:bg-white/10">친구에게 도전장 보내기 ↗</button>
-        {shareNote ? <p role="status" className="text-xs text-lime-100">{shareNote}</p> : null}
-        {shareText ? <textarea aria-label="복사할 도전장" readOnly value={shareText} onFocus={(event) => event.target.select()} className="h-28 w-full rounded-xl bg-black/20 p-3 text-xs" /> : null}
         <button type="button" disabled={starting || saving} onClick={onNew} className="h-13 w-full rounded-xl bg-[#d4f77d] text-base font-extrabold text-[#152d21] transition hover:bg-lime-200 disabled:opacity-50">
           {starting ? "구단과 계약하는 중…" : saving ? "기록 저장 중…" : ranked ? "새 커리어로 순위 도전" : "새 커리어 시작"}
         </button>

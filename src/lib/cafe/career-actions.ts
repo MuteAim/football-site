@@ -6,8 +6,9 @@ import { adminClient, isSettlementConfigured } from "./supabase-admin";
 import { createSessionClient } from "./supabase-server";
 import { getViewer } from "./viewer";
 import { careerDay, EMPTY_CAREER_BOARD, type CareerBoard, type CareerSnapshot } from "../career/board";
-import { CAREER_RULES, CAREER_VERSION, CareerError, replayCareer, summarizeCareer, type CareerSetup } from "../career/engine";
-import { CAREER_ARCHIVE_BATCH, parseRetirement, type RetiredCareer } from "../career/archive";
+import { CAREER_RULES, CAREER_VERSION, CareerError, replayCareer, summarizeCareer, type CareerSave, type CareerSetup } from "../career/engine";
+import { CAREER_ARCHIVE_BATCH, parseRetirement, retirementId, type RetiredCareer } from "../career/archive";
+import { buildCareerCard } from "../career/card";
 
 // 레전드 로드 순위예요. 커리어는 브라우저가 진행하고, 은퇴하면 서버가 시드와 선택 기록으로
 // 처음부터 다시 계산해서 나온 기록만 저장해요. 저장은 비밀 키로만 부를 수 있는 career_record가 해요.
@@ -126,5 +127,39 @@ export async function saveCareerRetirements(values: unknown[]): Promise<ArchiveR
     return { saved: Number(data) || 0 };
   } catch {
     return { error: "서버에 연결하지 못해 계정 보관함에 저장하지 못했어요." };
+  }
+}
+
+/**
+ * 은퇴한 선수의 공유 카드를 만들어요. 화면이 보낸 기록은 믿지 않고 시드와 선택으로 다시 계산해요.
+ * 연습 커리어도 같은 규칙으로 계산하니 카드로 만들 수 있어요.
+ */
+export async function shareCareerCard(save: CareerSave): Promise<{ code: string } | { error: string }> {
+  if (!rankingReady()) return { error: "지금은 공유 카드를 만들 수 없어요." };
+  if (!save || typeof save !== "object" || save.v !== CAREER_VERSION) return { error: "게임 규칙이 바뀌기 전 커리어라 공유 카드를 만들 수 없어요." };
+  const { seed, startYear, setup, choices } = save;
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed > 4294967295 || !Number.isInteger(startYear) || typeof setup !== "object" || setup === null
+    || !Array.isArray(choices) || choices.length > CAREER_RULES.maxChoices || choices.some((choice) => !Number.isInteger(choice) || choice < 0 || choice > 9)) {
+    return { error: "기록 형식이 맞지 않아요." };
+  }
+  const admin = adminClient();
+  if (!admin) return { error: "지금은 공유 카드를 만들 수 없어요." };
+  try {
+    const viewer = await getViewer();
+    if (!viewer?.profile) return { error: "로그인하고 닉네임을 정하면 공유 카드를 만들 수 있어요." };
+    const clean: CareerSave = {
+      v: CAREER_VERSION, seed, startYear, choices: [...choices],
+      setup: { name: setup.name, nation: setup.nation, league: setup.league, pos: setup.pos, pick: setup.pick, ...(setup.reroll ? { reroll: setup.reroll } : {}) },
+    };
+    const state = replayCareer(clean);
+    if (state.phase !== "retired") return { error: "은퇴한 선수만 공유 카드로 만들 수 있어요." };
+    const { data, error } = await admin.rpc("career_card_save", {
+      target_user: viewer.id, target_career: retirementId(clean), target_card: buildCareerCard(state, clean),
+    });
+    if (error || typeof data !== "string") return { error: error?.code === "P0001" ? error.message : "공유 카드를 만들지 못했어요. 다시 시도해 주세요." };
+    return { code: data };
+  } catch (reason) {
+    if (reason instanceof CareerError) return { error: reason.message };
+    return { error: "연결이 끊겨 공유 카드를 만들지 못했어요. 다시 시도해 주세요." };
   }
 }
