@@ -1,23 +1,26 @@
+"use client";
+
 import Link from "next/link";
-import type { CareerSnapshot } from "@/lib/career/board";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import type { CareerElevenEntry, CareerSnapshot } from "@/lib/career/board";
 import type { Pos } from "@/lib/career/data";
 import { FLANKS, positionCode, positionName, type Side } from "@/lib/career/engine";
 import { TrophyIcon } from "../Icons";
-import { cardClass, mutedClass } from "../ui";
+import { cardClass, mutedClass, secondaryButtonClass } from "../ui";
 
-/** 4-3-3 자리. 좌표는 세로 경기장 안의 % 위치예요. 윙어·풀백은 왼쪽·오른쪽에 한 명씩이에요. */
-const ELEVEN: { pos: Pos; side?: Side; slot: number; x: number; y: number }[] = [
-  { pos: "ST", slot: 1, x: 50, y: 12 },
-  { pos: "WG", side: "L", slot: 1, x: 17, y: 20 },
-  { pos: "WG", side: "R", slot: 1, x: 83, y: 20 },
-  { pos: "CM", slot: 1, x: 29, y: 39 },
-  { pos: "AM", slot: 1, x: 71, y: 39 },
-  { pos: "DM", slot: 1, x: 50, y: 55 },
-  { pos: "FB", side: "L", slot: 1, x: 14, y: 69 },
-  { pos: "CB", slot: 1, x: 37, y: 75 },
-  { pos: "CB", slot: 2, x: 63, y: 75 },
-  { pos: "FB", side: "R", slot: 1, x: 86, y: 69 },
-  { pos: "GK", slot: 1, x: 50, y: 90 },
+/** 4-3-3 자리. 긴 이름은 한 줄로 줄이고, 상세창에서 전체 이름과 기록을 보여 줘요. */
+const ELEVEN: { pos: Pos; side?: Side; slot: number; row: number; column: number; span: number; offset?: number }[] = [
+  { pos: "WG", side: "L", slot: 1, row: 1, column: 1, span: 4, offset: 16 },
+  { pos: "ST", slot: 1, row: 1, column: 5, span: 4 },
+  { pos: "WG", side: "R", slot: 1, row: 1, column: 9, span: 4, offset: 16 },
+  { pos: "CM", slot: 1, row: 2, column: 1, span: 4 },
+  { pos: "DM", slot: 1, row: 2, column: 5, span: 4, offset: 16 },
+  { pos: "AM", slot: 1, row: 2, column: 9, span: 4 },
+  { pos: "FB", side: "L", slot: 1, row: 3, column: 1, span: 3 },
+  { pos: "CB", slot: 1, row: 3, column: 4, span: 3, offset: 12 },
+  { pos: "CB", slot: 2, row: 3, column: 7, span: 3, offset: 12 },
+  { pos: "FB", side: "R", slot: 1, row: 3, column: 10, span: 3 },
+  { pos: "GK", slot: 1, row: 4, column: 5, span: 4 },
 ];
 
 /** DB가 측면을 아직 돌려주지 않으면(schema.sql 적용 전) 윙어·풀백 1·2위를 왼쪽·오른쪽에 세워요. */
@@ -29,6 +32,8 @@ function elevenKey(entry: CareerSnapshot["board"]["eleven"][number]): string {
 
 export function CareerBoard({ snapshot }: { snapshot: CareerSnapshot }) {
   const { board } = snapshot;
+  const [selected, setSelected] = useState<{ entry: CareerElevenEntry; side?: Side } | null>(null);
+  const closeDetails = useCallback(() => setSelected(null), []);
   const filled = new Map(board.eleven.map((entry) => [elevenKey(entry), entry]));
   return (
     <aside className="space-y-4">
@@ -63,26 +68,34 @@ export function CareerBoard({ snapshot }: { snapshot: CareerSnapshot }) {
       <section className={`${cardClass} p-5`}>
         <h2 className="font-extrabold">오늘의 베스트 11</h2>
         <p className={`mt-1 text-xs ${mutedClass}`}>4-3-3 · 포지션마다 오늘 가장 높은 점수</p>
-        <div className="relative mt-4 aspect-[3/4] overflow-hidden rounded-2xl bg-[#17442f]" role="list" aria-label="오늘의 베스트 11">
-          <svg viewBox="0 0 300 400" className="absolute inset-0 size-full text-white/15" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <div className="relative mx-auto mt-4 grid min-h-[400px] w-full max-w-sm grid-cols-12 content-between gap-x-1 gap-y-4 overflow-hidden rounded-2xl bg-[#17442f] px-2 py-5" role="list" aria-label="오늘의 베스트 11">
+          <svg viewBox="0 0 300 400" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 size-full text-white/15" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <rect x="12" y="12" width="276" height="376" rx="4" />
             <path d="M12 200h276M95 12v52h110V12M95 388v-52h110v52M125 12v20h50V12M125 388v-20h50v20" />
             <circle cx="150" cy="200" r="38" />
           </svg>
-          {ELEVEN.map(({ pos, side, slot, x, y }) => {
+          {ELEVEN.map(({ pos, side, slot, row, column, span, offset }) => {
             const code = positionCode(pos, side);
             const entry = filled.get(`${code}-${slot}`);
             const label = positionName(pos, side);
             return (
-              <div key={`${code}-${slot}`} role="listitem" className="absolute flex w-[4.5rem] -translate-x-1/2 -translate-y-1/2 flex-col items-center text-center" style={{ left: `${x}%`, top: `${y}%` }}
-                aria-label={entry ? `${label} ${entry.name}, ${entry.nickname}, ${entry.score}점` : `${label} 빈자리`}>
-                <span className={`flex size-8 items-center justify-center rounded-full text-[10px] font-black ${entry ? "bg-[#d4f77d] text-[#102c26]" : "border border-dashed border-white/30 text-white/40"}`}>{code}</span>
-                <span className="mt-0.5 w-full truncate text-[10px] leading-tight font-bold text-white">{entry ? entry.name : "비어 있음"}</span>
-                {entry ? <span className="w-full truncate text-[9px] leading-tight text-white/60">{entry.nickname}</span> : null}
+              <div key={`${code}-${slot}`} role="listitem" className="relative min-w-0" style={{ gridColumn: `${column} / span ${span}`, gridRow: row, paddingTop: offset }}>
+                <button type="button" disabled={!entry} data-eleven-player={entry ? `${code}-${slot}` : undefined}
+                  aria-haspopup={entry ? "dialog" : undefined} aria-label={entry ? `${label} ${entry.name}, ${entry.nickname}, ${entry.score}점 · 상세 보기` : `${label} 빈자리`}
+                  onClick={() => entry && setSelected({ entry, side })}
+                  className="flex w-full min-w-0 cursor-pointer flex-col items-center rounded-xl px-0.5 py-1 text-center transition enabled:hover:bg-white/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-lime-200 disabled:cursor-default">
+                  <span className={`flex size-7 shrink-0 items-center justify-center rounded-full text-[10px] font-black ${entry ? "bg-[#d4f77d] text-[#102c26]" : "border border-dashed border-white/30 text-white/40"}`}>{code}</span>
+                  <span data-eleven-name className="mt-1 w-full truncate text-[10px] leading-[1.4] font-bold text-white">{entry ? entry.name : "비어 있음"}</span>
+                  {entry ? <>
+                    <span data-eleven-nickname className="mt-0.5 w-full truncate text-[9px] leading-[1.4] text-white/60">{entry.nickname}</span>
+                    <span data-eleven-score className="mt-1 text-[10px] leading-[1.4] font-extrabold text-[#d4f77d] tabular-nums">{entry.score.toLocaleString("ko-KR")}점</span>
+                  </> : null}
+                </button>
               </div>
             );
           })}
         </div>
+        <p className={`mt-3 text-[11px] ${mutedClass}`}>선수를 누르면 전체 이름과 상세 기록을 볼 수 있어요.</p>
       </section>
 
       <section className={`${cardClass} p-5`}>
@@ -97,6 +110,47 @@ export function CareerBoard({ snapshot }: { snapshot: CareerSnapshot }) {
         </p>
       </section>
       <Link href="/games/penalty" prefetch={false} className={`block rounded-xl px-2 py-2 text-center text-sm ${mutedClass} hover:underline`}>손끝 감각도 자신 있다면? 승부차기 러시 →</Link>
+      {selected ? <ElevenPlayerDetails entry={selected.entry} side={selected.side} day={snapshot.day} onClose={closeDetails} /> : null}
     </aside>
+  );
+}
+
+function ElevenPlayerDetails({ entry, side, day, onClose }: { entry: CareerElevenEntry; side?: Side; day: string; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const finished = useRef(false);
+  const title = useId();
+  const close = useCallback(() => {
+    if (finished.current) return;
+    finished.current = true;
+    dialog.current?.close();
+    onClose();
+  }, [onClose]);
+  useEffect(() => {
+    if (!dialog.current?.open) dialog.current?.showModal();
+  }, []);
+  return (
+    <dialog ref={dialog} data-eleven-details aria-labelledby={title} onClose={close}
+      onCancel={(event) => { event.preventDefault(); close(); }}
+      onClick={(event) => { if (event.target === event.currentTarget) close(); }}
+      className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[min(24rem,calc(100vw-2rem))] overflow-y-auto rounded-3xl bg-white p-0 text-zinc-900 shadow-2xl backdrop:bg-black/60 backdrop:backdrop-blur-sm dark:bg-[#191a1e] dark:text-zinc-100">
+      <div className="p-6">
+        <p className="sport-eyebrow text-emerald-700 dark:text-emerald-300">BEST 11 · {day.slice(5).replace("-", ".")}</p>
+        <h2 id={title} className="mt-3 text-2xl leading-snug font-black [overflow-wrap:anywhere]">{entry.name}</h2>
+        <p data-eleven-detail-nickname className={`mt-1 text-sm [overflow-wrap:anywhere] ${mutedClass}`}>{entry.nickname}</p>
+        <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold">
+          <span className="rounded-full bg-emerald-500/10 px-3 py-1.5 text-emerald-800 dark:text-emerald-200">{positionCode(entry.position, side)} · {positionName(entry.position, side)}</span>
+          {entry.number ? <span className="rounded-full bg-zinc-100 px-3 py-1.5 dark:bg-white/5">등번호 {entry.number}</span> : null}
+        </div>
+        <div className="mt-5 rounded-2xl bg-[#102c26] p-5 text-white">
+          <p className="text-xs text-white/65">레전드 점수</p>
+          <p data-eleven-detail-score className="mt-1 text-3xl font-black text-[#d4f77d] tabular-nums">{entry.score.toLocaleString("ko-KR")}<span className="ml-1 text-base">점</span></p>
+        </div>
+        <dl className="mt-3 grid grid-cols-2 gap-3">
+          <div className="rounded-2xl bg-zinc-100 p-4 dark:bg-white/5"><dt className={`text-xs ${mutedClass}`}>최고 OVR</dt><dd data-eleven-detail-ovr className="mt-1 text-xl font-extrabold tabular-nums">{entry.peakOvr}</dd></div>
+          <div className="rounded-2xl bg-zinc-100 p-4 dark:bg-white/5"><dt className={`text-xs ${mutedClass}`}>발롱도르</dt><dd data-eleven-detail-ballon-dor className="mt-1 text-xl font-extrabold tabular-nums">{entry.ballonDor}회</dd></div>
+        </dl>
+        <button type="button" data-eleven-details-close onClick={close} className={`mt-5 w-full ${secondaryButtonClass}`}>닫기</button>
+      </div>
+    </dialog>
   );
 }

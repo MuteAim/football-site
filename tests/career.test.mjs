@@ -30,6 +30,7 @@ const G = await load("src/lib/career/badges.ts");
 const C = await load("src/lib/career/card.ts");
 const K = await load("src/lib/career/crests.ts");
 const T = await load("src/lib/career/storage.ts");
+const M = await load("src/lib/career/cinematics.ts");
 
 /** 테스트용 결정적 난수. 같은 순서로 같은 커리어를 만들어요. */
 function lcg(seed) {
@@ -54,6 +55,55 @@ function S(patch = {}) {
   const { side, ...rest } = { ...baseSetup, ...patch };
   return E.FLANKS.includes(rest.pos) ? { ...rest, side: side ?? "L" } : rest;
 }
+
+test("수상 연출은 내 선수의 실제 수상만 모으고 발롱도르 수상과 순위를 구분한다", () => {
+  const {state}=play(31,baseSetup,()=>0);
+  const season={...state.history[0],trophies:[{label:'챔피언스리그 우승',points:180}],awards:[{label:'2030 발롱도르',points:500},{label:'득점왕',points:70}]};
+  const snapshot=JSON.stringify(season);
+  const scene=M.seasonCeremony(season,'테스트');
+  assert.equal(scene.title,'2030 발롱도르');
+  assert.equal(scene.ballonDor,true);
+  assert.deepEqual(scene.honors,['2030 발롱도르','챔피언스리그 우승','득점왕']);
+  assert.equal(scene.player,'테스트');
+  assert.equal(JSON.stringify(season),snapshot,'기록의 정렬이나 난수를 바꾸지 않아요');
+  assert.equal(M.seasonCeremony({...season,trophies:[],awards:[{label:'발롱도르 2위',points:80}]},'테스트').ballonDor,false);
+  assert.equal(M.seasonCeremony({...season,trophies:[],awards:[]},'테스트'),null);
+});
+
+test("새로 받은 상만 연출하고 다음 선택이나 기존 기록을 불러올 때는 중복하지 않는다", () => {
+  const before=E.createCareer(31,2026,baseSetup);
+  assert.deepEqual(M.careerCinematics(before,E.choose(before,0),0),[]);
+  const season={...play(31,baseSetup,()=>0).state.history[0],trophies:[{label:'K리그1 우승',points:30}],awards:[]};
+  const after={...before,steps:3,history:[season]};
+  assert.equal(M.careerCinematics(before,after,0).length,1);
+  assert.deepEqual(M.careerCinematics(after,{...after,steps:4},0),[]);
+  const retiring={...after,steps:5,phase:'retired',history:[{...season,trophies:[...season.trophies,{label:'영구 결번',points:60}]}]};
+  assert.deepEqual(M.careerCinematics(after,retiring,0)[0].honors,['영구 결번']);
+});
+
+test("결승 연출은 슈팅·선방 결과와 동료 덕분에 우승한 결과를 정확히 나눈다", () => {
+  const before=E.choose(E.createCareer(31,2026,baseSetup),0);
+  for(const [kind,text,won,shot]of[
+    ['penalty','왼쪽으로 침착하게 성공시켰어요',true,'goal'],
+    ['penalty','왼쪽으로 찼지만 키퍼에게 막혔어요',false,'saved'],
+    ['save','왼쪽을 읽어 낸 선방으로 승부를 끝냈어요',true,'saved'],
+    ['save','상대 키커의 슈팅이 골대를 벗어났어요',true,'wide'],
+    ['save','막지는 못했지만 동료들이 승부차기를 마무리했어요',true,'goal'],
+    ['save','선방에 실패했고 승부차기에서 졌어요',false,'goal'],
+    ['freekick','프리킥은 막혔지만 연장 끝에 이겼어요',true,'saved'],
+  ]){
+    const start=structuredClone(before);
+    start.pending={kind:'event',id:'moment',title:'결승',body:'',options:[{label:'왼쪽',detail:'',tone:'neutral',value:kind==='save'?'dive:L':'kick:L'}]};
+    start.draft.moment={comp:'cup',name:'FA컵',opponent:'라이벌',kind,style:'L',hint:'L',base:0};
+    const after={...start,steps:start.steps+1,lastMoment:`FA컵 결승 · ${text} · ${won?'우승!':'준우승'}`};
+    const snapshot=JSON.stringify([start,after]);
+    const [scene]=M.careerCinematics(start,after,0);
+    assert.equal(scene.type,'final');
+    assert.equal(scene.shot,shot,text);
+    assert.equal(scene.won,won,text);
+    assert.equal(JSON.stringify([start,after]),snapshot);
+  }
+});
 
 test("은퇴 보관함은 통산·팀별 합계와 모든 수상·칭호만 남기고 복귀·임대·군 팀도 실제 소속으로 합산한다", () => {
   const { state, choices } = play(19, baseSetup, () => 0);

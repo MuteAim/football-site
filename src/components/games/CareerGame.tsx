@@ -7,13 +7,15 @@ import { BOARD_SIZE, careerDay, wouldRank, type CareerBoard as CareerBoardData, 
 import { NATIONS } from "@/lib/career/data";
 import {
   CAREER_RULES, CAREER_VERSION, CareerError, choose, createCareer, FOOT_NAMES, legacyBreakdown, positionName, replayCareer, seasonLabel, seasonYearOf, summarizeCareer,
-  type CareerSave, type CareerSetup, type CareerState, type CareerSummary,
+  type CareerSave, type CareerSetup, type CareerState, type CareerSummary, type SeasonRecord,
 } from "@/lib/career/engine";
 import { confirmDialog, showToast } from "../feedback";
 import { TrophyIcon } from "../Icons";
 import { cardClass, mutedClass, primaryButtonClass, secondaryButtonClass } from "../ui";
 import { CareerBoard } from "./CareerBoard";
 import { CareerCreate } from "./CareerCreate";
+import { CareerCinematic } from "./CareerCinematic";
+import { careerCinematics, seasonCeremony, type CareerCinematicScene } from "@/lib/career/cinematics";
 import { DecisionCard, HalfSeason, HistoryTable, OvrChart, PlayerCard, RivalCard, ScoreBreakdown, SeasonReport, SimulationCard } from "./CareerParts";
 import { TurnHeader, turnResult, type TurnResult } from "./CareerTurn";
 import { buildCareerJournal } from "@/lib/career/journal";
@@ -88,6 +90,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   const [archive, setArchive] = useState<RetiredCareer[]>([]);
   const [archiveError, setArchiveError] = useState("");
   const [busy, setBusy] = useState<Busy | null>(null);
+  const [cinematics, setCinematics] = useState<CareerCinematicScene[]>([]);
   const [quick, setQuick] = useState(false);
   const [result, setResult] = useState<TurnResult | null>(null);
   const [rank, setRank] = useState<RankState>({ state: "none", message: "" });
@@ -108,6 +111,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   // 같은 브라우저를 여러 계정이 써도 섞이지 않게 계정마다 다른 칸에 저장해요. 계정이 바뀌면 page.tsx가 이 화면을 새로 만들어요.
   const keys = useMemo(() => careerKeys(initial.owner), [initial.owner]);
   const journal = useMemo(() => stored ? buildCareerJournal(stored) : [], [stored]);
+  const finishCinematic = useCallback(() => setCinematics((scenes) => scenes.slice(1)), []);
 
   const [cloud, setCloud] = useState<CloudState>(initial.member ? "syncing" : "local");
   const archiveRef = useRef<RetiredCareer[]>([]);
@@ -221,10 +225,10 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
 
   // 키보드로 고른 경우에만 다음 결정으로 초점을 이어 줘요. 선택 때문에 화면을 스크롤하지 않아요.
   useEffect(() => {
-    if (busy || !focusDecision.current) return;
+    if (busy || cinematics.length || !focusDecision.current) return;
     focusDecision.current = false;
     document.getElementById("career-decision")?.focus({ preventScroll: true });
-  }, [busy, career]);
+  }, [busy, career, cinematics.length]);
 
   function changeQuick(value: boolean) {
     setQuick(value);
@@ -308,7 +312,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
 
   /** time은 클릭 이벤트 시각이에요. 빠른 두 번 클릭이 바로 다음에 뜬 결정까지 고르지 않게 잠깐 막아요. */
   function pick(index: number, time: number, keyboard: boolean) {
-    if (!career || !stored || busy || !career.pending) return;
+    if (!career || !stored || busy || cinematics.length || !career.pending) return;
     if (time - lastPick.current < 400) return;
     lastPick.current = time;
     const kind = career.pending.kind;
@@ -325,11 +329,13 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     setResult(turnResult(career, next, index));
     setError("");
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (kind !== "offseason" && !reduce && !quick) {
+    const scenes = !reduce && !quick ? careerCinematics(career, next, index) : [];
+    setCinematics(scenes);
+    if (kind !== "offseason" && !scenes.length && !reduce && !quick) {
       const title = `${seasonLabel(career.year)} 시즌 ${next.phase === "event" ? "전반기" : kind === "event" ? "후반기" : ""} 진행 중`.replace("  ", " ");
       setBusy({ title, from: kind === "event" ? 50 : 0, to: next.phase === "event" ? 50 : 100, ms: SIM_MS, previous: career, result });
     }
-    focusDecision.current = keyboard;
+    focusDecision.current = keyboard || scenes.length > 0;
     if (next.phase === "retired") retire(next, value);
   }
 
@@ -400,6 +406,12 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     await send(`${summary.name} · 레전드 로드`, text, `${location.origin}/games/career/card/${code}`, "공유 카드 링크를 복사했어요. 친구에게 보내 보세요!");
   }
 
+  function replayAwards(season: SeasonRecord) {
+    if (!career || busy || cinematics.length) return;
+    const scene = seasonCeremony(season, career.name, `replay-${season.year}`);
+    if (scene) setCinematics([scene]);
+  }
+
   const displayed = busy?.previous ?? career;
   const last = displayed?.history.at(-1);
   const lastJournal = last ? journal.find((entry) => entry.season.year === last.year) : undefined;
@@ -438,10 +450,10 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
                 </details>
               </>
             ) : (
-              <div className="relative" aria-busy={!!busy}>
+              <div className="relative" aria-busy={!!busy || cinematics.length > 0}>
                 <div inert={!!busy} aria-hidden={busy ? true : undefined} className={`space-y-3 ${busy ? "opacity-25" : ""}`}>
                   <TurnHeader state={displayed} result={busy ? busy.result : result} quick={quick} onQuick={changeQuick}>
-                    {displayed.pending ? <DecisionCard key={displayed.steps} decision={displayed.pending} onPick={pick} disabled={!!busy} /> : null}
+                    {displayed.pending ? <DecisionCard key={displayed.steps} decision={displayed.pending} onPick={pick} disabled={!!busy || cinematics.length > 0} /> : null}
                   </TurnHeader>
                   {displayed.phase === "event" ? <HalfSeason state={displayed} /> : null}
                   {last ? (
@@ -451,7 +463,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
                         <span className={`shrink-0 text-xs ${mutedClass} group-open/report:hidden`}>펼치기</span>
                         <span className={`hidden shrink-0 text-xs ${mutedClass} group-open/report:inline`}>접기</span>
                       </summary>
-                      <div id="career-season-result"><SeasonReport season={last} previous={displayed.history.at(-2)} journal={lastJournal} /></div>
+                      <div id="career-season-result"><SeasonReport season={last} previous={displayed.history.at(-2)} journal={lastJournal} onCelebrate={() => replayAwards(last)} /></div>
                     </details>
                   ) : null}
                   <RivalCard state={displayed} />
@@ -459,11 +471,11 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
                 {busy ? <div className="absolute inset-0 flex flex-col justify-center p-2"><div className="sticky top-24 bottom-4"><SimulationCard {...busy} /></div></div> : null}
               </div>
             )}
-            {summary ? <CareerJournal seasons={journal} side={displayed.side} /> : <HistoryTable history={displayed.history} />}
+            {summary ? <CareerJournal seasons={journal} side={displayed.side} onCelebrate={replayAwards} /> : <HistoryTable history={displayed.history} />}
             {!summary ? (
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => void copyCode()} className={secondaryButtonClass}>커리어 코드 복사</button>
-                <button type="button" disabled={starting || !!busy} onClick={() => void begin()} className={secondaryButtonClass}>새 커리어</button>
+                <button type="button" disabled={starting || !!busy || cinematics.length > 0} onClick={() => void begin()} className={secondaryButtonClass}>새 커리어</button>
               </div>
             ) : null}
             {!summary && shareNote ? <p role="status" className={`text-xs ${mutedClass}`}>{shareNote}</p> : null}
@@ -477,6 +489,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
         {screen !== "loading" ? <CareerArchive entries={archive} error={archiveError} member={snapshot.member} cloud={cloud} onCloudRetry={retryCloud} onImport={storeRetirements} onRetry={() => { if (storeRetirements(archive)) setError(""); }} /> : null}
       </div>
       <CareerBoard snapshot={snapshot} />
+      {cinematics[0] ? <CareerCinematic key={cinematics[0].id} scene={cinematics[0]} onDone={finishCinematic} /> : null}
     </div>
   );
 }

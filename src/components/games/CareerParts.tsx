@@ -198,7 +198,7 @@ export function DecisionCard({ decision, onPick, disabled }: { decision: Decisio
   // 남는 것 말고는 고를 게 없으면 결정 대신 다음 시즌으로 넘어가는 버튼으로 보여 줘요.
   const only = list && decision.options.length === 1 && decision.options[0].value === "stay" ? decision.options[0] : null;
   return (
-    <section className={`${moment ? momentCardClass : cardClass} p-5 sm:p-6`} aria-labelledby="career-decision">
+    <section className={`${moment ? `${momentCardClass} ${styles.finalDecision}` : cardClass} p-5 sm:p-6`} aria-labelledby="career-decision" data-final-decision={moment || undefined}>
       <p className={`sport-eyebrow flex items-center gap-1.5 ${moment ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-400"}`}>
         {moment ? <><TrophyIcon className="size-3.5" />BIG MOMENT · 결정적 순간</> : KIND_LABEL[decision.kind]}
       </p>
@@ -312,8 +312,8 @@ function competitionLine(season: SeasonRecord): [string, string][] {
   return parts;
 }
 
-export function SeasonReport({ season, previous, journal, expandedDetails = false }: {
-  season: SeasonRecord; previous?: SeasonRecord; journal?: SeasonJournal; expandedDetails?: boolean;
+export function SeasonReport({ season, previous, journal, expandedDetails = false, onCelebrate }: {
+  season: SeasonRecord; previous?: SeasonRecord; journal?: SeasonJournal; expandedDetails?: boolean; onCelebrate?: () => void;
 }) {
   const heading = useId();
   const keeper = season.pos === "GK";
@@ -335,6 +335,7 @@ export function SeasonReport({ season, previous, journal, expandedDetails = fals
         </span>
       </div>
       <SeasonStats season={season} previous={previous} journal={journal} />
+      {onCelebrate && (season.trophies.length > 0 || season.awards.length > 0) ? <button type="button" data-replay-awards onClick={onCelebrate} className="mx-5 mb-4 inline-flex min-h-10 items-center gap-2 rounded-xl bg-amber-100 px-3 py-2 text-xs font-bold text-amber-900 hover:bg-amber-200 sm:mx-6 dark:bg-amber-300/10 dark:text-amber-200 dark:hover:bg-amber-300/20"><TrophyIcon className="size-3.5" />수상식 다시 보기</button> : null}
       <details open={expandedDetails || undefined} className="border-t border-zinc-100 dark:border-white/[0.07]">
         <summary className="cursor-pointer px-5 py-4 text-sm font-bold sm:px-6">대회·이벤트 상세 기록{journal ? ` · 선택 ${journal.entries.length}회` : ""}</summary>
         <div className="space-y-3 px-5 pb-5 text-sm sm:px-6">

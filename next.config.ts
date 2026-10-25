@@ -17,6 +17,8 @@ const nextConfig: NextConfig = {
   turbopack: {
     rules: {
       "*.css": {
+        // CSS 모듈은 Next가 처리해야 클래스 이름과 애니메이션 연결이 유지돼요.
+        condition: { not: { path: /\.module\.css$/ } },
         loaders: ["@tailwindcss/turbopack"],
         as: "*.css",
       },

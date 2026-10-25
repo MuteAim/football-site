@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { careerBoardFixture, cinematicFixtures } from "./career-browser-fixtures.mjs";
 
 const base = process.env.CAREER_TEST_URL ?? "http://127.0.0.1:3000";
 const executable = process.env.CAREER_TEST_BROWSER ?? "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
@@ -140,11 +141,14 @@ try {
       const started = performance.now();
       let delta = 0, busy = false;
       function sample() {
+        const heading = document.getElementById('career-decision');
+        const entering = heading.closest('[data-final-decision]')?.getAnimations().some(animation => animation.playState === 'running');
         delta = Math.max(delta, Math.abs(window.scrollY - y));
         busy ||= !!document.querySelector('[aria-busy="true"]');
-        if (performance.now() - started < 1050) requestAnimationFrame(sample);
+        if (performance.now() - started > 550) document.querySelector('dialog[open] [data-cinematic-skip]')?.click();
+        // 시즌 진행 뒤에 나타난 결승 카드도 입장 연출이 끝난 위치로 비교해요.
+        if (performance.now() - started < 1050 || entering) requestAnimationFrame(sample);
         else {
-          const heading = document.getElementById('career-decision');
           const report = document.getElementById('career-report');
           const sameYear = oldYear && report?.querySelector('[data-season-stats]')?.dataset.seasonStats === oldYear;
           resolve({ delta, busy, reportPreserved: !sameYear || (report === oldReport && report.open === oldOpen), headingShift: heading.getBoundingClientRect().top - headingTop + (window.scrollY - initialY), panelShift: heading.getBoundingClientRect().top - heading.closest('[aria-busy]').getBoundingClientRect().top - (headingTop - panelTop), count: JSON.parse(localStorage.getItem('football-career-v1:guest')).choices.length - before, focus: document.activeElement.id });
@@ -372,6 +376,158 @@ try {
   assert.equal(await evaluate(`localStorage.getItem('football-career-archive-v1') ?? localStorage.getItem('football-career-hall-v1')`), null, "초기화 전 브라우저 보관함은 지워요");
   assert.ok(await evaluate(`document.getElementById('career-archive').textContent.includes('테스트맨')`));
   assert.deepEqual(errors, [], "브라우저 실행 오류");
+  // 결승·수상 직전의 실제 저장으로 자동 연출과 다시 보기·생략·복원을 검사해요.
+  const fixtures = await cinematicFixtures();
+  const loadScene = async (fixture, { quick = false, reduce = false } = {}) => {
+    await command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: reduce ? "reduce" : "no-preference" }] });
+    await evaluate(`localStorage.setItem('football-career-v1:guest', ${JSON.stringify(JSON.stringify({ ...fixture.save, runId: null, recorded: null }))}); localStorage.setItem('football-career-quick', ${JSON.stringify(quick ? "1" : "0")})`);
+    await command("Page.reload");
+    await waitFor(`document.querySelector('section[aria-labelledby="career-decision"] button')`);
+    assert.equal(await evaluate(`Boolean(document.querySelector('dialog[open]'))`), false, "기존 저장은 연출을 자동으로 재생하지 않아요");
+    await sleep(450); // 기존 연속 클릭 방지 구간이 끝난 뒤 실제 선택을 보내요.
+  };
+  const pickScene = (fixture) => evaluate(`document.querySelectorAll('section[aria-labelledby="career-decision"] button')[${fixture.index}].click()`);
+  const dismissScenes = async () => {
+    for (let i = 0; i < 4; i++) {
+      await evaluate(`document.querySelector('dialog[open] [data-cinematic-skip]')?.click()`);
+      await sleep(100);
+    }
+    await waitFor(`!document.querySelector('dialog[open]')`);
+  };
+  await loadScene(fixtures.final);
+  assert.ok(await evaluate(`Boolean(document.querySelector('[data-final-decision]'))`));
+  await pickScene(fixtures.final);
+  await waitFor(`document.querySelector('dialog[data-career-cinematic="final"][open]')`);
+  assert.equal(await evaluate(`document.querySelector('dialog[open]').dataset.shot`), fixtures.final.scenes[0].shot);
+  assert.ok(await evaluate(`getComputedStyle(document.querySelector('[data-cinematic-ball]')).animationName !== 'none'`));
+  const firstTransform = await evaluate(`getComputedStyle(document.querySelector('[data-cinematic-ball]')).transform`);
+  await sleep(650);
+  assert.notEqual(await evaluate(`getComputedStyle(document.querySelector('[data-cinematic-ball]')).transform`), firstTransform, "공이 실제로 움직여요");
+  await sleep(700);
+  for (const width of [320, 1280]) {
+    await command("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width < 600 });
+    await noOverflow(`결승 연출 ${width}px`);
+    await screenshot(`career-final-cinematic-${width}.png`);
+  }
+  await command("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  await command("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  await dismissScenes();
+  assert.equal(await evaluate(`document.activeElement.id`), "career-decision", "연출 뒤 초점은 다음 결정으로 이어져요");
+  await loadScene(fixtures.awards);
+  await pickScene(fixtures.awards);
+  if (fixtures.awards.scenes[0].type === "final") {
+    await waitFor(`document.querySelector('dialog[data-career-cinematic="final"][open]')`);
+    await evaluate(`document.querySelector('dialog[open] [data-cinematic-skip]').click()`);
+  }
+  await waitFor(`document.querySelector('dialog[data-career-cinematic="awards"][open]')`);
+  const awardScene = fixtures.awards.scenes.find((scene) => scene.type === "awards");
+  assert.ok(await evaluate(`document.querySelector('dialog[open]').innerText.includes(${JSON.stringify(awardScene.title)})`));
+  await sleep(900);
+  for (const width of [390, 1280]) {
+    await command("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width < 600 });
+    await noOverflow(`수상 연출 ${width}px`);
+    await screenshot(`career-award-cinematic-${width}.png`);
+  }
+  const beforeReplay = await evaluate(`JSON.parse(localStorage.getItem('football-career-v1:guest')).choices.length`);
+  await command("Page.reload");
+  await waitFor(`document.querySelector('[data-replay-awards]')`);
+  assert.equal(await evaluate(`Boolean(document.querySelector('dialog[open]'))`), false, "연출 중 새로고침해도 자동 재생하지 않아요");
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('football-career-v1:guest')).choices.length`), beforeReplay, "연출 중에도 진행이 저장돼요");
+  assert.ok(await clickText("수상식 다시 보기"));
+  await waitFor(`document.querySelector('dialog[data-career-cinematic="awards"][open]')`);
+  await waitFor(`!document.querySelector('dialog[open]')`, 80);
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('football-career-v1:guest')).choices.length`), beforeReplay, "다시 보기는 선택·성적을 바꾸지 않아요");
+  await command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  assert.ok(await clickText("수상식 다시 보기"));
+  await waitFor(`document.querySelector('dialog[open]')`);
+  assert.ok(await evaluate(`[...document.querySelectorAll('dialog[open] *')].every(el => getComputedStyle(el).animationName === 'none')`), "움직임 줄이기에서는 정적인 수상식을 보여요");
+  await dismissScenes();
+  await loadScene(fixtures.final, { quick: true });
+  await pickScene(fixtures.final); await sleep(200);
+  assert.equal(await evaluate(`Boolean(document.querySelector('dialog[open]'))`), false, "빠른 진행은 결승 연출을 생략해요");
+  await loadScene(fixtures.final, { reduce: true });
+  await pickScene(fixtures.final); await sleep(200);
+  assert.equal(await evaluate(`Boolean(document.querySelector('dialog[open]'))`), false, "움직임 줄이기는 자동 결승 연출을 생략해요");
+  await loadScene(fixtures.keeper);
+  await pickScene(fixtures.keeper);
+  await waitFor(`document.querySelector('dialog[data-career-cinematic="final"][open]')`);
+  const keeperDirection = fixtures.keeper.scenes[0].direction === "L" ? -1 : 1;
+  assert.equal(await evaluate(`document.querySelector('[data-cinematic-keeper]').style.getPropertyValue('--keeper-x')`), `${keeperDirection * 60}px`, "선방 실패 때도 골키퍼는 내가 고른 방향으로 움직여요");
+  await dismissScenes();
+  assert.deepEqual(errors, [], "결승·수상 연출의 브라우저 실행 오류");
+  assert.equal(await evaluate(`Boolean(document.querySelector('a[href="/games/career/preview"]'))`), false, "시상식 미리보기 진입 버튼을 제거했어요");
+  assert.equal((await fetch(`${base}/games/career/preview`)).status, 404, "시상식 미리보기 화면을 제거했어요");
+  // 공개 순위에 실제로 올라온 선수로 상세창의 클릭·키보드·초점 복귀를 검사해요.
+  const playerCount = await evaluate(`document.querySelectorAll('[data-eleven-player]').length`);
+  for (let i = 0; i < playerCount; i++) {
+    const player = await evaluate(`(() => {
+      const button = document.querySelectorAll('[data-eleven-player]')[${i}];
+      const value = { key: button.dataset.elevenPlayer, name: button.querySelector('[data-eleven-name]').textContent, nickname: button.querySelector('[data-eleven-nickname]').textContent, score: button.querySelector('[data-eleven-score]').textContent };
+      button.focus({ preventScroll: true });
+      ${i ? "button.click();" : ""}
+      return value;
+    })()`);
+    if (!i) {
+      await command("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r", unmodifiedText: "\r" });
+      await command("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    }
+    await waitFor(`document.querySelector('dialog[data-eleven-details][open]')`);
+    assert.deepEqual(await evaluate(`(() => {
+      const dialog = document.querySelector('[data-eleven-details]');
+      return { name: dialog.querySelector('h2').textContent, nickname: dialog.querySelector('[data-eleven-detail-nickname]').textContent, score: dialog.querySelector('[data-eleven-detail-score]').textContent };
+    })()`), { name: player.name, nickname: player.nickname, score: player.score }, "선택한 선수의 전체 이름·닉네임·점수가 상세창에 나와요");
+    assert.ok(await evaluate(`/^\\d+$/.test(document.querySelector('[data-eleven-detail-ovr]').textContent) && /^\\d+회$/.test(document.querySelector('[data-eleven-detail-ballon-dor]').textContent)`));
+    if (!i) {
+      for (const width of [320, 390, 1280]) {
+        await command("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
+        await noOverflow(`베스트 11 상세창 ${width}px`);
+        assert.ok(await evaluate(`(() => {
+          const dialog = document.querySelector('[data-eleven-details]');
+          return dialog.scrollWidth <= dialog.clientWidth && [...dialog.querySelectorAll('h2, [data-eleven-detail-nickname]')].every(el => el.scrollWidth <= el.clientWidth + 1 && getComputedStyle(el).textOverflow !== 'ellipsis');
+        })()`), "상세창의 전체 이름은 잘리지 않아요");
+        await screenshot(`career-eleven-details-${width}.png`);
+      }
+      await command("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+      await command("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    } else await evaluate(`document.querySelector('[data-eleven-details-close]').click()`);
+    await waitFor(`!document.querySelector('[data-eleven-details]')`);
+    assert.equal(await evaluate(`document.activeElement.dataset.elevenPlayer`), player.key, "닫으면 선택한 선수로 초점이 돌아와요");
+  }
+  console.log(`공개 베스트 11 ${playerCount}명의 상세창·닫기·초점 복귀 확인${playerCount ? " 완료" : " 생략 (오늘 등록 선수 없음)"}`);
+  // 실제 컴포넌트로 만든 최대 길이의 11명으로 모바일·좁은 PC 사이드바를 검사해요.
+  const boardFixture = await careerBoardFixture();
+  await evaluate(`document.querySelector('aside.space-y-4').outerHTML = ${JSON.stringify(boardFixture.html)}`);
+  const lineup = `document.querySelector('[role="list"][aria-label="오늘의 베스트 11"]')`;
+  assert.deepEqual(await evaluate(`[...${lineup}.querySelectorAll('[data-eleven-score]')].map(el => el.textContent)`), boardFixture.eleven.map(entry => `${entry.score.toLocaleString("ko-KR")}점`));
+  for (const width of [320, 390, 768, 1024, 1280]) {
+    await command("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
+    await noOverflow(`베스트 11 ${width}px`);
+    assert.deepEqual(await evaluate(`(() => {
+      const pitch = ${lineup};
+      const bounds = pitch.getBoundingClientRect();
+      const issues = [];
+      const players = [...pitch.querySelectorAll('[role="listitem"]')];
+      for (const [i, player] of players.entries()) {
+        for (const el of player.querySelectorAll('[data-eleven-name], [data-eleven-nickname], [data-eleven-score]')) {
+          const style = getComputedStyle(el), rect = el.getBoundingClientRect();
+          if (el.hasAttribute('data-eleven-score') && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)) issues.push('잘린 점수 ' + i);
+          if (!el.hasAttribute('data-eleven-score') && (style.textOverflow !== 'ellipsis' || style.whiteSpace !== 'nowrap')) issues.push('이름 한 줄 표시 ' + i);
+          if (rect.left < bounds.left || rect.right > bounds.right || rect.top < bounds.top || rect.bottom > bounds.bottom) issues.push('경기장 밖 ' + i);
+        }
+        const a = player.getBoundingClientRect();
+        for (const next of players.slice(i + 1)) {
+          const b = next.getBoundingClientRect();
+          if (Math.min(a.right, b.right) > Math.max(a.left, b.left) && Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top)) issues.push('선수 겹침 ' + i);
+        }
+      }
+      return issues;
+    })()`), [], `베스트 11 이름·닉네임·점수 표시 ${width}px`);
+    await evaluate(`${lineup}.scrollIntoView({ block: 'center' })`);
+    await screenshot(`career-eleven-${width}.png`);
+  }
+  assert.deepEqual(errors, [], "베스트 11 상세창의 브라우저 실행 오류");
+  console.log("베스트 11 점수·이름 생략, 320~1280px에서 선수 겹침 없음 확인 완료");
+  console.log("결승·수상 연출, 실제 결과 일치, 다시 보기, 자동 종료, Esc, 빠른 진행·움직임 줄이기 확인 완료");
   console.log("화면 위치·연속 클릭 방지·키보드 초점·은퇴 보관·중복 방지·백업과 복원·새 커리어 후 보존·공유·브라우저 오류 없음 확인 완료");
 } finally {
   await closeBrowser?.();

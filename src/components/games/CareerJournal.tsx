@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { clubName, positionCode, seasonLabel, type Side } from "@/lib/career/engine";
+import { clubName, positionCode, seasonLabel, type SeasonRecord, type Side } from "@/lib/career/engine";
 import type { SeasonJournal } from "@/lib/career/journal";
 import { cardClass, mutedClass, secondaryButtonClass } from "../ui";
 import { ClubBadge, SeasonReport } from "./CareerParts";
 
-export function CareerJournal({ seasons, side }: { seasons: SeasonJournal[]; side: Side }) {
+export function CareerJournal({ seasons, side, onCelebrate }: { seasons: SeasonJournal[]; side: Side; onCelebrate?: (season: SeasonRecord) => void }) {
   const [expanded, setExpanded] = useState<number[]>([]);
   if (!seasons.length) return null;
   return (
@@ -43,7 +43,7 @@ export function CareerJournal({ seasons, side }: { seasons: SeasonJournal[]; sid
               <p className={`mt-1 text-xs ${mutedClass}`}>OVR {season.ovrBefore} → {season.ovrEnd} · 선택 {journal.entries.length}회 · 주요 장면 {season.highlights.length}건</p>
               {honors.length ? <p className="mt-2 text-xs font-semibold text-amber-800 dark:text-amber-200">🏆 {honors.map((honor) => honor.label).join(" · ")}</p> : null}
             </summary>
-            {open ? <div className="border-t border-zinc-100 p-2 sm:p-3 dark:border-white/[0.07]"><SeasonReport season={season} previous={seasons[index - 1]?.season} journal={journal} expandedDetails /></div> : null}
+            {open ? <div className="border-t border-zinc-100 p-2 sm:p-3 dark:border-white/[0.07]"><SeasonReport season={season} previous={seasons[index - 1]?.season} journal={journal} expandedDetails onCelebrate={onCelebrate ? () => onCelebrate(season) : undefined} /></div> : null}
           </details>
         );
       })}
