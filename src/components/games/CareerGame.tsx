@@ -329,7 +329,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
     setResult(turnResult(career, next, index));
     setError("");
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const scenes = !reduce && !quick ? careerCinematics(career, next, index) : [];
+    const scenes = !reduce ? careerCinematics(career, next, index) : [];
     setCinematics(scenes);
     if (kind !== "offseason" && !scenes.length && !reduce && !quick) {
       const title = `${seasonLabel(career.year)} 시즌 ${next.phase === "event" ? "전반기" : kind === "event" ? "후반기" : ""} 진행 중`.replace("  ", " ");

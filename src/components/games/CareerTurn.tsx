@@ -41,7 +41,7 @@ export function TurnHeader({ state, result, quick, onQuick, children }: {
             </li>
           ))}
         </ol>
-        <label className={`flex min-h-9 cursor-pointer items-center gap-2 text-xs ${mutedClass}`} title="시즌 진행 연출을 생략해요">
+        <label className={`flex min-h-9 cursor-pointer items-center gap-2 text-xs ${mutedClass}`} title="일반 시즌 진행 연출만 생략해요. 결승·수상식은 계속 보여 줘요.">
           <input type="checkbox" checked={quick} onChange={(event) => onQuick(event.target.checked)} className="size-4 accent-emerald-700" />
           빠른 진행
         </label>

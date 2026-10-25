@@ -139,19 +139,20 @@ try {
       const oldYear = oldReport?.querySelector('[data-season-stats]')?.dataset.seasonStats;
       const oldOpen = oldReport?.open;
       const started = performance.now();
-      let delta = 0, busy = false;
+      let delta = 0, busy = false, simulation = false;
       function sample() {
         const heading = document.getElementById('career-decision');
         const entering = heading.closest('[data-final-decision]')?.getAnimations().some(animation => animation.playState === 'running');
         delta = Math.max(delta, Math.abs(window.scrollY - y));
         busy ||= !!document.querySelector('[aria-busy="true"]');
+        simulation ||= !!document.querySelector('section[aria-busy="true"]');
         if (performance.now() - started > 550) document.querySelector('dialog[open] [data-cinematic-skip]')?.click();
         // 시즌 진행 뒤에 나타난 결승 카드도 입장 연출이 끝난 위치로 비교해요.
         if (performance.now() - started < 1050 || entering) requestAnimationFrame(sample);
         else {
           const report = document.getElementById('career-report');
           const sameYear = oldYear && report?.querySelector('[data-season-stats]')?.dataset.seasonStats === oldYear;
-          resolve({ delta, busy, reportPreserved: !sameYear || (report === oldReport && report.open === oldOpen), headingShift: heading.getBoundingClientRect().top - headingTop + (window.scrollY - initialY), panelShift: heading.getBoundingClientRect().top - heading.closest('[aria-busy]').getBoundingClientRect().top - (headingTop - panelTop), count: JSON.parse(localStorage.getItem('football-career-v1:guest')).choices.length - before, focus: document.activeElement.id });
+          resolve({ delta, busy, simulation, reportPreserved: !sameYear || (report === oldReport && report.open === oldOpen), headingShift: heading.getBoundingClientRect().top - headingTop + (window.scrollY - initialY), panelShift: heading.getBoundingClientRect().top - heading.closest('[aria-busy]').getBoundingClientRect().top - (headingTop - panelTop), count: JSON.parse(localStorage.getItem('football-career-v1:guest')).choices.length - before, focus: document.activeElement.id });
         }
       }
       requestAnimationFrame(sample);
@@ -165,7 +166,7 @@ try {
     assert.ok(Math.abs(metrics.panelShift) <= 1, `선택 영역 안에서 제목이 ${metrics.panelShift}px 밀렸어요`);
     assert.ok(metrics.reportPreserved, "다음 선택에서 지난 리포트의 펼침 상태가 바뀌었어요");
     assert.equal(metrics.count, 1, "빠른 연속 클릭으로 두 번 선택됐어요");
-    if (quick) assert.equal(metrics.busy, false, "빠른 진행인데 연출을 기다렸어요");
+    if (quick) assert.equal(metrics.simulation, false, "빠른 진행은 일반 시즌 진행 연출만 생략해요");
     sawAnimation ||= metrics.busy;
     if (keyboard) assert.equal(metrics.focus, "career-decision", "키보드 초점이 다음 결정으로 이어지지 않았어요");
     const feedback = await evaluate(`document.getElementById('career-turn-result').textContent`);
@@ -443,9 +444,20 @@ try {
   assert.ok(await evaluate(`[...document.querySelectorAll('dialog[open] *')].every(el => getComputedStyle(el).animationName === 'none')`), "움직임 줄이기에서는 정적인 수상식을 보여요");
   await dismissScenes();
   await loadScene(fixtures.final, { quick: true });
-  await pickScene(fixtures.final); await sleep(200);
-  assert.equal(await evaluate(`Boolean(document.querySelector('dialog[open]'))`), false, "빠른 진행은 결승 연출을 생략해요");
-  await loadScene(fixtures.final, { reduce: true });
+  await pickScene(fixtures.final);
+  await waitFor(`document.querySelector('dialog[data-career-cinematic="final"][open]')`);
+  assert.equal(await evaluate(`localStorage.getItem('football-career-quick')`), "1", "빠른 진행에서도 결승 하이라이트를 보여 줘요");
+  await dismissScenes();
+  await loadScene(fixtures.awards, { quick: true });
+  await pickScene(fixtures.awards);
+  if (fixtures.awards.scenes[0].type === "final") {
+    await waitFor(`document.querySelector('dialog[data-career-cinematic="final"][open]')`);
+    await evaluate(`document.querySelector('dialog[open] [data-cinematic-skip]').click()`);
+  }
+  await waitFor(`document.querySelector('dialog[data-career-cinematic="awards"][open]')`);
+  assert.equal(await evaluate(`localStorage.getItem('football-career-quick')`), "1", "빠른 진행에서도 수상식을 보여 줘요");
+  await dismissScenes();
+  await loadScene(fixtures.final, { quick: true, reduce: true });
   await pickScene(fixtures.final); await sleep(200);
   assert.equal(await evaluate(`Boolean(document.querySelector('dialog[open]'))`), false, "움직임 줄이기는 자동 결승 연출을 생략해요");
   await loadScene(fixtures.keeper);
