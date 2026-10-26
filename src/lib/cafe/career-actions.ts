@@ -6,7 +6,8 @@ import { adminClient, isSettlementConfigured } from "./supabase-admin";
 import { createSessionClient } from "./supabase-server";
 import { getViewer } from "./viewer";
 import { careerDay, careerRecordOf, EMPTY_CAREER_BOARD, type CareerBoard, type CareerSnapshot } from "../career/board";
-import { CAREER_RULES, CAREER_VERSION, CareerError, cleanSetup, replayCareer, summarizeCareer, type CareerSave, type CareerSetup } from "../career/engine";
+import { CAREER_RULES, CAREER_VERSION, CareerError, cleanSetup, replayCareer, type CareerSave, type CareerSetup } from "../career/engine";
+import { careerEngine } from "../career/versions";
 import { CAREER_ARCHIVE_BATCH, parseRetirement, retirementId, type RetiredCareer } from "../career/archive";
 import { buildCareerCard } from "../career/card";
 
@@ -52,7 +53,9 @@ export async function startCareerRun(): Promise<{ runId: string; seed: number; s
 
 export async function finishCareerRun(runId: string, setup: CareerSetup, choices: number[], version: number): Promise<{ score: number; day: string } | { error: string }> {
   if (!rankingReady()) return { error: "지금은 순위에 기록할 수 없어요." };
-  if (version !== CAREER_VERSION) return { error: "게임 규칙이 바뀌어서 이 커리어는 순위에 올릴 수 없어요." };
+  // 규칙이 바뀌는 배포 중에 진행하던 커리어도 그 버전의 엔진이 남아 있으면 그 규칙으로 계산해 받아요.
+  const engine = careerEngine(version);
+  if (!engine) return { error: "게임 규칙이 바뀌어서 이 커리어는 순위에 올릴 수 없어요." };
   if (typeof runId !== "string" || !/^[0-9a-f-]{36}$/i.test(runId) || typeof setup !== "object" || setup === null
     || !Array.isArray(choices) || choices.length > CAREER_RULES.maxChoices || choices.some((choice) => !Number.isInteger(choice) || choice < 0 || choice > 9)) {
     return { error: "기록 형식이 맞지 않아요." };
@@ -72,10 +75,9 @@ export async function finishCareerRun(runId: string, setup: CareerSetup, choices
     if (error) return { error: "기록을 확인하지 못했어요. 다시 시도해 주세요." };
     if (!run || run.id !== runId) return { error: "다른 곳에서 새 커리어를 시작해서 이 커리어는 순위에 올릴 수 없어요." };
 
-    // 화면이 보낸 결과는 믿지 않고 서버가 같은 규칙으로 다시 계산해요.
-    const state = replayCareer({ v: CAREER_VERSION, seed: Number(run.seed), startYear: run.start_year, choices, setup: cleanSetup(setup) });
-    if (state.phase !== "retired") return { error: "은퇴한 커리어만 순위에 올릴 수 있어요." };
-    const summary = summarizeCareer(state);
+    // 화면이 보낸 결과는 믿지 않고 서버가 커리어가 시작된 버전의 규칙으로 다시 계산해요.
+    const { retired, summary } = engine.replay({ v: engine.version, seed: Number(run.seed), startYear: run.start_year, choices, setup: engine.cleanSetup(setup) });
+    if (!retired || !summary) return { error: "은퇴한 커리어만 순위에 올릴 수 있어요." };
     const record = careerRecordOf(summary);
     const { data, error: saveError } = await admin.rpc("career_record", { target_user: viewer.id, target_run: runId, record })
       .single<{ record_day: string; is_new: boolean }>();

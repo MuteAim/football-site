@@ -31,6 +31,8 @@ const C = await load("src/lib/career/card.ts");
 const K = await load("src/lib/career/crests.ts");
 const T = await load("src/lib/career/storage.ts");
 const M = await load("src/lib/career/cinematics.ts");
+const V = await load("src/lib/career/versions.ts");
+const E4 = await load("src/lib/career/legacy/v4/engine.ts");
 
 /** 테스트용 결정적 난수. 같은 순서로 같은 커리어를 만들어요. */
 function lcg(seed) {
@@ -475,6 +477,34 @@ test("능력치가 오버롤과 따로 골·도움에 영향을 주고, 훈련�
     const season = after.history.at(-1);
     assert.ok(season.ovrEnd <= season.ovrStart, "서른넷은 더 성장하지 않아요");
     assert.ok(after.attrs[focus] >= before + 1, `집중한 슈팅은 떨어지지 않아요: ${before} → ${after.attrs[focus]}`);
+  }
+});
+
+test("서버는 커리어가 시작된 규칙 버전의 엔진으로 다시 계산하고, 이전 버전 스냅샷은 지금 엔진과 섞이지 않는다", async () => {
+  assert.deepEqual(V.SUPPORTED_CAREER_VERSIONS, [E.CAREER_VERSION, 4]);
+  assert.equal(E4.CAREER_VERSION, 4);
+  assert.equal(V.careerEngine(3), null);
+  assert.equal(V.careerEngine("5"), null);
+  assert.equal(V.careerEngine(E.CAREER_VERSION).version, E.CAREER_VERSION);
+  // 버전 4 화면이 끝낸 커리어: 버전 4 엔진으로 고른 선택을 서버가 버전 4 규칙으로 다시 계산해요.
+  let old = E4.createCareer(19, 2026, baseSetup);
+  const choices = [];
+  while (old.phase !== "retired") { const index = (choices.length * 7 + 3) % old.pending.options.length; choices.push(index); old = E4.choose(old, index); }
+  const save = { v: 4, seed: 19, startYear: 2026, setup: baseSetup, choices };
+  const legacy = V.careerEngine(4).replay(save);
+  assert.equal(legacy.retired, true);
+  assert.deepEqual(legacy.summary, E4.summarizeCareer(old));
+  assert.ok(B.careerRecordOf(legacy.summary).score === legacy.summary.score && legacy.summary.score > 0);
+  // 같은 선택을 지금 규칙으로 돌리면 다른 커리어가 되거나 끝나지 않아요. 그래서 버전별 엔진이 필요해요.
+  let differs = false;
+  try { const now = V.careerEngine(E.CAREER_VERSION).replay(save); differs = !now.retired || JSON.stringify(now.summary) !== JSON.stringify(legacy.summary); } catch { differs = true; }
+  assert.ok(differs);
+  // 은퇴 전 커리어는 요약을 주지 않아요.
+  assert.deepEqual(V.careerEngine(4).replay({ ...save, choices: choices.slice(0, 5) }), { retired: false, summary: null });
+  // 스냅샷은 지금 엔진·자료를 가져오지 않아요.
+  for (const file of ["src/lib/career/legacy/v4/engine.ts", "src/lib/career/legacy/v4/data.ts"]) {
+    const source = await readFile(resolve(root, file), "utf8");
+    assert.ok(!/from "\.\.\/\.\.\/(engine|data)"/.test(source) && !source.includes('from "../../versions"'), `${file}이 지금 엔진을 가져와요`);
   }
 });
 
