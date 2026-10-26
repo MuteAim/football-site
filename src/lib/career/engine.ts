@@ -9,7 +9,7 @@ import {
   type ClubInfo, type LeagueCode, type NationCode, type Pos,
 } from "./data";
 
-export const CAREER_VERSION = 5;
+export const CAREER_VERSION = 6;
 
 export const CAREER_RULES = {
   startAge: 17,
@@ -1690,7 +1690,7 @@ const EVENTS: Record<string, EventDef> = {
       title: "클럽의 상징",
       body: `오랫동안 ${clubName(d.club)}의 유니폼을 입은 당신에게 구단이 특별한 대우를 약속해요.`,
       options: [
-        option("이 팀에서 은퇴하겠다고 약속한다", "감독 신뢰 ↑↑ · 여기서 은퇴하면 영구 결번", "good", "promise"),
+        option("이 팀에서 은퇴하겠다고 약속한다", "감독 신뢰 ↑↑ · 재계약 보장 · 여기서 은퇴하면 영구 결번", "good", "promise"),
         option("더 큰 도전을 남겨 둔다", "폼 ↑", "neutral", "open"),
       ],
     }),
@@ -1699,7 +1699,7 @@ const EVENTS: Record<string, EventDef> = {
         bump(s, 3);
         s.flags.push(`legend:${d.club}`);
         note(d, `${clubName(d.club)} 영구 결번 약속`);
-        return "이 팀에서 커리어를 마치겠다고 약속했어요.";
+        return "이 팀에서 커리어를 마치기로 했고, 구단은 재계약을 보장했어요.";
       }
       lift(s, 1);
       return "아직 더 큰 무대를 꿈꾸기로 했어요.";
@@ -2306,6 +2306,8 @@ function regionAllowed(s: CareerState, club: ClubInfo, interest: number): boolea
 }
 
 function ownerWants(s: CareerState, ovr: number, club: ClubInfo): boolean {
+  // 은퇴까지 함께하기로 약속한 구단은 나이나 기량이 떨어져도 재계약을 제안해요.
+  if (s.flags.includes(`legend:${club.id}`)) return true;
   if (s.age >= 36) return ovr >= club.rating + 2;
   if (s.age >= 33) return ovr >= club.rating - 2;
   if (s.age <= 22) return s.potential >= club.rating - 2 || ovr >= club.rating - 10;

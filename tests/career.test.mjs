@@ -32,6 +32,7 @@ const K = await load("src/lib/career/crests.ts");
 const T = await load("src/lib/career/storage.ts");
 const M = await load("src/lib/career/cinematics.ts");
 const V = await load("src/lib/career/versions.ts");
+const E5 = await load("src/lib/career/legacy/v5/engine.ts");
 const E4 = await load("src/lib/career/legacy/v4/engine.ts");
 
 /** 테스트용 결정적 난수. 같은 순서로 같은 커리어를 만들어요. */
@@ -480,8 +481,70 @@ test("능력치가 오버롤과 따로 골·도움에 영향을 주고, 훈련�
   }
 });
 
+test("클럽의 상징으로 은퇴를 약속하면 바로 다음 시즌부터 은퇴까지 재계약을 선택할 수 있다", () => {
+  const seed = 76;
+  const setup = S({ nation: "ENG", league: "ENG", pos: "ST" });
+  const choices = Array(21).fill(0);
+  const before = E.replayCareer({ v: E.CAREER_VERSION, seed, startYear: 2026, setup, choices });
+  assert.equal(before.pending.id, "loyalLegend");
+  assert.equal(before.age, 24);
+  assert.equal(before.contract, 1);
+  const club = before.club;
+  const promise = before.pending.options.findIndex((option) => option.value === "promise");
+  let state = E.choose(before, promise);
+  choices.push(promise);
+  assert.equal(state.phase, "offseason");
+  assert.equal(state.contract, 0);
+  assert.ok(state.flags.includes(`legend:${club}`));
+  assert.ok(state.pending.options.some((option) => option.value === "renew" && option.club === club), "약속 직후 계약이 끝나도 이적만 강요하지 않아요");
+
+  // 구단에 남거나 떠나는 결정은 계속 선수가 해요. 다른 도전을 택하면 기존 재계약 기준을 써요.
+  const transfer = state.pending.options.findIndex((option) => option.value === "transfer");
+  assert.ok(transfer >= 0);
+  assert.notEqual(E.choose(state, transfer).club, club);
+  const open = E.choose(before, before.pending.options.findIndex((option) => option.value === "open"));
+  assert.ok(!open.pending.options.some((option) => option.value === "renew"));
+
+  let renewals = 0;
+  while (state.phase !== "retired") {
+    assert.equal(state.club, club);
+    let index = 0;
+    if (state.phase === "offseason") {
+      if (state.age >= E.CAREER_RULES.maxAge) {
+        assert.deepEqual(state.pending.options.map((option) => option.value), ["retire"]);
+      } else {
+        index = state.pending.options.findIndex((option) => option.value === "stay" || option.value === "renew");
+        assert.ok(index >= 0, `${state.age}세에도 약속한 구단에 남을 수 있어요`);
+        if (state.pending.options[index].value === "renew") renewals++;
+      }
+    }
+    choices.push(index);
+    state = E.choose(state, index);
+  }
+  assert.ok(renewals > 1, "한 번만이 아니라 계약이 만료될 때마다 재계약해요");
+  assert.equal(state.age, E.CAREER_RULES.maxAge);
+  assert.equal(state.history.flatMap((season) => season.trophies).filter((honor) => honor.label.endsWith("영구 결번")).length, 1);
+  assert.deepEqual(E.replayCareer({ v: E.CAREER_VERSION, seed, startYear: 2026, setup, choices }), state);
+});
+
+test("레전드의 재계약 보장은 약속한 구단에만 적용한다", () => {
+  const veteran = E.createCareer(1, 2026, S({ nation: "ENG", league: "ENG", pos: "ST" }));
+  veteran.age = 35;
+  veteran.contract = 1;
+  veteran.attrs.fill(20);
+  veteran.potential = 20;
+  for (const promisedClub of [veteran.club, "seoul", null]) {
+    const state = structuredClone(veteran);
+    state.flags = promisedClub ? [`legend:${promisedClub}`] : [];
+    const after = runSeason(state);
+    assert.equal(after.contract, 0);
+    assert.equal(after.pending.options.some((option) => option.value === "renew"), promisedClub === veteran.club);
+  }
+});
+
 test("서버는 커리어가 시작된 규칙 버전의 엔진으로 다시 계산하고, 이전 버전 스냅샷은 지금 엔진과 섞이지 않는다", async () => {
-  assert.deepEqual(V.SUPPORTED_CAREER_VERSIONS, [E.CAREER_VERSION, 4]);
+  assert.deepEqual(V.SUPPORTED_CAREER_VERSIONS, [E.CAREER_VERSION, 5, 4]);
+  assert.equal(E5.CAREER_VERSION, 5);
   assert.equal(E4.CAREER_VERSION, 4);
   assert.equal(V.careerEngine(3), null);
   assert.equal(V.careerEngine("5"), null);
@@ -502,10 +565,26 @@ test("서버는 커리어가 시작된 규칙 버전의 엔진으로 다시 계�
   // 은퇴 전 커리어는 요약을 주지 않아요.
   assert.deepEqual(V.careerEngine(4).replay({ ...save, choices: choices.slice(0, 5) }), { retired: false, summary: null });
   // 스냅샷은 지금 엔진·자료를 가져오지 않아요.
-  for (const file of ["src/lib/career/legacy/v4/engine.ts", "src/lib/career/legacy/v4/data.ts"]) {
+  for (const file of ["src/lib/career/legacy/v4/engine.ts", "src/lib/career/legacy/v4/data.ts", "src/lib/career/legacy/v5/engine.ts", "src/lib/career/legacy/v5/data.ts"]) {
     const source = await readFile(resolve(root, file), "utf8");
     assert.ok(!/from "\.\.\/\.\.\/(engine|data)"/.test(source) && !source.includes('from "../../versions"'), `${file}이 지금 엔진을 가져와요`);
   }
+});
+
+test("재계약 보장 이전인 버전 5의 순위 기록은 기존 규칙으로 검증한다", () => {
+  const seed = 76;
+  const setup = S({ nation: "ENG", league: "ENG", pos: "ST" });
+  const choices = Array(22).fill(0);
+  let old = E5.replayCareer({ v: 5, seed, startYear: 2026, setup, choices });
+  assert.ok(old.flags.includes(`legend:${old.club}`));
+  assert.ok(old.pending.options.every((option) => option.value === "transfer"), "기존 규칙의 선택 번호와 결과를 보존해요");
+  while (old.phase !== "retired") {
+    choices.push(0);
+    old = E5.choose(old, 0);
+  }
+  const save = { v: 5, seed, startYear: 2026, setup, choices };
+  assert.deepEqual(V.careerEngine(5).replay(save), { retired: true, summary: E5.summarizeCareer(old) });
+  assert.deepEqual(V.careerEngine(5).replay({ ...save, choices: choices.slice(0, 22) }), { retired: false, summary: null });
 });
 
 /** "이에요"는 받침 뒤에, "예요"는 받침 없는 말 뒤에 와요. */

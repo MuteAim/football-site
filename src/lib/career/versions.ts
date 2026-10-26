@@ -2,6 +2,7 @@
 // 규칙이 바뀌는 배포 중에 진행 중이던 순위 도전 커리어도, 구 버전 화면에서 은퇴하면 그 버전으로 계산해 저장할 수 있어요.
 // 새 버전을 만들 때: engine.ts의 CAREER_VERSION을 올리기 전에 engine.ts·data.ts를 legacy/v<이전 버전>/에 복사하고 아래 목록에 더해요.
 import * as current from "./engine";
+import * as v5 from "./legacy/v5/engine";
 import * as v4 from "./legacy/v4/engine";
 import type { CareerSave, CareerSetup, CareerSummary } from "./engine";
 
@@ -12,7 +13,7 @@ export type CareerEngine = {
   replay: (save: CareerSave) => { retired: boolean; summary: CareerSummary | null };
 };
 
-function wrap(engine: typeof current | typeof v4): CareerEngine {
+function wrap(engine: typeof current | typeof v5 | typeof v4): CareerEngine {
   return {
     version: engine.CAREER_VERSION,
     cleanSetup: engine.cleanSetup,
@@ -24,7 +25,7 @@ function wrap(engine: typeof current | typeof v4): CareerEngine {
   };
 }
 
-const ENGINES: readonly CareerEngine[] = [wrap(current), wrap(v4)];
+const ENGINES: readonly CareerEngine[] = [wrap(current), wrap(v5), wrap(v4)];
 
 /** 서버가 다시 계산할 수 있는 규칙 버전. 첫 번째가 지금 버전이에요. */
 export const SUPPORTED_CAREER_VERSIONS: readonly number[] = ENGINES.map((engine) => engine.version);
