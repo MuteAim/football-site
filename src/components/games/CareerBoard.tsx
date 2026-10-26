@@ -67,7 +67,7 @@ export function CareerBoard({ snapshot }: { snapshot: CareerSnapshot }) {
 
       <section className={`${cardClass} p-5`}>
         <h2 className="font-extrabold">오늘의 베스트 11</h2>
-        <p className={`mt-1 text-xs ${mutedClass}`}>4-3-3 · 포지션마다 오늘 가장 높은 점수</p>
+        <p className={`mt-1 text-xs ${mutedClass}`}>4-3-3 · 회원 구분 없이 포지션별 최고 점수 · 센터백 상위 2명</p>
         <div className="relative mx-auto mt-4 grid min-h-[400px] w-full max-w-sm grid-cols-12 content-between gap-x-1 gap-y-4 overflow-hidden rounded-2xl bg-[#17442f] px-2 py-5" role="list" aria-label="오늘의 베스트 11">
           <svg viewBox="0 0 300 400" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 size-full text-white/15" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <rect x="12" y="12" width="276" height="376" rx="4" />

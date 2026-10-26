@@ -910,6 +910,21 @@ test("레전드 로드 실제 DB 시작·기록·순위·권한", async (t) => {
     await assert.rejects(as(users[0], "select * from public.career_record($1, gen_random_uuid(), '{}'::jsonb)", [users[0]]), /permission denied/);
   });
 
+  await t.test("기존 회원·포지션 키를 선수별 키로 옮겨도 기록과 권한이 유지되고 재실행할 수 있다", async () => {
+    const run = "10000000-0000-4000-8000-000000000001";
+    await db.exec("alter table public.career_records drop constraint career_records_pkey; alter table public.career_records add primary key(day, user_id, position)");
+    await db.query("insert into public.career_records(day,user_id,position,run_id,player_name,nation,club,score,ballon_dor,peak_ovr,goals,assists,apps,trophies,seasons) values ('2026-10-25',$1,'CB',$2,'기존선수','ENG','seoul',5094,0,90,20,10,600,3,20)", [users[0], run]);
+    const before = (await db.query("select * from public.career_records where run_id = $1", [run])).rows;
+    const migration = await readFile(new URL("../supabase/migrations/20261026090000_career_player_records.sql", import.meta.url), "utf8");
+    await db.exec(migration);
+    await db.exec(migration);
+    assert.deepEqual((await db.query("select * from public.career_records where run_id = $1", [run])).rows, before);
+    assert.equal((await db.query("select pg_get_constraintdef(oid) as definition from pg_constraint where conrelid = 'public.career_records'::regclass and conname = 'career_records_pkey'")).rows[0].definition, "PRIMARY KEY (day, user_id, run_id)");
+    assert.equal((await board(null, "2026-10-25")).eleven[0].score, 5094);
+    await assert.rejects(as(users[0], "insert into public.career_records select * from public.career_records"), /permission denied/);
+    await db.query("delete from public.career_records where run_id = $1", [run]);
+  });
+
   let first;
   let entry;
   await t.test("시드와 시작 시즌을 서버가 정하고, 너무 잦은 시작과 너무 빠른 은퇴를 막는다", async () => {
@@ -922,7 +937,7 @@ test("레전드 로드 실제 DB 시작·기록·순위·권한", async (t) => {
     await assert.rejects(record(users[1], first.run_id, entry), /새 커리어/);
   });
 
-  await t.test("기록은 한 번만 반영되고, 같은 포지션은 최고 점수만 남는다", async () => {
+  await t.test("같은 커리어는 한 번만 반영하고, 같은 회원·포지션의 다른 선수 기록은 각각 보관한다", async () => {
     await age(users[0]);
     const saved = await record(users[0], first.run_id, entry);
     assert.equal(saved.is_new, true);
@@ -941,6 +956,41 @@ test("레전드 로드 실제 DB 시작·기록·순위·권한", async (t) => {
     result = await board(users[0], day);
     assert.equal(result.leaders[0].name, entry.name);
     assert.equal(result.leaders[0].score, entry.score);
+    const stored = (await db.query("select player_name from public.career_records where day = $1 and user_id = $2 and position = $3 order by achieved_at", [day, users[0], entry.position])).rows;
+    assert.deepEqual(stored.map((row) => row.player_name), [entry.name, "낮은 점수"]);
+  });
+
+  await t.test("베스트 11 센터백은 회원 구분 없이 상위 두 선수이고, 양쪽 윙어·풀백도 같은 회원이 차지할 수 있다", async () => {
+    await db.exec("begin");
+    try {
+      const day = new Date((await db.query("select recorded_day from public.career_runs where user_id = $1", [users[0]])).rows[0].recorded_day).toISOString().slice(0, 10);
+      const entries = [
+        [users[1], { ...entry, name: "알베승", position: "CB", side: null, score: 5094 }],
+        [users[2], { ...entry, name: "권디니", position: "CB", side: null, score: 4528 }],
+        [users[1], { ...entry, name: "푸욜", position: "CB", side: null, score: 4869 }],
+        [users[1], { ...entry, name: "낮은센터백", position: "CB", side: null, score: 4000 }],
+        [users[0], { ...entry, name: "왼쪽윙어", position: "WG", side: "L", score: 9000 }],
+        [users[0], { ...entry, name: "오른쪽윙어", position: "WG", side: "R", score: 8000 }],
+        [users[0], { ...entry, name: "왼쪽풀백", position: "FB", side: "L", score: 7000 }],
+        [users[0], { ...entry, name: "오른쪽풀백", position: "FB", side: "R", score: 6000 }],
+      ];
+      for (const [user, item] of entries) {
+        await age(user, 4);
+        const run = await start(user);
+        await age(user);
+        await record(user, run.run_id, item);
+      }
+      const result = await board(null, day);
+      assert.deepEqual(result.eleven.filter((slot) => slot.position === "CB").map((slot) => [slot.slot, slot.name, slot.score, slot.nickname]), [
+        [1, "알베승", 5094, "감독2"], [2, "푸욜", 4869, "감독2"],
+      ]);
+      for (const pos of ["WG", "FB"]) {
+        assert.deepEqual(result.eleven.filter((slot) => slot.position === pos).map((slot) => [slot.side, slot.slot, slot.nickname]), [["L", 1, "감독1"], ["R", 1, "감독1"]]);
+      }
+      assert.equal(result.participants, 3);
+      assert.equal(result.leaders.length, 3, "전체 순위는 계속 회원별 최고 점수 하나예요");
+      assert.equal((await board(users[0], day)).personal.score, 9000);
+    } finally { await db.exec("rollback"); }
   });
 
   await t.test("회원마다 최고 기록 하나로 순위를 매기고, 베스트 11은 포지션별로 뽑는다", async () => {
