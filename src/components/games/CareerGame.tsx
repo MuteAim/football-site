@@ -433,7 +433,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
           <CareerCreate key={pending.seed} seed={pending.seed} startYear={pending.startYear} ranked={!!pending.runId} onCreate={create} onCancel={cancelCreate} />
         ) : screen === "play" && displayed ? (
           <>
-            {summary ? null : <PlayerCard state={displayed} />}
+            {summary ? null : <PlayerCard state={displayed} onNew={() => void begin()} newDisabled={starting || !!busy || cinematics.length > 0} />}
             {summary ? (
               <>
                 <RetiredCard summary={summary} state={displayed} rank={rank} saving={saving} starting={starting} challenge={challenge} archived={!archiveError && archive.length > 0} cloud={cloud}
@@ -475,7 +475,6 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
             {!summary ? (
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => void copyCode()} className={secondaryButtonClass}>커리어 코드 복사</button>
-                <button type="button" disabled={starting || !!busy || cinematics.length > 0} onClick={() => void begin()} className={secondaryButtonClass}>새 커리어</button>
               </div>
             ) : null}
             {!summary && shareNote ? <p role="status" className={`text-xs ${mutedClass}`}>{shareNote}</p> : null}

@@ -394,6 +394,90 @@ test("후보를 다시 뽑으면 새 세 명이 나오고, 다시 뽑은 커리�
   assert.ok(E.CAREER_RULES.rankedRerolls < E.CAREER_RULES.maxRerolls);
 });
 
+/** 훈련 단계의 상태에서 한 시즌을 끝내고 돌려줘요. 프리시즌은 능력치 훈련을 시즌마다 돌아가며(pick이 있으면 그 번째) 고르고, 나머지는 첫 선택지를 골라요. */
+function runSeason(state, pick = state.history.length) {
+  const seasons = state.history.length;
+  while (state.history.length === seasons) {
+    const attrs = state.pending.options.filter((option) => option.value.startsWith("attr"));
+    const index = state.pending.kind === "training" ? state.pending.options.indexOf(attrs[pick % attrs.length]) : 0;
+    state = E.choose(state, index);
+  }
+  return state;
+}
+
+/** 오버롤은 거의 그대로 두고 능력치 둘을 반대로 움직인 복사본. 10~99 범위를 벗어나면 null이에요. */
+function tilt(state, [up, upBy], [down, downBy]) {
+  const copy = structuredClone(state);
+  copy.attrs[up] += upBy;
+  copy.attrs[down] -= downBy;
+  return copy.attrs.every((value) => value >= 10 && value <= 99) ? copy : null;
+}
+
+test("능력치가 오버롤과 따로 골·도움에 영향을 주고, 훈련은 핵심 능력치를 늘 고를 수 있고 집중한 능력치는 노쇠화에서 지켜진다", () => {
+  for (const pos of D.POSITION_ORDER) {
+    const state = E.createCareer(5, 2026, S({ pos }));
+    const offered = state.pending.options.filter((option) => option.value.startsWith("attr")).map((option) => Number(option.value.slice(4)));
+    const weights = D.POSITIONS[pos].weights;
+    const core = [0, 1, 2, 3, 4, 5].sort((a, b) => weights[b] - weights[a] || a - b).slice(0, 3);
+    for (const i of core) assert.ok(offered.includes(i), `${pos} 핵심 능력치 ${E.attrLabels(pos)[i]}`);
+    const guide = E.attrGuide(pos);
+    for (const i of offered) assert.ok(weights[i] >= 8 || guide.some((item) => item.attrs.includes(i)), `${pos}에 의미 없는 훈련 ${E.attrLabels(pos)[i]}`);
+    assert.ok(guide.some((item) => item.label === "부상 예방" && item.attrs.includes(5)));
+    assert.equal(guide.some((item) => item.label === "골"), pos !== "GK");
+    assert.equal(guide.some((item) => item.label === "무실점"), ["GK", "CB", "FB", "DM"].includes(pos));
+    assert.ok(E.GROWTH_ROOMS.includes(E.growthRoom(state)));
+    for (const option of state.pending.options.filter((item) => item.value.startsWith("attr"))) {
+      const index = Number(option.value.slice(4));
+      const effects = guide.filter((item) => item.attrs.includes(index)).map((item) => item.label);
+      if (effects.length) assert.ok(option.detail.includes(`${effects.join("·")} ↑`), option.detail);
+    }
+  }
+  assert.ok(E.createCareer(5, 2026, S({ pos: "ST" })).pending.options.every((option) => option.value !== "attr4"), "스트라이커에게 수비 훈련은 안 나와요");
+
+  // 같은 오버롤이라도 슈팅이 높으면 골이, 패스가 높으면 도움이 많아요. 21세부터 한 시즌씩 비교해요.
+  const tally = { sharp: 0, blunt: 0, passer: 0, finisher: 0 };
+  for (let seed = 1; seed <= 60; seed++) {
+    let striker = E.createCareer(seed, 2026, S({ pos: "ST", name: "테스트" }));
+    let playmaker = E.createCareer(seed, 2026, S({ pos: "AM", name: "테스트" }));
+    for (let n = 0; n < 4; n++) { striker = runSeason(striker); playmaker = runSeason(playmaker); }
+    assert.equal(striker.phase, "offseason");
+    striker = E.choose(striker, striker.pending.options.findIndex((option) => option.value === "stay" || option.value === "renew"));
+    playmaker = E.choose(playmaker, playmaker.pending.options.findIndex((option) => option.value === "stay" || option.value === "renew"));
+    if (striker.phase !== "training" || playmaker.phase !== "training") continue;
+    // ST 비중 [18,38,6,20,0,18]: 슈팅 ±10과 피지컬 ∓21은 오버롤이 거의 같아요. AM 비중 [10,20,32,32,0,6]: 패스 ±10과 슈팅 ∓16도 그래요.
+    const sharp = tilt(striker, [1, 10], [5, 21]), blunt = tilt(striker, [1, -10], [5, -21]);
+    const passer = tilt(playmaker, [2, 10], [1, 16]), finisher = tilt(playmaker, [2, -10], [1, -16]);
+    if (sharp && blunt) {
+      assert.ok(Math.abs(E.overall(sharp.attrs, "ST") - E.overall(blunt.attrs, "ST")) <= 1);
+      tally.sharp += runSeason(sharp, 2).history.at(-1).goals;
+      tally.blunt += runSeason(blunt, 2).history.at(-1).goals;
+    }
+    if (passer && finisher) {
+      assert.ok(Math.abs(E.overall(passer.attrs, "AM") - E.overall(finisher.attrs, "AM")) <= 1);
+      tally.passer += runSeason(passer, 3).history.at(-1).assists;
+      tally.finisher += runSeason(finisher, 3).history.at(-1).assists;
+    }
+  }
+  assert.ok(tally.blunt > 100 && tally.finisher > 100, `비교할 표본이 충분해야 해요: ${JSON.stringify(tally)}`);
+  assert.ok(tally.sharp > tally.blunt * 1.1, `슈팅이 높은 쪽이 더 넣어야 해요: ${tally.sharp} vs ${tally.blunt}`);
+  assert.ok(tally.passer > tally.finisher * 1.1, `패스가 높은 쪽이 더 도와야 해요: ${tally.passer} vs ${tally.finisher}`);
+
+  // 성장이 끝난 선수가 집중 훈련한 능력치는 그 시즌에 떨어지지 않아요. 나이와 전성기만 바꿔 노쇠기로 만들어요.
+  for (let seed = 1; seed <= 20; seed++) {
+    const veteran = structuredClone(E.createCareer(seed, 2026, S({ pos: "ST", name: "베테랑" })));
+    veteran.age = 34;
+    veteran.traits.peak = 27;
+    const index = veteran.pending.options.findIndex((option) => option.value.startsWith("attr"));
+    const focus = Number(veteran.pending.options[index].value.slice(4));
+    assert.equal(focus, 1, "스트라이커의 첫 훈련은 비중이 가장 큰 슈팅이에요");
+    const before = veteran.attrs[focus];
+    const after = runSeason(veteran);
+    const season = after.history.at(-1);
+    assert.ok(season.ovrEnd <= season.ovrStart, "서른넷은 더 성장하지 않아요");
+    assert.ok(after.attrs[focus] >= before + 1, `집중한 슈팅은 떨어지지 않아요: ${before} → ${after.attrs[focus]}`);
+  }
+});
+
 /** "이에요"는 받침 뒤에, "예요"는 받침 없는 말 뒤에 와요. */
 function copulaOk(text) {
   for (const [, before, ending] of text.matchAll(/([가-힣])(이에요|예요)/g)) {
@@ -408,7 +492,15 @@ function checkDecision(s, seen) {
   const decision = s.pending;
   for (const text of [decision.body, ...decision.options.flatMap((option) => [option.label, option.detail])]) assert.ok(copulaOk(text), text);
   if (decision.kind === "training") {
-    for (const option of decision.options.filter((item) => item.value.startsWith("attr"))) assert.match(option.detail, /→ \d+ · 오버롤/);
+    const attrs = decision.options.filter((item) => item.value.startsWith("attr"));
+    assert.ok(attrs.length >= 1 && attrs.length <= 4 && decision.options.length === attrs.length + 2, `능력치 훈련 1~4개와 특별 훈련 2개: ${decision.options.map((item) => item.value).join(",")} 능력치 ${s.attrs.join(",")}`);
+    if (attrs.length < 3) { assert.ok(s.attrs.filter((value) => value >= 97).length >= 2, `다 찬 능력치가 아닌데 훈련이 적어요: ${s.attrs.join(",")}`); seen.capped++; }
+    for (const option of attrs) {
+      assert.match(option.detail, /→ \d+ · /);
+      assert.ok(!option.detail.includes("변화 적음"), option.detail);
+      assert.ok(/시즌 성장 집중|노쇠화 방지/.test(option.detail), option.detail);
+    }
+    assert.match(decision.body, /성장 전망: (성장 여지 많음|성장 여지 있음|성장 한계 근접|성장 한계 도달|성장 마감)\.$/);
   }
   if (decision.kind === "offseason") {
     const ovr = E.overall(s.attrs, s.pos);
@@ -425,7 +517,7 @@ function checkDecision(s, seen) {
 
 test("무작위로 수백 번 골라도 규칙이 깨지지 않고 모든 커리어가 은퇴로 끝난다", () => {
   const random = lcg(42);
-  const seen = { ballon: 0, military: 0, exempt: 0, loan: 0, transfer: 0, offers: 0, firstEvents: 0, reserve: 0, youthCup: 0 };
+  const seen = { ballon: 0, military: 0, exempt: 0, loan: 0, transfer: 0, offers: 0, firstEvents: 0, reserve: 0, youthCup: 0, capped: 0 };
   for (let n = 0; n < 300; n++) {
     const nation = D.NATION_ORDER[random(D.NATION_ORDER.length)];
     const setup = {
@@ -639,7 +731,7 @@ test("잘못된 선수 정보·선택·버전은 거절한다", () => {
     assert.throws(() => E.createCareer(seed, year, baseSetup), E.CareerError);
   }
   const state = E.createCareer(3, 2026, baseSetup);
-  for (const index of [-1, 3, 1.5, Number.NaN]) assert.throws(() => E.choose(state, index), E.CareerError);
+  for (const index of [-1, state.pending.options.length, 1.5, Number.NaN]) assert.throws(() => E.choose(state, index), E.CareerError);
   const { state: retired, choices } = play(3, baseSetup, () => 0);
   assert.throws(() => E.choose(retired, 0), E.CareerError);
   assert.throws(() => E.replayCareer({ v: E.CAREER_VERSION, seed: 3, startYear: 2026, setup: baseSetup, choices: [...choices, 0] }), E.CareerError);

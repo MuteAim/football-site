@@ -9,7 +9,7 @@ import {
   type ClubInfo, type LeagueCode, type NationCode, type Pos,
 } from "./data";
 
-export const CAREER_VERSION = 4;
+export const CAREER_VERSION = 5;
 
 export const CAREER_RULES = {
   startAge: 17,
@@ -121,6 +121,8 @@ type Draft = {
   year: number; age: number; club: string; loan: boolean; military: boolean; pos: Pos;
   role: Role; roleFloor: Role | null; ovrBefore: number; ovrStart: number; attrsBefore: number[];
   risk: number; clutch: number; freekick: boolean; care: boolean; major: boolean;
+  /** 프리시즌에 집중 훈련한 능력치. 시즌 성장에서 더 자주 오르고 노쇠화에서는 지켜 줘요. */
+  focus: number | null;
   t: number; games: number; teamForm: number;
   apps: number; starts: number; minutes: number; goals: number; assists: number; cleanSheets: number; ratingSum: number;
   leagueApps: number; leagueGoals: number; leagueAssists: number; cupApps: number; contApps: number;
@@ -255,6 +257,60 @@ export function attrLabels(pos: Pos): string[] {
   return pos === "GK" ? KEEPER_ATTRS : OUTFIELD_ATTRS;
 }
 
+// ---------- 능력치가 경기에 주는 영향 ----------
+// 오버롤은 출전·역할·평점의 바탕이고, 개별 능력치는 그 위에서 골·도움·무실점·부상을 직접 움직여요.
+
+/** 경기 결과에 영향을 주는 능력치 조합. [능력치 번호, 비중]이고 비중 합은 4예요. */
+type AttrMix = [number, number][];
+const OUTFIELD_MIX: Record<"goal" | "assist" | "defend", AttrMix> = {
+  goal: [[1, 2], [0, 1], [3, 1]],
+  assist: [[2, 2], [3, 1], [0, 1]],
+  defend: [[4, 2], [5, 1], [0, 1]],
+};
+const KEEPER_MIX: Record<"goal" | "assist" | "defend", AttrMix> = {
+  goal: [],
+  assist: [[4, 4]],
+  defend: [[0, 1], [1, 1], [2, 1], [3, 1]],
+};
+const mixFor = (pos: Pos) => (pos === "GK" ? KEEPER_MIX : OUTFIELD_MIX);
+/** 피지컬 능력치 번호. 골키퍼도 여섯 번째예요. */
+const PHYSICAL = 5;
+const DEFENSIVE: Pos[] = ["GK", "CB", "FB", "DM"];
+
+/** 관련 능력치 평균이 오버롤보다 얼마나 높은지. 조합이 비어 있으면 0이에요. */
+function attrEdge(attrs: number[], ovr: number, mix: AttrMix): number {
+  if (!mix.length) return 0;
+  let sum = 0;
+  for (const [index, weight] of mix) sum += attrs[index] * weight;
+  return Math.trunc(sum / 4) - ovr;
+}
+/** 능력치 차이를 배율(1/1000)로 바꿔요. 오버롤보다 10 높으면 20% 늘고, 최대 ±40%예요. */
+const edgeRate = (edge: number) => clamp(1000 + edge * 20, 600, 1400);
+
+export type AttrGuide = { label: string; attrs: number[] };
+/** 이 포지션에서 어떤 능력치가 무엇에 영향을 주는지. 선수 카드와 훈련 설명에 보여 줘요. */
+export function attrGuide(pos: Pos): AttrGuide[] {
+  const mix = mixFor(pos);
+  const guide: AttrGuide[] = [];
+  if (POSITIONS[pos].goal > 0 && mix.goal.length) guide.push({ label: "골", attrs: mix.goal.map(([index]) => index) });
+  guide.push({ label: "도움", attrs: mix.assist.map(([index]) => index) });
+  if (DEFENSIVE.includes(pos)) guide.push({ label: "무실점", attrs: mix.defend.map(([index]) => index) });
+  guide.push({ label: "부상 예방", attrs: [PHYSICAL] });
+  return guide;
+}
+/** 능력치 하나가 영향을 주는 항목 이름. 훈련 선택지에 "골·도움 ↑"처럼 보여요. */
+function attrEffects(pos: Pos, index: number): string[] {
+  return attrGuide(pos).filter((item) => item.attrs.includes(index)).map((item) => item.label);
+}
+
+export const GROWTH_ROOMS = ["성장 여지 많음", "성장 여지 있음", "성장 한계 근접", "성장 한계 도달", "성장 마감"] as const;
+/** 성장 여지 안내. 숨은 잠재력을 정확한 수치 대신 몇 단계로만 보여 줘요. 전성기가 지나면 성장이 끝나요. */
+export function growthRoom(s: CareerState): (typeof GROWTH_ROOMS)[number] {
+  if (s.age > s.traits.peak + 1) return GROWTH_ROOMS[4];
+  const room = s.potential - overall(s.attrs, s.pos);
+  return room >= 12 ? GROWTH_ROOMS[0] : room >= 6 ? GROWTH_ROOMS[1] : room >= 1 ? GROWTH_ROOMS[2] : GROWTH_ROOMS[3];
+}
+
 /** 왼쪽·오른쪽을 나눠 뛰는 포지션 */
 export const FLANKS: readonly Pos[] = ["WG", "FB"];
 export const FOOT_NAMES: Record<Side, string> = { L: "왼발", R: "오른발" };
@@ -346,19 +402,28 @@ function ovrGain(s: CareerState, changes: [number, number][]): number {
 }
 
 const gainText = (gain: number) => (gain > 0 ? `오버롤 +${gain}` : "오버롤 변화 적음");
+/** 능력치가 오버롤보다 얼마나 높은지에 따른 성장 배율(4분의 1 단위). 20 넘게 높으면 시즌 성장으로는 더 오르지 않아요. */
+const spread = (gap: number) => (gap >= 20 ? 0 : gap >= 12 ? 1 : gap >= 6 ? 2 : 4);
 
-/** 오버롤을 delta만큼 옮겨요. 비중이 큰 능력치가 더 자주 움직이고, 서른 즈음부터는 속도·피지컬이 먼저 떨어져요. */
-function shiftOverall(s: CareerState, delta: number) {
+/**
+ * 오버롤을 delta만큼 옮겨요. 오를 때는 비중이 큰 능력치, 스타일에 맞는 능력치, 프리시즌에 집중한 능력치가 더 자주 오르고,
+ * 내려갈 때는 집중한 능력치를 지키고 서른 즈음부터는 속도·피지컬이 먼저 떨어져요.
+ */
+function shiftOverall(s: CareerState, delta: number, focus: number | null = null) {
   const target = overall(s.attrs, s.pos) + delta;
-  const weights = POSITIONS[s.pos].weights;
+  const info = POSITIONS[s.pos];
+  const bias = info.styles.find((style) => style.name === s.style)?.bias ?? [];
   for (let guard = 0; guard < 500; guard++) {
     const now = overall(s.attrs, s.pos);
     if (now === target) return;
     const up = now < target;
-    const index = weightedIndex(s, weights.map((weight, i) => {
+    const index = weightedIndex(s, info.weights.map((weight, i) => {
       if (up ? s.attrs[i] >= 99 : s.attrs[i] <= 20) return 0;
-      const physical = s.pos !== "GK" && (i === 0 || i === 5);
-      return weight + 6 + (!up && s.age >= 29 && physical ? 30 : 0);
+      // 오버롤보다 훌쩍 높은 능력치는 덜 올라서 한 능력치만 치솟지 않아요.
+      if (up) return Math.trunc(((weight + 6 + Math.max(0, bias[i] ?? 0) * 3 + (i === focus ? 20 : 0)) * spread(s.attrs[i] - now)) / 4);
+      if (i === focus) return 0;
+      const physical = s.pos !== "GK" && (i === 0 || i === PHYSICAL);
+      return weight + 6 + (s.age >= 29 && physical ? 30 : 0);
     }));
     if (index < 0) return;
     s.attrs[index] += up ? 1 : -1;
@@ -373,7 +438,7 @@ function note(d: Draft, text: string) {
 
 function buildAttrs(r: Rng, pos: Pos, bias: number[], target: number): number[] {
   const attrs = POSITIONS[pos].weights.map((weight, i) => {
-    const lean = weight >= 30 ? 6 : weight >= 18 ? 3 : weight >= 10 ? 0 : weight >= 4 ? -7 : -16;
+    const lean = weight >= 30 ? 6 : weight >= 18 ? 3 : weight >= 10 ? 0 : weight >= 4 ? -7 : -12;
     return clamp(target + lean + bias[i] + between(r, -3, 3), 15, 80);
   });
   for (let guard = 0; guard < 60; guard++) {
@@ -509,21 +574,35 @@ function trainingGain(s: CareerState): number {
   return ovr >= s.potential + 2 ? Math.min(base, 1) : base;
 }
 
+/** 프리시즌에 고를 수 있는 능력치. 오버롤 비중이 있거나 경기에 직접 영향을 주는 능력치만이에요. 다 찬 능력치는 빼요. */
+function trainable(s: CareerState): number[] {
+  const weights = POSITIONS[s.pos].weights;
+  return [0, 1, 2, 3, 4, 5].filter((i) => s.attrs[i] < 97 && (weights[i] >= 8 || attrEffects(s.pos, i).length > 0));
+}
+
 function trainingDecision(s: CareerState): Decision {
   const keeper = s.pos === "GK";
   const labels = attrLabels(s.pos);
   const gain = trainingGain(s);
   const weights = POSITIONS[s.pos].weights;
   const options: Choice[] = [];
-  const chosen: number[] = [];
-  for (let n = 0; n < 2; n++) {
-    const index = weightedIndex(s, weights.map((weight, i) => (chosen.includes(i) || s.attrs[i] >= 97 ? 0 : weight + 4)));
-    if (index < 0) break;
-    chosen.push(index);
+  // 비중이 큰 능력치 셋은 늘 고를 수 있고, 네 번째 자리는 나머지 가운데 돌아가며 나와요.
+  const pool = trainable(s);
+  const core = [...pool].sort((a, b) => weights[b] - weights[a] || a - b).slice(0, 3);
+  const extra = weightedIndex(s, [0, 1, 2, 3, 4, 5].map((i) => (pool.includes(i) && !core.includes(i) ? weights[i] + 6 : 0)));
+  const chosen = extra >= 0 ? [...core, extra] : core;
+  const declining = growthByAge(s.traits.peak - s.age) <= 0;
+  for (const index of chosen) {
     const after = Math.min(99, s.attrs[index] + gain);
+    const parts: string[] = [];
+    const rise = ovrGain(s, [[index, gain]]);
+    if (rise > 0) parts.push(`오버롤 +${rise}`);
+    const effects = attrEffects(s.pos, index);
+    if (effects.length) parts.push(`${effects.join("·")} ↑`);
+    parts.push(declining ? "노쇠화 방지" : "시즌 성장 집중");
     options.push({
       label: ATTR_TRAININGS[keeper ? "keeper" : "outfield"][index],
-      detail: `${labels[index]} ${s.attrs[index]} → ${after} · ${gainText(ovrGain(s, [[index, gain]]))}`,
+      detail: `${labels[index]} ${s.attrs[index]} → ${after} · ${parts.join(" · ")}`,
       tone: "good",
       value: `attr${index}`,
     });
@@ -540,7 +619,7 @@ function trainingDecision(s: CareerState): Decision {
     mental: SPECIAL_TRAININGS.mental.detail,
     freekick: SPECIAL_TRAININGS.freekick.detail,
   };
-  while (options.length < 3) {
+  while (options.length < chosen.length + 2) {
     const id = pick(s, specials);
     if (options.some((option) => option.value === id)) continue;
     options.push({ label: SPECIAL_TRAININGS[id].label, detail: specialDetail[id], tone: id === "hell" ? "risk" : "neutral", value: id });
@@ -554,7 +633,7 @@ function trainingDecision(s: CareerState): Decision {
   return {
     kind: "training", id: "training",
     title: `${seasonLabel(s.year)} 프리시즌`,
-    body: `${s.age}세, ${club.name}에서 ${s.history.length ? "새 시즌" : "프로 첫 시즌"}을 준비해요. 예상 역할은 ${role}${politeCopula(role)}. ${outlook}${injured}`,
+    body: `${s.age}세, ${club.name}에서 ${s.history.length ? "새 시즌" : "프로 첫 시즌"}을 준비해요. 예상 역할은 ${role}${politeCopula(role)}. ${outlook}${injured} 성장 전망: ${growthRoom(s)}.`,
     options,
   };
 }
@@ -563,10 +642,12 @@ function applyTraining(s: CareerState, value: string): Draft {
   const before = [...s.attrs];
   const ovrBefore = overall(s.attrs, s.pos);
   const gain = trainingGain(s);
-  const extras = { risk: 0, clutch: 0, freekick: false, care: false, form: 0 };
+  const extras = { risk: 0, clutch: 0, freekick: false, care: false, form: 0, focus: null as number | null };
   const match = /^attr([0-5])$/.exec(value);
-  if (match) addAttr(s, Number(match[1]), gain);
-  else if (value === "hell") {
+  if (match) {
+    extras.focus = Number(match[1]);
+    addAttr(s, extras.focus, gain);
+  } else if (value === "hell") {
     for (let i = 0; i < 6; i++) addAttr(s, i, 1);
     extras.risk = s.age >= 28 ? 9 : 6;
   } else if (value === "care") {
@@ -598,7 +679,7 @@ const SELECT = {
 } satisfies Record<string, Record<Role, number>>;
 type Competition = keyof typeof SELECT;
 
-function startSeason(s: CareerState, before: number[], ovrBefore: number, extras: { risk: number; clutch: number; freekick: boolean; care: boolean; form: number }): Draft {
+function startSeason(s: CareerState, before: number[], ovrBefore: number, extras: { risk: number; clutch: number; freekick: boolean; care: boolean; form: number; focus: number | null }): Draft {
   const club = CLUBS[s.club];
   const league = LEAGUES[club.league];
   const ovr = overall(s.attrs, s.pos);
@@ -608,7 +689,7 @@ function startSeason(s: CareerState, before: number[], ovrBefore: number, extras
   const d: Draft = {
     year: s.year, age: s.age, club: s.club, loan: s.parent !== null && !military, military, pos: s.pos,
     role: roleFor(s, ovr, club.rating), roleFloor: null, ovrBefore, ovrStart: ovr, attrsBefore: before,
-    risk: extras.risk, clutch: extras.clutch, freekick: extras.freekick, care: extras.care, major: false,
+    risk: extras.risk, clutch: extras.clutch, freekick: extras.freekick, care: extras.care, major: false, focus: extras.focus,
     t: 0, games: league.games, teamForm: between(s, -3, 3),
     apps: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, ratingSum: 0,
     leagueApps: 0, leagueGoals: 0, leagueAssists: 0, cupApps: 0, contApps: 0,
@@ -632,8 +713,6 @@ function teamStrength(s: CareerState, d: Draft): number {
   return rating + d.teamForm + impact + Math.trunc(s.form / 2);
 }
 
-const DEFENSIVE: Pos[] = ["GK", "CB", "FB", "DM"];
-
 function playMatch(s: CareerState, d: Draft, comp: Competition, opponent: string, oppRating: number, final = false) {
   const none = { played: false, goals: 0, assists: 0 };
   if (s.injury > 0) { s.injury--; d.missed++; return none; }
@@ -650,11 +729,16 @@ function playMatch(s: CareerState, d: Draft, comp: Competition, opponent: string
   const edge = clamp(1000 + (strength - oppRating) * 15, 500, 1500);
   const info = POSITIONS[d.pos];
   const fit = footFit(d.pos, s.foot, s.side);
-  const scale = (base: number) => Math.trunc((((base * Math.max(quality, 250)) / 1000) * edge / 1000) * minutes / 90);
-  const expectedGoals = clamp(scale(Math.trunc((info.goal * fit.goal) / 1000)) + (d.freekick && info.goal > 0 ? 12 : 0), 0, 2800);
+  // 개별 능력치: 슈팅·속도·드리블이 골을, 패스·드리블·속도가 도움을, 수비·피지컬·속도(골키퍼는 선방 능력치)가 무실점을 움직여요.
+  const mix = mixFor(d.pos);
+  const goalRate = edgeRate(attrEdge(s.attrs, ovr, mix.goal));
+  const assistRate = edgeRate(attrEdge(s.attrs, ovr, mix.assist));
+  const scale = (base: number, rate: number) => Math.trunc((((base * Math.max(quality, 250)) / 1000) * edge / 1000) * rate / 1000 * minutes / 90);
+  const expectedGoals = clamp(scale(Math.trunc((info.goal * fit.goal) / 1000), goalRate) + (d.freekick && info.goal > 0 ? 12 : 0), 0, 2800);
   const goals = count(s, expectedGoals, 4);
-  const assists = count(s, clamp(scale(Math.trunc((info.assist * fit.assist) / 1000)), 0, 2000), 3);
-  const cleanSheet = minutes >= 60 && chance(s, clamp(330 + (strength - oppRating) * 25, 80, 760));
+  const assists = count(s, clamp(scale(Math.trunc((info.assist * fit.assist) / 1000), assistRate), 0, 2000), 3);
+  const defend = DEFENSIVE.includes(d.pos) ? attrEdge(s.attrs, ovr, mix.defend) * 8 : 0;
+  const cleanSheet = minutes >= 60 && chance(s, clamp(330 + (strength - oppRating) * 25 + defend, 80, 760));
   // 평점 ×10. 팀 안에서의 실력 차와 절대 실력을 함께 봐요. 보통 주전이 6.8, 월드 클래스가 7.8쯤이에요.
   let rating = 66 + clamp(Math.trunc((ovr - CLUBS[d.club].rating) / 3), -4, 5) + clamp(Math.trunc((ovr - 70) / 6), -3, 5)
     + goals * 8 + assists * 5 + s.form + between(s, -5, 5);
@@ -704,16 +788,20 @@ function reserveMatch(s: CareerState, d: Draft) {
   const info = POSITIONS[d.pos];
   const fit = footFit(d.pos, s.foot, s.side);
   // 2군 상대는 또래 유망주라 오버롤 58을 보통 실력으로 봐요.
-  const quality = Math.max(250, 1000 + (overall(s.attrs, s.pos) - 58) * 30);
-  const scale = (base: number) => Math.trunc((((base * quality) / 1000) * 1150) / 1000 * minutes / 90);
+  const ovr = overall(s.attrs, s.pos);
+  const mix = mixFor(d.pos);
+  const quality = Math.max(250, 1000 + (ovr - 58) * 30);
+  const scale = (base: number, rate: number) => Math.trunc((((base * quality) / 1000) * 1150) / 1000 * rate / 1000 * minutes / 90);
   d.reserveApps++;
   d.reserveMinutes += minutes;
-  d.reserveGoals += count(s, clamp(scale(Math.trunc((info.goal * fit.goal) / 1000)), 0, 2800), 4);
-  d.reserveAssists += count(s, clamp(scale(Math.trunc((info.assist * fit.assist) / 1000)), 0, 2000), 3);
+  d.reserveGoals += count(s, clamp(scale(Math.trunc((info.goal * fit.goal) / 1000), edgeRate(attrEdge(s.attrs, ovr, mix.goal))), 0, 2800), 4);
+  d.reserveAssists += count(s, clamp(scale(Math.trunc((info.assist * fit.assist) / 1000), edgeRate(attrEdge(s.attrs, ovr, mix.assist))), 0, 2000), 3);
 }
 
 function injuryCheck(s: CareerState, d: Draft, minutes: number) {
-  const risk = 5 + s.traits.injury * 4 + Math.max(0, s.age - 29) * 2 + d.risk;
+  // 피지컬이 오버롤보다 많이 낮으면 부상이 잦고, 높으면 덜 다쳐요.
+  const frail = clamp(Math.trunc((overall(s.attrs, s.pos) - s.attrs[PHYSICAL]) / 8), -2, 2);
+  const risk = 5 + s.traits.injury * 4 + Math.max(0, s.age - 29) * 2 + d.risk + frail;
   if (!chance(s, Math.trunc((clamp(risk, 1, 60) * Math.max(minutes, 20)) / 90))) return;
   const roll = int(s, 100) + (s.traits.injury - 1) * 8;
   if (roll < 60) {
@@ -1997,7 +2085,8 @@ function nationalStage(s: CareerState, d: Draft) {
   const key = ovr >= nation.callup + 5;
   result.caps = (key ? between(s, 5, 8) : between(s, 2, 5)) + d.extraCaps;
   const quality = Math.max(250, 1000 + (ovr - 75) * 30);
-  for (let i = 0; i < result.caps; i++) result.goals += count(s, Math.trunc((POSITIONS[s.pos].goal * quality * 85) / 100000), 4);
+  const goalRate = edgeRate(attrEdge(s.attrs, ovr, mixFor(s.pos).goal));
+  for (let i = 0; i < result.caps; i++) result.goals += count(s, Math.trunc((POSITIONS[s.pos].goal * quality * 85 * goalRate) / 100000000), 4);
   // 한 해에 열리는 성인 대표팀 대회는 하나예요(월드컵과 대륙 대회는 서로 다른 해).
   const [code] = tournamentIn(d.year + 1, nation.region);
   if (!code) return;
@@ -2148,7 +2237,7 @@ function endSeason(s: CareerState, d: Draft) {
     if (d.major) growth--;
     growth = Math.min(growth + between(s, -1, 1), 0);
   }
-  shiftOverall(s, growth);
+  shiftOverall(s, growth, d.focus);
   if (d.major && s.pos !== "GK") { addAttr(s, 0, -2); addAttr(s, 5, -1); }
   const ovrEnd = overall(s.attrs, s.pos);
   if (ovrEnd > s.peak) { s.peak = ovrEnd; s.peakAge = d.age; }
@@ -2291,7 +2380,7 @@ function offseasonDecision(s: CareerState): Decision {
       : s.flags.includes(`agentdeal-${last.year}`)
         ? [...biggerClubs(s, owner ?? s.club), ...Object.values(CLUBS).filter((club) => club.league === "KSA" && club.rating <= ovr + 6)]
         : [];
-  const wishes = wish.filter((club) => club.id !== s.club && club.id !== owner && !offers.includes(club));
+  const wishes = wish.filter((club) => club.id !== s.club && club.id !== owner && !offers.includes(club) && (grown || home.includes(club.league)));
   if (wishes.length && !offers.some((club) => wish.includes(club))) {
     const choice = wishes[weightedIndex(s, wishes.map((club) => Math.max(1, club.rating - 60)))];
     if (offers.length >= 3) offers.sort((a, b) => b.rating - a.rating).pop();

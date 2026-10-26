@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { CLUBS, CONTINENTALS, LEAGUES, MILITARY_CLUB, NATIONS, POSITIONS, type Pos } from "@/lib/career/data";
 import {
-  attrLabels, careerTotals, clubName, FOOT_NAMES, positionCode, positionName, CONTINENTAL_STAGES, CUP_STAGES, expectedRole, formatValue, legacyScore, marketValue, overall,
+  attrGuide, attrLabels, careerTotals, clubName, FOOT_NAMES, positionCode, positionName, CONTINENTAL_STAGES, CUP_STAGES, expectedRole, formatValue, growthRoom, legacyScore, marketValue, overall,
   roleName, seasonLabel, starterLine, type CareerState, type Choice, type Decision, type LegacyBreakdown, type SeasonRecord,
 } from "@/lib/career/engine";
 import { clubCrest } from "@/lib/career/crests";
@@ -89,6 +89,18 @@ export function AttrBars({ attrs, pos, growth, light = false }: { attrs: number[
   );
 }
 
+/** 이 포지션에서 어떤 능력치가 골·도움·무실점·부상에 영향을 주는지 한 줄로 보여 줘요. 굵은 능력치는 오버롤 비중이 커요. */
+function AttrGuideLine({ pos }: { pos: Pos }) {
+  const labels = attrLabels(pos);
+  return (
+    <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] leading-relaxed text-white/55">
+      {attrGuide(pos).map((item) => (
+        <span key={item.label}><span className="font-bold text-white/75">{item.label}</span> {item.attrs.map((i) => labels[i]).join("·")}</span>
+      ))}
+    </p>
+  );
+}
+
 const TRAIT_TEXT = {
   growth: (state: CareerState) => state.traits.peak <= (state.pos === "GK" ? 26 : 24) ? "조기 개화형" : state.traits.peak >= (state.pos === "GK" ? 31 : 29) ? "대기만성형" : "표준 성장형",
   injury: (state: CareerState) => (state.traits.injury === 2 ? "유리몸" : "강철 체력"),
@@ -111,7 +123,8 @@ function TrustMeter({ trust }: { trust: number }) {
   );
 }
 
-export function PlayerCard({ state }: { state: CareerState }) {
+/** 선수 카드. onNew를 주면 진행 중인 커리어에서 새 선수로 시작하는 버튼을 상단 띠에 보여 줘요. */
+export function PlayerCard({ state, onNew, newDisabled = false }: { state: CareerState; onNew?: () => void; newDisabled?: boolean }) {
   const ovr = overall(state.attrs, state.pos);
   const retired = state.phase === "retired";
   const totals = careerTotals(state.history);
@@ -129,7 +142,15 @@ export function PlayerCard({ state }: { state: CareerState }) {
           <span className="hidden sm:inline">LEGEND ROAD · </span>
           {retired ? `${state.startYear}–${state.year}` : `${seasonLabel(state.year)} · ${state.history.length + 1}번째 시즌`}
         </p>
-        <p className="shrink-0 text-xs text-white/60">레전드 점수 <strong className="font-extrabold text-white tabular-nums">{score.toLocaleString("ko-KR")}</strong></p>
+        <span className="flex shrink-0 items-center gap-2.5">
+          <p className="text-xs text-white/60">레전드 점수 <strong className="font-extrabold text-white tabular-nums">{score.toLocaleString("ko-KR")}</strong></p>
+          {onNew && !retired ? (
+            <button type="button" disabled={newDisabled} onClick={onNew} title="진행 중인 커리어를 그만두고 새 선수로 시작해요"
+              className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/80 ring-1 ring-white/15 transition hover:bg-white/20 hover:text-white disabled:opacity-50">
+              새 커리어
+            </button>
+          ) : null}
+        </span>
       </div>
       <div className="flex gap-4 px-5 pt-5 sm:px-6">
         <div className="flex w-[4.75rem] shrink-0 flex-col items-center justify-center rounded-2xl bg-[#d4f77d] py-3 text-[#102c26]">
@@ -158,15 +179,19 @@ export function PlayerCard({ state }: { state: CareerState }) {
           </p>
         </div>
       </div>
-      <div className="px-5 pt-5 pb-4 sm:px-6"><AttrBars attrs={state.attrs} pos={state.pos} growth={lastGrowth} /></div>
+      <div className="px-5 pt-5 pb-4 sm:px-6">
+        <AttrBars attrs={state.attrs} pos={state.pos} growth={lastGrowth} />
+        <AttrGuideLine pos={state.pos} />
+      </div>
       {!retired ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 pb-4 text-[11px] sm:px-6">
           <TrustMeter trust={state.trust} />
           {state.phase === "event" ? <span><span className="text-white/55">폼</span> <span className="font-semibold text-white/80">{FORM_WORDS[state.form + 3]}</span></span> : null}
         </div>
       ) : null}
-      {traits.length || military ? (
+      {traits.length || military || !retired ? (
         <div className="flex flex-wrap gap-1.5 px-5 pb-4 sm:px-6">
+          {!retired ? <span className="rounded-full bg-[#d4f77d]/15 px-2.5 py-1 text-[11px] font-semibold text-lime-200">{growthRoom(state)}</span> : null}
           {traits.map((trait) => <span key={trait} className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-lime-100">{trait}</span>)}
           {military ? <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/80">{military}</span> : null}
         </div>
