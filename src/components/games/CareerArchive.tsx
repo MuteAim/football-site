@@ -254,7 +254,7 @@ function ArchiveEntry({ entry }: { entry: RetiredCareer }) {
 
 export function ClubTable({ name, clubs }: { name: string; clubs: RetiredCareer["clubs"] }) {
   return (
-    <div className="mt-2 overflow-x-auto">
+    <div className="mt-2 overflow-x-auto overscroll-x-contain">
       <table className="w-full text-xs tabular-nums">
         <caption className="sr-only">{name}의 팀별 시즌 수와 경기·골·도움</caption>
         <thead className={mutedClass}><tr>{["팀", "시즌", "경기", "골", "도움"].map((label, i) => <th key={label} scope="col" className={`py-2 ${i ? "pl-2 text-right whitespace-nowrap" : "text-left"}`}>{label}</th>)}</tr></thead>

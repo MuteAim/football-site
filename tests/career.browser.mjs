@@ -65,7 +65,10 @@ try {
     console.log(`화면 저장: ${file}`);
   };
   const clickText = (text, selector = "button") => evaluate(`(() => { const el = Array.from(document.querySelectorAll(${JSON.stringify(selector)})).find((item) => item.textContent.includes(${JSON.stringify(text)})); if (!el) return false; el.click(); return true; })()`);
-  const noOverflow = async (label) => assert.ok(await evaluate("document.documentElement.scrollWidth <= window.innerWidth"), `${label} 가로 넘침`);
+  const noOverflow = async (label) => {
+    const size = await evaluate(`({ viewport: document.documentElement.clientWidth, page: document.documentElement.scrollWidth, visual: window.visualViewport.width, inner: window.innerWidth })`);
+    assert.ok(size.page <= size.viewport, `${label} 가로 넘침: ${JSON.stringify(size)}`);
+  };
 
   await command("Runtime.enable"); await command("Page.enable");
   await command("Page.navigate", { url: `${base}/games/career?score=1500&day=2026-10-23` });
@@ -260,6 +263,20 @@ try {
   assert.ok(await evaluate(`document.body.innerText.includes('평생의 라이벌 ·') && document.body.innerText.includes('맞대결')`), "은퇴 화면의 라이벌 비교");
   console.log(sawMoment ? "결정적 순간 화면 확인" : "이번 커리어에는 결정적 순간이 없었어요");
   await noOverflow("은퇴 화면 390px");
+  for (const width of [320, 390]) {
+    await command("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: true });
+    await sleep(150);
+    for (const edge of [0, 1]) {
+      await evaluate(`(() => {
+        const chart = document.querySelector('[role="group"][aria-label^="오버롤 변화"]');
+        const rect = chart.getBoundingClientRect();
+        chart.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: rect.left + rect.width * ${edge}, pointerType: 'touch' }));
+      })()`);
+      await sleep(50);
+      await noOverflow(`오버롤 그래프 터치 ${width}px · ${edge}`);
+      await evaluate(`document.querySelector('[role="group"][aria-label^="오버롤 변화"]').dispatchEvent(new PointerEvent('pointerleave'))`);
+    }
+  }
   assert.ok(await evaluate(`(() => { const box = document.querySelector('[data-rank-teaser]'); return !!box && box.innerText.includes('위') && !!box.querySelector('a[href^="/cafe/login?next="]'); })()`), "비회원 연습 커리어 은퇴 화면은 예상 순위와 로그인 버튼을 보여 줘요");
   await command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }, { name: "prefers-reduced-motion", value: "reduce" }] });
   await screenshot("career-retired.png");

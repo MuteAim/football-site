@@ -36,7 +36,7 @@ export function CareerBoard({ snapshot }: { snapshot: CareerSnapshot }) {
   const closeDetails = useCallback(() => setSelected(null), []);
   const filled = new Map(board.eleven.map((entry) => [elevenKey(entry), entry]));
   return (
-    <aside className="space-y-4">
+    <aside className="min-w-0 space-y-4">
       <section className={`${cardClass} p-5`}>
         <div className="flex items-center gap-2"><TrophyIcon className="size-5 text-amber-500" /><h2 className="font-extrabold">오늘의 레전드</h2></div>
         <p className={`mt-1 text-xs ${mutedClass}`}>{snapshot.day.slice(5).replace("-", ".")} · 오늘 은퇴한 선수로 겨뤄요</p>

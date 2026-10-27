@@ -527,7 +527,7 @@ export function HistoryTable({ history }: { history: SeasonRecord[] }) {
           <OvrChart history={history} />
         </div>
       ) : null}
-      <div className="overflow-x-auto border-t border-zinc-100 dark:border-white/[0.07]">
+      <div className="overflow-x-auto overscroll-x-contain border-t border-zinc-100 dark:border-white/[0.07]">
         <table className="w-full min-w-[560px] text-left text-xs tabular-nums">
           <thead className={mutedClass}>
             <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">

@@ -418,7 +418,7 @@ export function CareerGame({ initial, challenge }: { initial: CareerSnapshot; ch
   const summary = displayed?.phase === "retired" ? summarizeCareer(displayed) : null;
 
   return (
-    <div ref={gameRoot} className="grid items-start gap-5 [overflow-anchor:none] lg:grid-cols-[minmax(0,1fr)_300px]">
+    <div ref={gameRoot} className="grid min-w-0 grid-cols-1 items-start gap-5 [overflow-anchor:none] lg:grid-cols-[minmax(0,1fr)_300px]">
       <div className="min-w-0 space-y-4">
         {challenge ? (
           <p className="rounded-2xl bg-amber-100 px-4 py-3 text-sm text-amber-950 dark:bg-amber-300/10 dark:text-amber-100">
