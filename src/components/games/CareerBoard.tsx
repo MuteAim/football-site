@@ -23,6 +23,8 @@ const ELEVEN: { pos: Pos; side?: Side; slot: number; row: number; column: number
   { pos: "GK", slot: 1, row: 4, column: 5, span: 4 },
 ];
 
+type ElevenScope = "today" | "all";
+
 /** DB가 측면을 아직 돌려주지 않으면(schema.sql 적용 전) 윙어·풀백 1·2위를 왼쪽·오른쪽에 세워요. */
 function elevenKey(entry: CareerSnapshot["board"]["eleven"][number]): string {
   if (entry.side) return `${positionCode(entry.position, entry.side)}-${entry.slot}`;
@@ -33,8 +35,13 @@ function elevenKey(entry: CareerSnapshot["board"]["eleven"][number]): string {
 export function CareerBoard({ snapshot }: { snapshot: CareerSnapshot }) {
   const { board } = snapshot;
   const [selected, setSelected] = useState<{ entry: CareerElevenEntry; side?: Side } | null>(null);
+  // 오늘의 베스트 11과 역대 베스트 11을 같은 경기장에 번갈아 보여 줘요.
+  const [scope, setScope] = useState<ElevenScope>("today");
   const closeDetails = useCallback(() => setSelected(null), []);
-  const filled = new Map(board.eleven.map((entry) => [elevenKey(entry), entry]));
+  const allTimeReady = Array.isArray(board.allTime);
+  const entries = scope === "today" ? board.eleven : board.allTime ?? [];
+  const filled = new Map(entries.map((entry) => [elevenKey(entry), entry]));
+  const scopeLabel = scope === "today" ? "오늘의 베스트 11" : "역대 베스트 11";
   return (
     <aside className="min-w-0 space-y-4">
       <section className={`${cardClass} p-5`}>
@@ -66,9 +73,23 @@ export function CareerBoard({ snapshot }: { snapshot: CareerSnapshot }) {
       </section>
 
       <section className={`${cardClass} p-5`}>
-        <h2 className="font-extrabold">오늘의 베스트 11</h2>
-        <p className={`mt-1 text-xs ${mutedClass}`}>4-3-3 · 회원 구분 없이 포지션별 최고 점수 · 센터백 상위 2명</p>
-        <div className="relative mx-auto mt-4 grid min-h-[400px] w-full max-w-sm grid-cols-12 content-between gap-x-1 gap-y-4 overflow-hidden rounded-2xl bg-[#17442f] px-2 py-5" role="list" aria-label="오늘의 베스트 11">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-extrabold">베스트 11</h2>
+          <div role="tablist" aria-label="베스트 11 범위" className="flex rounded-full bg-zinc-100 p-0.5 text-xs font-bold dark:bg-white/10">
+            {(["today", "all"] as const).map((value) => (
+              <button key={value} type="button" role="tab" aria-selected={scope === value} data-eleven-scope={value}
+                onClick={() => { setScope(value); setSelected(null); }}
+                className={`rounded-full px-3 py-1 transition ${scope === value ? "bg-white text-emerald-800 shadow-sm dark:bg-[#102c26] dark:text-[#d4f77d]" : `${mutedClass} hover:text-zinc-900 dark:hover:text-white`}`}>
+                {value === "today" ? "오늘" : "역대"}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className={`mt-1 text-xs ${mutedClass}`}>
+          {scope === "today" ? `${snapshot.day.slice(5).replace("-", ".")} 은퇴 선수 · ` : "지금까지 은퇴한 모든 선수 · "}4-3-3 · 회원 구분 없이 포지션별 최고 점수 · 센터백 상위 2명
+        </p>
+        {scope === "all" && snapshot.available && !allTimeReady ? <p className={`mt-3 text-xs ${mutedClass}`}>지금은 역대 기록을 불러올 수 없어요.</p> : null}
+        <div className="relative mx-auto mt-4 grid min-h-[400px] w-full max-w-sm grid-cols-12 content-between gap-x-1 gap-y-4 overflow-hidden rounded-2xl bg-[#17442f] px-2 py-5" role="list" aria-label={scopeLabel}>
           <svg viewBox="0 0 300 400" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 size-full text-white/15" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <rect x="12" y="12" width="276" height="376" rx="4" />
             <path d="M12 200h276M95 12v52h110V12M95 388v-52h110v52M125 12v20h50V12M125 388v-20h50v20" />
@@ -110,12 +131,12 @@ export function CareerBoard({ snapshot }: { snapshot: CareerSnapshot }) {
         </p>
       </section>
       <Link href="/games/penalty" prefetch={false} className={`block rounded-xl px-2 py-2 text-center text-sm ${mutedClass} hover:underline`}>손끝 감각도 자신 있다면? 승부차기 러시 →</Link>
-      {selected ? <ElevenPlayerDetails entry={selected.entry} side={selected.side} day={snapshot.day} onClose={closeDetails} /> : null}
+      {selected ? <ElevenPlayerDetails entry={selected.entry} side={selected.side} scope={scope} day={snapshot.day} onClose={closeDetails} /> : null}
     </aside>
   );
 }
 
-function ElevenPlayerDetails({ entry, side, day, onClose }: { entry: CareerElevenEntry; side?: Side; day: string; onClose: () => void }) {
+function ElevenPlayerDetails({ entry, side, scope, day, onClose }: { entry: CareerElevenEntry; side?: Side; scope: ElevenScope; day: string; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const finished = useRef(false);
   const title = useId();
@@ -134,9 +155,9 @@ function ElevenPlayerDetails({ entry, side, day, onClose }: { entry: CareerEleve
       onClick={(event) => { if (event.target === event.currentTarget) close(); }}
       className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[min(24rem,calc(100vw-2rem))] overflow-y-auto rounded-3xl bg-white p-0 text-zinc-900 shadow-2xl backdrop:bg-black/60 backdrop:backdrop-blur-sm dark:bg-[#191a1e] dark:text-zinc-100">
       <div className="p-6">
-        <p className="sport-eyebrow text-emerald-700 dark:text-emerald-300">BEST 11 · {day.slice(5).replace("-", ".")}</p>
+        <p className="sport-eyebrow text-emerald-700 dark:text-emerald-300">{scope === "today" ? `BEST 11 · ${day.slice(5).replace("-", ".")}` : "ALL-TIME BEST 11"}</p>
         <h2 id={title} className="mt-3 text-2xl leading-snug font-black [overflow-wrap:anywhere]">{entry.name}</h2>
-        <p data-eleven-detail-nickname className={`mt-1 text-sm [overflow-wrap:anywhere] ${mutedClass}`}>{entry.nickname}</p>
+        <p data-eleven-detail-nickname className={`mt-1 text-sm [overflow-wrap:anywhere] ${mutedClass}`}>{entry.nickname}{scope === "all" && entry.day ? ` · ${entry.day.replaceAll("-", ".")} 은퇴` : ""}</p>
         <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold">
           <span className="rounded-full bg-emerald-500/10 px-3 py-1.5 text-emerald-800 dark:text-emerald-200">{positionCode(entry.position, side)} · {positionName(entry.position, side)}</span>
           {entry.number ? <span className="rounded-full bg-zinc-100 px-3 py-1.5 dark:bg-white/5">등번호 {entry.number}</span> : null}

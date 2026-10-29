@@ -1799,6 +1799,8 @@ alter table public.career_records add constraint career_records_shirt_number_che
 alter table public.career_records drop constraint if exists career_records_foot_check;
 alter table public.career_records add constraint career_records_foot_check check (foot in ('L', 'R'));
 create index if not exists career_records_board_idx on public.career_records(day, score desc);
+-- 역대 베스트 11은 날짜와 상관없이 포지션별 최고 기록을 찾아요.
+create index if not exists career_records_eleven_idx on public.career_records(position, side, score desc);
 alter table public.career_runs enable row level security;
 alter table public.career_records enable row level security;
 revoke all on public.career_runs, public.career_records from public, anon, authenticated;
@@ -1861,6 +1863,7 @@ end $$;
 -- 회원마다 그날 최고 기록 하나로 겨뤄요. 같은 점수는 같은 순위이고, 먼저 달성한 회원이 앞에 보여요.
 -- 베스트 11(4-3-3)은 모든 선수 중 포지션별 최고 기록이에요. 같은 회원이 모든 자리를 차지할 수 있어요.
 -- 센터백은 두 자리, 윙어·풀백은 왼쪽·오른쪽에 한 자리씩이에요.
+-- allTime은 날짜와 상관없는 역대 베스트 11이고, 각 선수가 은퇴한 날(day)을 함께 돌려줘요.
 create or replace function public.career_board(target_day date)
 returns jsonb language sql stable security definer set search_path = public as $$
   with best as (
@@ -1876,6 +1879,10 @@ returns jsonb language sql stable security definer set search_path = public as $
     select c.position, c.side, c.shirt_number, c.player_name, c.score, c.peak_ovr, c.ballon_dor, p.nickname,
       row_number() over (partition by c.position, c.side order by c.score desc, c.achieved_at, c.user_id, c.run_id) as slot
     from public.career_records c join public.profiles p on p.id = c.user_id where c.day = target_day
+  ), all_time as (
+    select c.day, c.position, c.side, c.shirt_number, c.player_name, c.score, c.peak_ovr, c.ballon_dor, p.nickname,
+      row_number() over (partition by c.position, c.side order by c.score desc, c.achieved_at, c.user_id, c.run_id) as slot
+    from public.career_records c join public.profiles p on p.id = c.user_id
   )
   select jsonb_build_object(
     'leaders', coalesce((select jsonb_agg(jsonb_build_object(
@@ -1890,6 +1897,11 @@ returns jsonb language sql stable security definer set search_path = public as $
       'position', position, 'side', side, 'number', shirt_number, 'slot', slot, 'name', player_name, 'nickname', nickname,
       'score', score, 'peakOvr', peak_ovr, 'ballonDor', ballon_dor
     ) order by position, slot) from eleven
+      where slot <= case when position = 'CB' then 2 else 1 end), '[]'::jsonb),
+    'allTime', coalesce((select jsonb_agg(jsonb_build_object(
+      'position', position, 'side', side, 'number', shirt_number, 'slot', slot, 'name', player_name, 'nickname', nickname,
+      'score', score, 'peakOvr', peak_ovr, 'ballonDor', ballon_dor, 'day', to_char(day, 'YYYY-MM-DD')
+    ) order by position, slot) from all_time
       where slot <= case when position = 'CB' then 2 else 1 end), '[]'::jsonb)
   );
 $$;

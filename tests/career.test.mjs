@@ -32,6 +32,7 @@ const K = await load("src/lib/career/crests.ts");
 const T = await load("src/lib/career/storage.ts");
 const M = await load("src/lib/career/cinematics.ts");
 const V = await load("src/lib/career/versions.ts");
+const E6 = await load("src/lib/career/legacy/v6/engine.ts");
 const E5 = await load("src/lib/career/legacy/v5/engine.ts");
 const E4 = await load("src/lib/career/legacy/v4/engine.ts");
 
@@ -482,7 +483,7 @@ test("능력치가 오버롤과 따로 골·도움에 영향을 주고, 훈련�
 });
 
 test("클럽의 상징으로 은퇴를 약속하면 바로 다음 시즌부터 은퇴까지 재계약을 선택할 수 있다", () => {
-  const seed = 76;
+  const seed = 111;
   const setup = S({ nation: "ENG", league: "ENG", pos: "ST" });
   const choices = Array(21).fill(0);
   const before = E.replayCareer({ v: E.CAREER_VERSION, seed, startYear: 2026, setup, choices });
@@ -543,7 +544,8 @@ test("레전드의 재계약 보장은 약속한 구단에만 적용한다", () 
 });
 
 test("서버는 커리어가 시작된 규칙 버전의 엔진으로 다시 계산하고, 이전 버전 스냅샷은 지금 엔진과 섞이지 않는다", async () => {
-  assert.deepEqual(V.SUPPORTED_CAREER_VERSIONS, [E.CAREER_VERSION, 5, 4]);
+  assert.deepEqual(V.SUPPORTED_CAREER_VERSIONS, [E.CAREER_VERSION, 6, 5, 4]);
+  assert.equal(E6.CAREER_VERSION, 6);
   assert.equal(E5.CAREER_VERSION, 5);
   assert.equal(E4.CAREER_VERSION, 4);
   assert.equal(V.careerEngine(3), null);
@@ -565,7 +567,7 @@ test("서버는 커리어가 시작된 규칙 버전의 엔진으로 다시 계�
   // 은퇴 전 커리어는 요약을 주지 않아요.
   assert.deepEqual(V.careerEngine(4).replay({ ...save, choices: choices.slice(0, 5) }), { retired: false, summary: null });
   // 스냅샷은 지금 엔진·자료를 가져오지 않아요.
-  for (const file of ["src/lib/career/legacy/v4/engine.ts", "src/lib/career/legacy/v4/data.ts", "src/lib/career/legacy/v5/engine.ts", "src/lib/career/legacy/v5/data.ts"]) {
+  for (const file of ["src/lib/career/legacy/v4/engine.ts", "src/lib/career/legacy/v4/data.ts", "src/lib/career/legacy/v5/engine.ts", "src/lib/career/legacy/v5/data.ts", "src/lib/career/legacy/v6/engine.ts", "src/lib/career/legacy/v6/data.ts"]) {
     const source = await readFile(resolve(root, file), "utf8");
     assert.ok(!/from "\.\.\/\.\.\/(engine|data)"/.test(source) && !source.includes('from "../../versions"'), `${file}이 지금 엔진을 가져와요`);
   }
@@ -685,7 +687,7 @@ test("무작위로 수백 번 골라도 규칙이 깨지지 않고 모든 커리
 
 /** 이어지는 사건이 잘 나오도록 사건을 일으키는 쪽을 자주 골라요. 나머지는 무작위예요. */
 function storyPicker(random) {
-  const prefer = { sns: "prove", bigclub: "go", agent: "sign", loyalLegend: "promise" };
+  const prefer = { sns: "prove", bigclub: "go", agent: "sign", loyalLegend: "promise", documentary: "allow", fanAward: "donate", hometown: "clinic", veteran: "mentor", shirtNumber: "take" };
   return (s) => {
     const { kind, id, options } = s.pending;
     const index = (value) => options.findIndex((option) => option.value === value);
@@ -734,12 +736,26 @@ test("라이벌·결정적 순간·이어지는 사건이 규칙대로 움직인
         if (id === "rivalTeammate") assert.equal(state.rival.club, d.club);
         if (id === "rivalClash") assert.ok(state.rival.club !== d.club && D.CLUBS[state.rival.club].league === D.CLUBS[d.club].league);
         if (id === "rivalBallon") assert.equal(last.rival.ballon, 1);
-        for (const text of [title, body, ...options.map((option) => option.label)]) assert.ok(copulaOk(text), text);
+        // 좋은 소식은 어느 쪽을 골라도 득이 되는 선택지라 모두 good 톤이에요.
+        if (["fanAward", "sponsor", "shirtNumber", "youngStar", "documentary", "documentaryRelease", "firstChild", "peakCondition", "hometown", "charityHonor", "managerPraise", "ntCaptain", "testimonial", "protege"].includes(id)) {
+          assert.ok(options.length === 2 && options.every((option) => option.tone === "good"), `${id} 선택지는 모두 좋은 쪽이에요`);
+        }
+        if (id === "documentaryRelease") assert.ok(state.flags.includes(`docu-${d.year - 1}`));
+        if (id === "charityHonor") assert.ok(state.flags.includes(`charity-${d.year - 1}`));
+        if (id === "protege") assert.ok(state.flags.includes(`mentor-${d.year - 2}`) && last.club === d.club);
+        if (id === "ntCaptain") assert.ok(state.caps >= 30 && state.age >= 26);
+        if (id === "testimonial") assert.ok(state.age >= 32 && state.history.slice(-6).every((season) => season.club === d.club));
+        if (id === "shirtNumber") assert.ok(options[0].detail.startsWith(`등번호 ${state.number} → `));
       }
       const index = pickStory(state);
       const before = state;
       choices.push(index);
       state = E.choose(state, index);
+      if (id === "shirtNumber" && state.number !== before.number) {
+        assert.equal(options[index].value, "take");
+        assert.ok(state.number >= 1 && state.number <= 11 && state.number !== before.number);
+        seen.add("numberChanged");
+      } else if (kind === "event") assert.equal(state.number, before.number, "등번호는 전설의 등번호 사건에서만 바뀌어요");
       if (id === "moment") {
         moments++;
         const m = before.draft.moment;
@@ -778,6 +794,7 @@ test("라이벌·결정적 순간·이어지는 사건이 규칙대로 움직인
     for (const value of Object.values(rv.h2h)) assert.ok(Number.isInteger(value) && value >= 0);
     const summary = E.summarizeCareer(state);
     assert.equal(summary.rival.beat, E.beatRival(state));
+    assert.equal(summary.number, state.number, "은퇴 요약과 순위 기록은 바뀐 등번호를 따라가요");
     assert.equal(E.legacyBreakdown(state).rival, rv.h2h.won * 10 + (summary.rival.beat ? 150 : 0));
 
     // 영구 결번은 약속한 팀에서 은퇴할 때만 받아요.
@@ -789,7 +806,8 @@ test("라이벌·결정적 순간·이어지는 사건이 규칙대로 움직인
       seen.add("legendRetired");
     }
   }
-  for (const id of ["moment", "discipline", "fanAnger", "agentPush", "surgery", "loyalLegend", "rivalClash", "rivalPress", "rivalBallon", "rivalTeammate", "legendRetired"]) {
+  for (const id of ["moment", "discipline", "fanAnger", "agentPush", "surgery", "loyalLegend", "rivalClash", "rivalPress", "rivalBallon", "rivalTeammate", "legendRetired",
+    "fanAward", "sponsor", "shirtNumber", "youngStar", "documentary", "documentaryRelease", "firstChild", "peakCondition", "hometown", "charityHonor", "managerPraise", "ntCaptain", "testimonial", "protege", "numberChanged"]) {
     assert.ok(seen.has(id), `${id} 사건이 한 번은 나와요`);
   }
   const ratio = hints.right / hints.total;
@@ -921,6 +939,13 @@ test("레전드 로드 실제 DB 시작·기록·순위·권한", async (t) => {
     assert.deepEqual((await db.query("select * from public.career_records where run_id = $1", [run])).rows, before);
     assert.equal((await db.query("select pg_get_constraintdef(oid) as definition from pg_constraint where conrelid = 'public.career_records'::regclass and conname = 'career_records_pkey'")).rows[0].definition, "PRIMARY KEY (day, user_id, run_id)");
     assert.equal((await board(null, "2026-10-25")).eleven[0].score, 5094);
+    assert.equal((await board(null, "2026-10-25")).allTime, undefined, "선수별 기록 마이그레이션만 적용한 DB는 역대 베스트 11이 없어요");
+    // 역대 베스트 11 마이그레이션은 그 뒤에 몇 번을 실행해도 같아요.
+    const allTime = await readFile(new URL("../supabase/migrations/20261029090000_career_all_time_eleven.sql", import.meta.url), "utf8");
+    await db.exec(allTime);
+    await db.exec(allTime);
+    assert.deepEqual((await board(null, "2026-10-25")).allTime.map((slot) => [slot.name, slot.day]), [["기존선수", "2026-10-25"]]);
+    assert.equal((await db.query("select count(*)::int as n from pg_indexes where indexname = 'career_records_eleven_idx'")).rows[0].n, 1);
     await assert.rejects(as(users[0], "insert into public.career_records select * from public.career_records"), /permission denied/);
     await db.query("delete from public.career_records where run_id = $1", [run]);
   });
@@ -990,6 +1015,48 @@ test("레전드 로드 실제 DB 시작·기록·순위·권한", async (t) => {
       assert.equal(result.participants, 3);
       assert.equal(result.leaders.length, 3, "전체 순위는 계속 회원별 최고 점수 하나예요");
       assert.equal((await board(users[0], day)).personal.score, 9000);
+    } finally { await db.exec("rollback"); }
+  });
+
+  await t.test("역대 베스트 11은 날짜와 상관없이 포지션별 최고 기록이고 은퇴한 날을 함께 돌려준다", async () => {
+    await db.exec("begin");
+    try {
+      const day = new Date((await db.query("select recorded_day from public.career_runs where user_id = $1", [users[0]])).rows[0].recorded_day).toISOString().slice(0, 10);
+      const entries = [
+        [users[1], { ...entry, name: "오늘센터백", position: "CB", side: null, score: 4000 }],
+        [users[2], { ...entry, name: "옛날센터백", position: "CB", side: null, score: 9500 }],
+        [users[2], { ...entry, name: "옛날왼쪽윙어", position: "WG", side: "L", score: entry.score + 1 }],
+        [users[1], { ...entry, name: "옛날골키퍼", position: "GK", side: null, score: 10 }],
+      ];
+      const runs = [];
+      for (const [user, item] of entries) {
+        await age(user, 4);
+        const run = await start(user);
+        await age(user);
+        await record(user, run.run_id, item);
+        runs.push(run.run_id);
+      }
+      // 뒤의 세 선수는 지난주에 은퇴한 것으로 바꿔요. 오늘의 베스트 11에서는 빠지고 역대에는 남아요.
+      await db.query("update public.career_records set day = $1::date - 7 where run_id = any($2::uuid[])", [day, runs.slice(1)]);
+      const result = await board(null, day);
+      const today = result.eleven;
+      assert.deepEqual(today.filter((slot) => slot.position === "CB").map((slot) => slot.name), ["오늘센터백"]);
+      assert.deepEqual(today.filter((slot) => slot.position === "WG").map((slot) => [slot.side, slot.name]), [["L", entry.name]]);
+      assert.ok(today.every((slot) => !("day" in slot)), "오늘의 베스트 11에는 은퇴한 날이 없어요");
+      const all = result.allTime;
+      const past = new Date(`${day}T00:00:00Z`); past.setUTCDate(past.getUTCDate() - 7);
+      const pastDay = past.toISOString().slice(0, 10);
+      assert.deepEqual(all.filter((slot) => slot.position === "CB").map((slot) => [slot.slot, slot.name, slot.score, slot.nickname, slot.day]), [
+        [1, "옛날센터백", 9500, "감독3", pastDay], [2, "오늘센터백", 4000, "감독2", day],
+      ]);
+      assert.deepEqual(all.filter((slot) => slot.position === "WG").map((slot) => [slot.side, slot.name, slot.day]), [["L", "옛날왼쪽윙어", pastDay]]);
+      assert.deepEqual(all.filter((slot) => slot.position === "GK").map((slot) => [slot.name, slot.day]), [["옛날골키퍼", pastDay]]);
+      assert.ok(all.every((slot) => slot.slot <= (slot.position === "CB" ? 2 : 1) && /^\d{4}-\d{2}-\d{2}$/.test(slot.day)));
+      assert.equal(result.participants, 2, "오늘의 순위는 오늘 은퇴한 선수만 세요");
+      // 기록이 없는 날을 물어도 역대 베스트 11은 그대로예요.
+      const empty = await board(null, "2000-01-01");
+      assert.equal(empty.eleven.length, 0);
+      assert.deepEqual(empty.allTime, all);
     } finally { await db.exec("rollback"); }
   });
 

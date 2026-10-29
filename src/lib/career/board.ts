@@ -7,17 +7,20 @@ export type CareerLeader = {
   nickname: string; name: string; position: Pos; side?: Side | null; number?: number | null; nation: NationCode; club: string;
   score: number; ballonDor: number; peakOvr: number; goals: number; rank: number; isMe: boolean;
 };
-export type CareerElevenEntry = { position: Pos; side?: Side | null; number?: number | null; slot: number; name: string; nickname: string; score: number; peakOvr: number; ballonDor: number };
+/** day는 역대 베스트 11에서 그 선수가 은퇴한 날이에요. 오늘의 베스트 11에는 없어요. */
+export type CareerElevenEntry = { position: Pos; side?: Side | null; number?: number | null; slot: number; name: string; nickname: string; score: number; peakOvr: number; ballonDor: number; day?: string | null };
 export type CareerBoard = {
   leaders: CareerLeader[];
   personal: { score: number; rank: number } | null;
   participants: number;
   eleven: CareerElevenEntry[];
+  /** 역대 베스트 11. schema.sql을 다시 실행하기 전의 DB는 돌려주지 않아요. */
+  allTime?: CareerElevenEntry[];
 };
 /** owner는 닉네임까지 정한 회원의 번호예요. 브라우저 저장 칸을 계정마다 나눌 때 써요. 비회원은 null이에요. */
 export type CareerSnapshot = { day: string; member: boolean; owner: string | null; available: boolean; board: CareerBoard };
 
-export const EMPTY_CAREER_BOARD: CareerBoard = { leaders: [], personal: null, participants: 0, eleven: [] };
+export const EMPTY_CAREER_BOARD: CareerBoard = { leaders: [], personal: null, participants: 0, eleven: [], allTime: [] };
 
 /** 순위 화면에 보이는 인원. DB의 career_board가 상위 20명을 돌려줘요. */
 export const BOARD_SIZE = 20;

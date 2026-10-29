@@ -2,14 +2,14 @@
 // 커리어는 시드와 선택 번호만으로 처음부터 다시 계산돼요. 저장도, 순위 검증도 이 성질을 이용해요.
 // 그래서 브라우저마다 결과가 달라질 수 있는 Math.random, 날짜, Math.exp 같은 실수 함수를 쓰지 않고
 // 정수 연산만 써요. 규칙을 바꾸면 CAREER_VERSION을 올리고 npm run test:career를 실행해 주세요.
-import { directionParticle, objectParticle, politeCopula, withParticle } from "../korean";
+import { directionParticle, objectParticle, politeCopula, subjectParticle, withParticle } from "../korean";
 import {
   ATTR_TRAININGS, CLUBS, CONTINENTALS, INJURIES, KEEPER_ATTRS, LEAGUES, MILITARY_CLUB, NATION_ORDER, NATIONS, OUTFIELD_ATTRS,
   POSITION_MOVES, POSITIONS, RIVAL_NAMES, SPECIAL_TRAININGS, TOURNAMENTS, tournamentIn,
   type ClubInfo, type LeagueCode, type NationCode, type Pos,
 } from "./data";
 
-export const CAREER_VERSION = 6;
+export const CAREER_VERSION = 7;
 
 export const CAREER_RULES = {
   startAge: 17,
@@ -1081,6 +1081,14 @@ function militaryGamesEligible(s: CareerState, ovr: number) {
   return s.nation === "KOR" && s.military === "pending" && ((s.age <= 23 && ovr >= 62) || ovr >= 74);
 }
 
+/** 구단 레전드가 달던 상징적인 등번호. 윙어·풀백은 측면에 따라 달라요. */
+const ICON_NUMBERS: Record<Pos, number> = { GK: 1, CB: 4, FB: 2, DM: 6, CM: 8, AM: 10, WG: 7, ST: 9 };
+function iconNumber(s: CareerState): number {
+  if (s.pos === "WG") return s.side === "L" ? 11 : 7;
+  if (s.pos === "FB") return s.side === "L" ? 3 : 2;
+  return ICON_NUMBERS[s.pos];
+}
+
 const EVENTS: Record<string, EventDef> = {
   asianGames: {
     weight: 0, priority: true,
@@ -1612,6 +1620,271 @@ const EVENTS: Record<string, EventDef> = {
     },
   },
 
+  // ---------- 좋은 소식 ----------
+  // 어느 쪽을 골라도 득이 되는 사건이에요. 어떤 식으로 좋아질지만 골라요.
+  fanAward: {
+    weight: 5,
+    when: (s, d) => d.apps >= 5 && s.form >= 1 && !d.military,
+    card: (_s, d) => ({
+      title: "팬 선정 이달의 선수",
+      body: `${clubName(d.club)} 팬들이 뽑은 이달의 선수가 됐어요. 구단이 팬 행사와 상금을 준비했어요.`,
+      options: [
+        option("팬 사인회에 나간다", "폼 ↑ · 감독 신뢰 ↑", "good", "fans"),
+        option("상금을 유소년 재단에 기부한다", "폼 ↑↑ · 이듬해 공로상 후보", "good", "donate"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      note(d, "팬 선정 이달의 선수");
+      if (value === "donate") {
+        lift(s, 2);
+        s.flags.push(`charity-${d.year}`);
+        return "상금을 유소년 재단에 기부해 박수를 받았어요.";
+      }
+      lift(s, 1); bump(s, 1);
+      return "팬 사인회에서 긴 줄을 세우며 사랑을 확인했어요.";
+    },
+  },
+  sponsor: {
+    weight: 5,
+    when: (s, d) => s.age >= 19 && overall(s.attrs, s.pos) >= 70 && !d.military && !s.flags.includes("sponsor"),
+    card: () => ({
+      title: "글로벌 스폰서 계약",
+      body: "세계적인 스포츠 브랜드가 후원 계약을 제안했어요. 맞춤 장비와 광고 모델 자리가 함께 와요.",
+      options: [
+        option("맞춤 장비 지원을 받는다", "핵심 능력치 +1", "good", "gear"),
+        option("광고 모델로 나선다", "폼 ↑↑", "good", "ad"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      s.flags.push("sponsor");
+      if (value === "gear") {
+        const index = keyAttr(s);
+        addAttr(s, index, 1);
+        note(d, "글로벌 브랜드 후원 계약");
+        const label = attrLabels(s.pos)[index];
+        return `맞춤 장비 덕분에 ${label}${subjectParticle(label)} 한 단계 올랐어요.`;
+      }
+      lift(s, 2);
+      note(d, "글로벌 브랜드 광고 모델");
+      return "광고가 공개되자 팬들의 응원이 더 뜨거워졌어요.";
+    },
+  },
+  shirtNumber: {
+    weight: 5,
+    when: (s, d) => d.role === "starter" && !d.loan && !d.military && seasonsAt(s, d.club) >= 2
+      && s.number !== iconNumber(s) && !s.flags.includes(`number:${d.club}`),
+    card: (s, d) => {
+      const number = iconNumber(s);
+      return {
+        title: `전설의 ${number}번`,
+        body: `${clubName(d.club)}의 레전드가 달던 ${number}번이 비었어요. 구단은 당신이 물려받길 바라요.`,
+        options: [
+          option(`${number}번을 물려받는다`, `등번호 ${s.number} → ${number} · 감독 신뢰 ↑`, "good", "take"),
+          option(`${s.number}번을 지킨다`, "폼 ↑", "good", "keep"),
+        ],
+      };
+    },
+    apply: (s, d, value) => {
+      s.flags.push(`number:${d.club}`);
+      if (value === "take") {
+        const number = iconNumber(s);
+        s.number = number;
+        bump(s, 2);
+        note(d, `${clubName(d.club)}의 전설적인 ${number}번 계승`);
+        return `전설의 ${number}번을 등에 새겼어요.`;
+      }
+      lift(s, 1);
+      return "내 번호로 내 이야기를 쓰기로 했어요.";
+    },
+  },
+  youngStar: {
+    weight: 6,
+    when: (s, d) => s.age <= 21 && (d.role === "starter" || d.role === "rotation") && d.apps >= 5 && s.form >= 0 && !d.military,
+    card: () => ({
+      title: "영플레이어상 후보",
+      body: "리그 올해의 영플레이어 후보에 올랐어요. 시상식 초대장과 함께 축하가 쏟아져요.",
+      options: [
+        option("시상식 무대에 선다", "폼 ↑↑", "good", "stage"),
+        option("훈련장에 남는다", "핵심 능력치 +1", "good", "train"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      note(d, "리그 영플레이어상 후보");
+      if (value === "train") {
+        const index = keyAttr(s);
+        addAttr(s, index, 1);
+        return `축하 속에서도 ${attrLabels(s.pos)[index]} 훈련을 거르지 않았어요.`;
+      }
+      lift(s, 2);
+      return "시상식 무대에서 더 큰 꿈을 다짐했어요.";
+    },
+  },
+  documentary: {
+    weight: 4,
+    when: (s, d) => s.age >= 22 && d.apps >= 5 && overall(s.attrs, s.pos) >= 72 && !d.military && !s.flags.some((flag) => flag.startsWith("docu-")),
+    card: () => ({
+      title: "다큐멘터리 제안",
+      body: "스트리밍 서비스가 당신의 한 시즌을 따라가는 다큐멘터리를 찍고 싶대요.",
+      options: [
+        option("카메라를 허락한다", "폼 ↑ · 다음 시즌 공개 반응", "good", "allow"),
+        option("사생활은 지킨다", "감독 신뢰 ↑", "good", "private"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      if (value === "allow") {
+        // 다음 시즌에 공개돼요.
+        s.flags.push(`docu-${d.year}`);
+        lift(s, 1);
+        note(d, "다큐멘터리 촬영 시작");
+        return "카메라가 라커룸까지 따라붙기 시작했어요.";
+      }
+      s.flags.push("docu-no");
+      bump(s, 1);
+      return "경기장 밖의 삶은 조용히 지키기로 했어요.";
+    },
+  },
+  firstChild: {
+    weight: 4,
+    when: (s, d) => s.age >= 24 && s.age <= 34 && !d.military && !s.flags.includes("parent"),
+    card: () => ({
+      title: "첫 아이의 탄생",
+      body: "첫 아이가 태어나요. 출산 예정일이 하필 원정 경기 날이에요.",
+      options: [
+        option("출산에 함께한다", "1경기 결장 · 폼 ↑↑", "good", "family"),
+        option("경기를 뛰고 달려간다", "폼 ↑ · 감독 신뢰 ↑", "good", "match"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      s.flags.push("parent");
+      note(d, "첫 아이 탄생 · 요람 세리머니");
+      if (value === "family") {
+        d.away += 1;
+        lift(s, 2);
+        return "아이의 첫 울음을 함께하고 돌아와 요람 세리머니를 했어요.";
+      }
+      lift(s, 1); bump(s, 1);
+      return "경기를 마치자마자 병원으로 달려가 아이를 안았어요.";
+    },
+  },
+  peakCondition: {
+    weight: 5,
+    when: (s, d) => s.injury === 0 && s.form >= 1 && d.apps >= 3 && !d.military,
+    card: () => ({
+      title: "최고의 컨디션",
+      body: "몸 상태가 커리어 최고예요. 의료진이 이 흐름을 어떻게 쓸지 물어요.",
+      options: [
+        option("회복에 투자한다", "폼 ↑ · 부상 위험 ↓", "good", "recover"),
+        option("훈련량을 늘린다", "핵심 능력치 +1 · 부상 위험 조금 ↑", "good", "push"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      if (value === "push") {
+        const index = keyAttr(s);
+        addAttr(s, index, 1);
+        d.risk += 1;
+        return `컨디션을 믿고 ${attrLabels(s.pos)[index]} 훈련량을 늘렸어요.`;
+      }
+      lift(s, 1);
+      d.risk -= 3;
+      return "회복 루틴을 다져 시즌 내내 몸을 지켰어요.";
+    },
+  },
+  hometown: {
+    weight: 4,
+    when: (s, d) => s.age >= 23 && !d.military && !s.flags.includes("clinic"),
+    card: () => ({
+      title: "고향의 초대",
+      body: "고향에서 당신의 이름을 딴 유소년 축구교실을 열고 싶어 해요. 아이들이 기다려요.",
+      options: [
+        option("축구교실을 연다", "폼 ↑ · 이듬해 공로상 후보", "good", "clinic"),
+        option("조용히 후원하고 쉰다", "부상 위험 ↓", "good", "rest"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      s.flags.push("clinic");
+      if (value === "clinic") {
+        lift(s, 1);
+        s.flags.push(`charity-${d.year}`);
+        note(d, "고향 유소년 축구교실 개최");
+        return "고향 아이들과 공을 차며 초심을 되찾았어요.";
+      }
+      d.risk -= 2;
+      return "조용히 후원금을 보내고 휴식으로 몸을 다졌어요.";
+    },
+  },
+  managerPraise: {
+    weight: 5,
+    when: (s, d) => s.trust >= 1 && d.role === "starter" && d.apps >= 5 && !d.military,
+    card: () => ({
+      title: "감독의 공개 칭찬",
+      body: "감독이 기자회견에서 당신을 \"팀의 심장\"이라고 불렀어요. 기자들이 소감을 물어요.",
+      options: [
+        option("동료들에게 공을 돌린다", "팀 전력 ↑ · 폼 ↑", "good", "team"),
+        option("자신감을 드러낸다", "폼 ↑↑", "good", "confident"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      note(d, "감독이 꼽은 '팀의 심장'");
+      if (value === "team") {
+        d.teamForm += 1;
+        lift(s, 1);
+        return "공을 돌린 인터뷰에 라커룸이 하나로 뭉쳤어요.";
+      }
+      lift(s, 2);
+      return "자신감 넘치는 소감이 팬들의 기대를 키웠어요.";
+    },
+  },
+  ntCaptain: {
+    weight: 6,
+    when: (s, d) => s.caps >= 30 && s.age >= 26 && !d.military && !s.flags.includes("nt-captain")
+      && overall(s.attrs, s.pos) >= NATIONS[s.nation].callup + 3,
+    card: (s) => ({
+      title: "대표팀 주장",
+      body: `${NATIONS[s.nation].name} 대표팀 감독이 당신에게 주장 완장을 맡기고 싶어 해요.`,
+      options: [
+        option("완장을 찬다", "A매치 +2 · 감독 신뢰 ↑", "good", "accept"),
+        option("후배에게 양보한다", "폼 ↑", "good", "pass"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      s.flags.push("nt-captain");
+      if (value === "accept") {
+        d.extraCaps += 2;
+        bump(s, 1);
+        note(d, `${NATIONS[s.nation].name} 대표팀 주장 선임`);
+        return "대표팀 주장 완장을 차고 나라를 이끌게 됐어요.";
+      }
+      lift(s, 1);
+      return "완장은 후배에게 넘기고 플레이로 이끌기로 했어요.";
+    },
+  },
+  testimonial: {
+    weight: 8,
+    when: (s, d) => s.age >= 32 && !d.loan && !d.military && seasonsAt(s, d.club) >= 6 && !s.flags.includes("testimonial"),
+    card: (_s, d) => {
+      const club = clubName(d.club);
+      return {
+        title: "헌정 경기",
+        body: `${club}${subjectParticle(club)} 오랜 헌신에 감사하며 당신을 위한 헌정 경기를 열어요.`,
+        options: [
+          option("헌정 경기를 치른다", "폼 ↑↑ · 감독 신뢰 ↑ · 노쇠화를 조금 늦춰요", "good", "play"),
+          option("조용히 팀에 집중한다", "감독 신뢰 ↑↑", "good", "focus"),
+        ],
+      };
+    },
+    apply: (s, d, value) => {
+      s.flags.push("testimonial");
+      if (value === "play") {
+        lift(s, 2); bump(s, 1);
+        d.care = true;
+        note(d, `${clubName(d.club)} 헌정 경기`);
+        return "만원 관중 앞에서 헌정 경기를 치르며 다시 뛸 힘을 얻었어요.";
+      }
+      bump(s, 3);
+      return "축하 대신 묵묵히 팀을 위해 뛰기로 했어요.";
+    },
+  },
+
   // ---------- 앞선 선택이 돌아오는 사건 ----------
   surgery: {
     weight: 0, priority: true,
@@ -1703,6 +1976,66 @@ const EVENTS: Record<string, EventDef> = {
       }
       lift(s, 1);
       return "아직 더 큰 무대를 꿈꾸기로 했어요.";
+    },
+  },
+  documentaryRelease: {
+    weight: 14, followUp: true,
+    when: (s, d) => s.flags.includes(`docu-${d.year - 1}`) && !d.military,
+    card: () => ({
+      title: "다큐멘터리 공개",
+      body: "지난 시즌을 담은 다큐멘터리가 공개돼 화제예요. 전 세계 팬들의 메시지가 쏟아져요.",
+      options: [
+        option("팬 미팅 투어에 나선다", "폼 ↑↑", "good", "tour"),
+        option("조용히 훈련에 집중한다", "감독 신뢰 ↑ · 핵심 능력치 +1", "good", "train"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      note(d, "다큐멘터리 공개 · 전 세계 팬 급증");
+      if (value === "tour") { lift(s, 2); return "팬 미팅 투어에서 세계 곳곳의 응원을 확인했어요."; }
+      bump(s, 1);
+      addAttr(s, keyAttr(s), 1);
+      return "화제 속에서도 훈련장을 지켰어요.";
+    },
+  },
+  charityHonor: {
+    weight: 14, followUp: true,
+    when: (s, d) => s.flags.includes(`charity-${d.year - 1}`) && !d.military,
+    card: () => ({
+      title: "공로상 시상식",
+      body: "지난해의 기부와 봉사가 알려져 축구협회가 사회공헌 공로상을 수여해요.",
+      options: [
+        option("시상식에 참석한다", "폼 ↑ · 감독 신뢰 ↑", "good", "attend"),
+        option("기부를 이어 간다", "폼 ↑↑", "good", "continue"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      note(d, "축구협회 사회공헌 공로상");
+      if (value === "continue") { lift(s, 2); return "상보다 꾸준함을 택해 기부를 이어 갔어요."; }
+      lift(s, 1); bump(s, 1);
+      return "공로상을 받으며 팬들의 존경을 확인했어요.";
+    },
+  },
+  protege: {
+    weight: 12, followUp: true,
+    // 베테랑 때 맡은 후배가 두 시즌 만에 주전급으로 자랐어요. 같은 팀에 남아 있을 때만 만나요.
+    when: (s, d) => s.flags.includes(`mentor-${d.year - 2}`) && seasonsAt(s, d.club) >= 2 && !d.loan && !d.military,
+    card: () => ({
+      title: "자란 후배",
+      body: "당신이 이끌던 후배가 어느새 주전급으로 성장했어요. 감독이 둘을 함께 세우려 해요.",
+      options: [
+        option("파트너로 호흡을 맞춘다", "팀 전력 ↑↑", "good", "partner"),
+        option("선의의 경쟁을 펼친다", "핵심 능력치 +1 · 폼 ↑", "good", "compete"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      if (value === "partner") {
+        d.teamForm += 2;
+        note(d, "직접 키운 후배와 환상의 호흡");
+        return "직접 키운 후배와 호흡을 맞추며 팀을 끌어올렸어요.";
+      }
+      addAttr(s, keyAttr(s), 1);
+      lift(s, 1);
+      return "후배의 추격이 좋은 자극이 됐어요.";
     },
   },
 
