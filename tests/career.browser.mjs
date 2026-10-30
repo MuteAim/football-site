@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { careerBoardFixture, cinematicFixtures } from "./career-browser-fixtures.mjs";
+import { careerBoardFixture, cinematicFixtures, prospectFixtures } from "./career-browser-fixtures.mjs";
 
 const base = process.env.CAREER_TEST_URL ?? "http://127.0.0.1:3000";
 const executable = process.env.CAREER_TEST_BROWSER ?? "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
@@ -412,6 +412,31 @@ try {
     }
     await waitFor(`!document.querySelector('dialog[open]')`);
   };
+  const prospects = await prospectFixtures();
+  await loadScene(prospects.offer, { quick: true, reduce: true });
+  await waitFor(`document.getElementById('career-decision').textContent.includes('이적 시장')`);
+  assert.ok(await evaluate(`document.querySelectorAll('section[aria-labelledby="career-decision"] button')[${prospects.offer.index}].textContent.includes('유망주 영입')`));
+  assert.ok(await evaluate(`document.querySelectorAll('section[aria-labelledby="career-decision"] button')[${prospects.offer.index}].textContent.includes('1군 출전 보장 없음')`));
+  for (const width of [320, 390, 1280]) {
+    await command("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
+    await noOverflow(`유망주 영입 제안 ${width}px`);
+  }
+  await evaluate(`document.getElementById('career-decision').scrollIntoView({ block: 'start', behavior: 'instant' })`);
+  await screenshot("career-prospect-offer.png");
+  await pickScene(prospects.offer);
+  await waitFor(`document.querySelector('section[aria-labelledby="career-decision"]').textContent.includes('유스·2군에서 경쟁')`);
+  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('football-career-v1:guest')).choices`), prospects.joined.save.choices);
+  await command("Page.reload");
+  await waitFor(`document.querySelector('section[aria-labelledby="career-decision"]').textContent.includes('유스·2군에서 경쟁')`);
+  await loadScene(prospects.test, { quick: true, reduce: true });
+  await waitFor(`document.getElementById('career-decision').textContent === '빅클럽 1군 테스트'`);
+  await noOverflow("빅클럽 1군 테스트");
+  await screenshot("career-prospect-test.png");
+  await pickScene(prospects.test);
+  await waitFor(`JSON.parse(localStorage.getItem('football-career-v1:guest')).choices.length === ${prospects.test.save.choices.length + 1}`);
+  await waitFor(`document.getElementById('career-decision').textContent.includes('이적 시장')`);
+  assert.ok(await evaluate(`document.querySelector('section[aria-labelledby="career-decision"]').textContent.includes('임대')`), "1군 경쟁 뒤에 실전 경험을 위한 임대 제안을 받아요");
+  console.log("유망주 영입 제안·입단·새로고침 복원·1군 테스트·임대 제안 확인 완료");
   await loadScene(fixtures.final);
   assert.ok(await evaluate(`Boolean(document.querySelector('[data-final-decision]'))`));
   await pickScene(fixtures.final);

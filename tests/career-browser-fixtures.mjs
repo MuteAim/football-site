@@ -82,3 +82,29 @@ export async function cinematicFixtures() {
   if (!final || !awards || !keeper) throw new Error("결승·선방·수상 연출을 검증할 실제 커리어를 찾지 못했어요.");
   return { final, awards, keeper };
 }
+
+/** 유망주 영입과 입단 후 테스트 직전의 실제 선택 기록이에요. 화면과 저장 복원을 함께 확인해요. */
+export async function prospectFixtures() {
+  const E = await import(await moduleUrl(resolve(root, "src/lib/career/engine.ts")));
+  const setup = { name: "미래스타", nation: "KOR", league: "KOR", pos: "ST", pick: 2, number: 9, foot: "R" };
+  for (let seed = 1; seed <= 400; seed++) {
+    if (E.scoutCandidates(seed, setup.nation, setup.league, setup.pos)[setup.pick].potential < 84) continue;
+    let state = E.createCareer(seed, 2026, setup);
+    const choices = [];
+    let offer, joined;
+    while (state.pending && state.age <= 22) {
+      let index = 0;
+      const prospect = state.pending.options.findIndex((option) => option.prospect);
+      const capture = (pick) => ({ save: { v: E.CAREER_VERSION, seed, startYear: 2026, setup, choices: [...choices] }, index: pick });
+      if (!offer && prospect >= 0) {
+        index = prospect;
+        offer = capture(index);
+      }
+      if (offer && state.pending.id === "prospectTest") return { offer, joined, test: capture(0) };
+      state = E.choose(state, index);
+      choices.push(index);
+      if (offer && !joined) joined = capture(0);
+    }
+  }
+  throw new Error("유망주 영입과 1군 테스트를 검증할 실제 커리어를 찾지 못했어요.");
+}

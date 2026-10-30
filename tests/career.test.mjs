@@ -32,6 +32,7 @@ const K = await load("src/lib/career/crests.ts");
 const T = await load("src/lib/career/storage.ts");
 const M = await load("src/lib/career/cinematics.ts");
 const V = await load("src/lib/career/versions.ts");
+const E7 = await load("src/lib/career/legacy/v7/engine.ts");
 const E6 = await load("src/lib/career/legacy/v6/engine.ts");
 const E5 = await load("src/lib/career/legacy/v5/engine.ts");
 const E4 = await load("src/lib/career/legacy/v4/engine.ts");
@@ -543,8 +544,121 @@ test("레전드의 재계약 보장은 약속한 구단에만 적용한다", () 
   }
 });
 
+test("2군에서 성장한 유망주는 낮은 현재 실력으로도 빅클럽 제안을 받고, 영입과 임대·복귀가 그대로 재현된다", () => {
+  const setup = S({ pos: "ST", pick: 2 });
+  const save = { v: E.CAREER_VERSION, seed: 20, startYear: 2026, setup, choices: [0, 0] };
+  const state = E.replayCareer(save);
+  assert.equal(state.phase, "offseason");
+  assert.ok(E.overall(state.attrs, state.pos) < 60);
+  assert.ok(state.history[0].reserve.apps >= 12 && state.history[0].apps < 5, "1군 활약이 없어도 2군 성장을 인정해요");
+  const index = state.pending.options.findIndex((option) => option.prospect);
+  assert.ok(index >= 0);
+  assert.equal(state.pending.options.filter((option) => option.prospect).length, 1);
+  const offer = state.pending.options[index];
+  assert.equal(offer.value, "transfer");
+  assert.equal(offer.tone, "risk");
+  assert.match(offer.detail, /유스·2군 중심 · 1군 출전 보장 없음/);
+  const club = D.CLUBS[offer.club];
+  assert.equal(D.LEAGUES[club.league].region, "europe");
+  assert.ok(club.rating >= 82 && club.rating > E.overall(state.attrs, state.pos) + 10);
+  const snapshot = JSON.stringify(state);
+  const joined = E.choose(state, index);
+  assert.equal(JSON.stringify(state), snapshot);
+  assert.equal(joined.club, offer.club);
+  assert.equal(joined.parent, null);
+  assert.equal(joined.contract, offer.years);
+  assert.equal(E.expectedRole(joined, joined.club), "reserve", "입단이 1군 출전을 보장하지 않아요");
+  assert.match(joined.pending.body, /유스·2군에서 경쟁/);
+  assert.deepEqual(E.replayCareer({ ...save, choices: [...save.choices, index] }), joined);
+
+  const market = runSeason(joined, 0);
+  const loanIndex = market.pending.options.findIndex((option) => option.value === "loan");
+  assert.ok(loanIndex >= 0, "1군 출전이 적으면 뛰기 위한 임대 제안을 받아요");
+  const loaned = E.choose(market, loanIndex);
+  assert.equal(loaned.parent, joined.club);
+  assert.notEqual(loaned.club, joined.club);
+  assert.ok(!loaned.pending.body.includes("빅클럽의 미래 자원"));
+  const loanMarket = runSeason(loaned);
+  assert.ok(loanMarket.history.at(-1).loan);
+  const returned = E.choose(loanMarket, loanMarket.pending.options.findIndex((option) => option.value === "stay"));
+  assert.equal(returned.club, joined.club);
+  assert.equal(returned.parent, null);
+  const transferred = E.choose(market, market.pending.options.findIndex((option) => option.value === "transfer" && !option.prospect));
+  assert.ok(!transferred.flags.some((flag) => flag.startsWith("prospect:")), "일반 이적 뒤에는 이전 구단의 유망주 경로를 해제해요");
+});
+
+test("유망주 영입은 잠재력·성장·활약을 보고 드물게 오며 성인과 부상으로 쉬기만 한 선수에게는 오지 않는다", () => {
+  let offers = 0, eligible = 0;
+  const byPosition = new Set();
+  for (const pos of ["ST", "GK", "CB"]) {
+    const setup = S({ pos, pick: 2 });
+    for (let seed = 1; seed <= 100; seed++) {
+      const initial = E.createCareer(seed, 2026, setup);
+      const market = runSeason(initial);
+      const prospect = market.pending.options.find((option) => option.prospect);
+      if (market.potential >= 84 && (market.history[0].reserve?.apps ?? 0) >= 12 && market.history[0].ovrEnd - market.history[0].ovrBefore >= 4) eligible++;
+      if (prospect) {
+        offers++;
+        byPosition.add(pos);
+        assert.ok(market.potential >= 84 && market.age <= 21);
+        const season = market.history.at(-1);
+        assert.ok((season.apps >= 5 && season.rating >= 66) || ((season.reserve?.apps ?? 0) >= 12 && season.ovrEnd - season.ovrBefore >= 4));
+      }
+      if (seed <= 20) {
+        for (const patch of [{ age: 22 }, { potential: 80 }, { injury: 100 }]) {
+          const other = Object.assign(structuredClone(initial), patch);
+          const after = runSeason(other);
+          assert.ok(!after.pending.options.some((option) => option.prospect), JSON.stringify(patch));
+        }
+      }
+    }
+  }
+  assert.ok(offers > 0 && offers < eligible, `제안은 자동 보장이 아니에요: ${offers}/${eligible}`);
+  assert.deepEqual([...byPosition].sort(), ["CB", "GK", "ST"], "공격 포인트가 적은 수비수와 골키퍼에게도 기회가 있어요");
+});
+
+test("빅클럽 1군 테스트의 성공·실패·신중한 준비는 실제 역할에 반영되고 반복되지 않는다", () => {
+  const setup = S({ pos: "ST", pick: 2 });
+  const market = E.replayCareer({ v: E.CAREER_VERSION, seed: 20, startYear: 2026, setup, choices: [0, 0] });
+  const joined = E.choose(market, market.pending.options.findIndex((option) => option.prospect));
+  const before = E.choose(joined, 0);
+  assert.equal(before.pending.id, "prospectTest");
+  const outcomes = new Set();
+  for (let rng = 1; rng <= 40; rng++) {
+    const state = structuredClone(before);
+    state.rng = rng;
+    const after = runSeason(state);
+    const season = after.history.at(-1);
+    const success = season.event.includes("테스트를 통과");
+    outcomes.add(success);
+    assert.equal(season.role, success ? "bench" : "reserve");
+    assert.ok(after.flags.includes(`prospect-tested:${joined.club}`));
+    const next = E.choose(after, after.pending.options.findIndex((option) => option.value === "stay"));
+    assert.notEqual(E.choose(next, 0).pending.id, "prospectTest");
+  }
+  assert.equal(outcomes.size, 2, "무조건 1군으로 승격하지 않아요");
+  const learned = E.choose(before, 1);
+  assert.match(learned.history.at(-1).event, /다음 기회를 준비/);
+  assert.equal(learned.history.at(-1).role, "reserve");
+});
+
+test("유망주 영입 이전인 버전 7의 순위 도전은 기존 엔진으로 검증한다", () => {
+  const setup = S({ pos: "ST", pick: 2 });
+  let old = E7.createCareer(20, 2026, setup);
+  const choices = [];
+  while (old.phase !== "retired") {
+    assert.ok(!old.pending.options.some((option) => option.prospect));
+    choices.push(0);
+    old = E7.choose(old, 0);
+  }
+  const save = { v: 7, seed: 20, startYear: 2026, setup, choices };
+  assert.deepEqual(V.careerEngine(7).replay(save), { retired: true, summary: E7.summarizeCareer(old) });
+  assert.equal(V.careerEngine(7).replay({ ...save, choices: [0, 0] }).retired, false);
+});
+
 test("서버는 커리어가 시작된 규칙 버전의 엔진으로 다시 계산하고, 이전 버전 스냅샷은 지금 엔진과 섞이지 않는다", async () => {
-  assert.deepEqual(V.SUPPORTED_CAREER_VERSIONS, [E.CAREER_VERSION, 6, 5, 4]);
+  assert.deepEqual(V.SUPPORTED_CAREER_VERSIONS, [E.CAREER_VERSION, 7, 6, 5, 4]);
+  assert.equal(E7.CAREER_VERSION, 7);
   assert.equal(E6.CAREER_VERSION, 6);
   assert.equal(E5.CAREER_VERSION, 5);
   assert.equal(E4.CAREER_VERSION, 4);
@@ -567,7 +681,7 @@ test("서버는 커리어가 시작된 규칙 버전의 엔진으로 다시 계�
   // 은퇴 전 커리어는 요약을 주지 않아요.
   assert.deepEqual(V.careerEngine(4).replay({ ...save, choices: choices.slice(0, 5) }), { retired: false, summary: null });
   // 스냅샷은 지금 엔진·자료를 가져오지 않아요.
-  for (const file of ["src/lib/career/legacy/v4/engine.ts", "src/lib/career/legacy/v4/data.ts", "src/lib/career/legacy/v5/engine.ts", "src/lib/career/legacy/v5/data.ts", "src/lib/career/legacy/v6/engine.ts", "src/lib/career/legacy/v6/data.ts"]) {
+  for (const file of ["src/lib/career/legacy/v4/engine.ts", "src/lib/career/legacy/v4/data.ts", "src/lib/career/legacy/v5/engine.ts", "src/lib/career/legacy/v5/data.ts", "src/lib/career/legacy/v6/engine.ts", "src/lib/career/legacy/v6/data.ts", "src/lib/career/legacy/v7/engine.ts", "src/lib/career/legacy/v7/data.ts"]) {
     const source = await readFile(resolve(root, file), "utf8");
     assert.ok(!/from "\.\.\/\.\.\/(engine|data)"/.test(source) && !source.includes('from "../../versions"'), `${file}이 지금 엔진을 가져와요`);
   }
@@ -618,8 +732,15 @@ function checkDecision(s, seen) {
     const home = [D.CLUBS[s.club].league, D.NATIONS[s.nation].home];
     for (const option of decision.options.filter((item) => item.value === "transfer" && !item.detail.endsWith("자유 계약"))) {
       const club = D.CLUBS[option.club];
-      assert.ok(club.rating <= ovr + 10, `${club.name}(${club.rating})이 오버롤 ${ovr} 선수에게 제안`);
-      if (ovr < 60) assert.ok(home.includes(club.league), `덜 여문 유망주(${ovr})에게 해외 제안: ${club.name}`);
+      if (option.prospect) {
+        assert.ok(s.age <= 21 && s.potential >= 84);
+        assert.ok(club.rating >= 82 && club.rating <= s.potential + 2 && club.rating > ovr + 10);
+        assert.equal(D.LEAGUES[club.league].region, "europe");
+        assert.match(option.detail, /유스·2군 중심 · 1군 출전 보장 없음/);
+      } else {
+        assert.ok(club.rating <= ovr + 10, `${club.name}(${club.rating})이 오버롤 ${ovr} 선수에게 제안`);
+        if (ovr < 60) assert.ok(home.includes(club.league), `덜 여문 유망주(${ovr})에게 해외 제안: ${club.name}`);
+      }
       seen.offers++;
     }
   }

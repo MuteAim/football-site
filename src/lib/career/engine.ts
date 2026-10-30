@@ -9,7 +9,7 @@ import {
   type ClubInfo, type LeagueCode, type NationCode, type Pos,
 } from "./data";
 
-export const CAREER_VERSION = 7;
+export const CAREER_VERSION = 8;
 
 export const CAREER_RULES = {
   startAge: 17,
@@ -56,7 +56,7 @@ export type Candidate = {
   stars: number;
   note: string; potential: number; traits: Traits;
 };
-export type Choice = { label: string; detail: string; tone: Tone; value: string; club?: string; years?: number };
+export type Choice = { label: string; detail: string; tone: Tone; value: string; club?: string; years?: number; prospect?: boolean };
 export type Decision = { kind: "training" | "event" | "offseason"; id: string; title: string; body: string; options: Choice[] };
 /** 트로피와 개인상. points는 레전드 점수에 더해지는 값이에요. */
 export type Honor = { label: string; points: number };
@@ -630,10 +630,12 @@ function trainingDecision(s: CareerState): Decision {
   const line = starterLine(s, s.club);
   const outlook = ovr >= line ? "주전 경쟁에서 앞서 있어요." : `주전 기준 오버롤 ${line} · 지금 ${ovr}.`;
   const injured = s.injury > 0 ? ` 부상 회복까지 ${s.injury}경기 남았어요.` : "";
+  const prospect = isClubProspect(s) && expectedRole(s, s.club) === "reserve"
+    ? " 빅클럽의 미래 자원으로 유스·2군에서 경쟁해요. 컵대회 1군 테스트와 출전을 위한 임대 기회를 노려보세요." : "";
   return {
     kind: "training", id: "training",
     title: `${seasonLabel(s.year)} 프리시즌`,
-    body: `${s.age}세, ${club.name}에서 ${s.history.length ? "새 시즌" : "프로 첫 시즌"}을 준비해요. 예상 역할은 ${role}${politeCopula(role)}. ${outlook}${injured} 성장 전망: ${growthRoom(s)}.`,
+    body: `${s.age}세, ${club.name}에서 ${s.history.length ? "새 시즌" : "프로 첫 시즌"}을 준비해요. 예상 역할은 ${role}${politeCopula(role)}. ${outlook}${injured}${prospect} 성장 전망: ${growthRoom(s)}.`,
     options,
   };
 }
@@ -1346,6 +1348,36 @@ const EVENTS: Record<string, EventDef> = {
       bump(s, -2);
       s.flags.push(`market-${d.year}`);
       return "에이전트가 조용히 새 팀을 알아보기 시작했어요.";
+    },
+  },
+  prospectTest: {
+    weight: 18,
+    followUp: true,
+    when: (s, d) => isClubProspect(s) && !s.flags.includes(`prospect-tested:${d.club}`)
+      && (d.role === "reserve" || d.role === "bench") && d.cupAlive,
+    card: () => ({
+      title: "빅클럽 1군 테스트",
+      body: "프리시즌과 2군에서의 모습을 지켜본 1군 감독이 컵대회 후보 명단을 고민하고 있어요. 미래 자원으로 데려온 당신에게 자신을 보여 줄 기회가 왔어요.",
+      options: [
+        option("과감하게 실력을 보여 준다", "성공하면 1군 후보 합류 · 실패하면 신뢰 ↓ · 부상 위험 조금 ↑", "risk", "prove"),
+        option("전술을 익히며 차근차근 준비한다", "감독 신뢰 ↑ · 2군에서 성장하며 다음 기회 준비", "neutral", "learn"),
+      ],
+    }),
+    apply: (s, d, value) => {
+      s.flags.push(`prospect-tested:${d.club}`);
+      if (value === "learn") {
+        bump(s, 1);
+        return "감독의 전술을 익히며 2군에서 다음 기회를 준비해요.";
+      }
+      d.risk++;
+      if (chance(s, 500 + s.traits.pro * 60 + s.traits.clutch * 30)) {
+        bump(s, 3);
+        d.roleFloor = "bench";
+        note(d, "유망주 영입 뒤 1군 테스트 통과 · 컵대회 출전 도전");
+        return "테스트를 통과해 1군 후보 명단에 합류했어요. 출전을 놓고 선배들과 경쟁해요.";
+      }
+      bump(s, -1);
+      return "의욕이 앞서 실수가 나왔어요. 2군에서 더 경험을 쌓기로 했어요.";
     },
   },
   callup: {
@@ -2651,6 +2683,30 @@ function roleText(s: CareerState, clubId: string) {
   return `전력 ${CLUBS[clubId].rating} · 예상 ${roleName(expectedRole(s, clubId, true), s.age)}`;
 }
 
+/** 빅클럽이 미래 자원으로 영입한 선수. 임대 중에는 임대 구단의 일반 경쟁을 따라가요. */
+function isClubProspect(s: CareerState): boolean {
+  return s.age <= 22 && !s.parent && s.flags.includes(`prospect:${s.club}`);
+}
+
+/** 현재 실력보다 잠재력과 또래 시기의 활약을 보고 영입해요. 1군 영입과는 별개의 드문 기회예요. */
+function prospectOffer(s: CareerState, last: SeasonRecord, owner: string | null): ClubInfo | null {
+  if (s.age > 21 || last.military || s.potential < 84) return null;
+  const development = last.ovrEnd - last.ovrBefore;
+  const seniorPerformance = last.apps >= 5 && last.rating >= 66;
+  const reservePerformance = (last.reserve?.apps ?? 0) >= 12 && development >= 4;
+  if (!seniorPerformance && !reservePerformance) return null;
+  const ovr = overall(s.attrs, s.pos);
+  const current = Math.max(CLUBS[s.club].rating, owner ? CLUBS[owner].rating : 0);
+  const pool = Object.values(CLUBS).filter((club) => club.id !== s.club && club.id !== owner
+    && LEAGUES[club.league].region === "europe" && club.rating >= 82 && club.rating >= current + 3
+    && club.rating > ovr + 10 && club.rating <= s.potential + 2);
+  if (!pool.length) return null;
+  const interest = clamp(100 + (s.potential - 84) * 25 + Math.max(0, development) * 10
+    + (seniorPerformance ? 70 : 0) + (s.flags.includes("agent") ? 40 : 0), 0, 450);
+  if (!chance(s, interest)) return null;
+  return pool[weightedIndex(s, pool.map((club) => Math.max(1, 12 - Math.abs(s.potential - club.rating))))];
+}
+
 function offseasonDecision(s: CareerState): Decision {
   const ovr = overall(s.attrs, s.pos);
   const last = s.history.at(-1)!;
@@ -2730,6 +2786,16 @@ function offseasonDecision(s: CareerState): Decision {
     });
   }
 
+  const prospect = loyal ? null : prospectOffer(s, last, owner);
+  if (prospect) {
+    const fee = free ? "자유 계약" : `이적료 ${formatValue(marketValue(ovr, s.age, s.potential))}`;
+    options.push({
+      label: `유망주 영입 · ${prospect.name}`,
+      detail: `${LEAGUES[prospect.league].name} · 유스·2군 중심 · 1군 출전 보장 없음 · ${years}년 · ${fee}`,
+      tone: "risk", value: "transfer", club: prospect.id, years, prospect: true,
+    });
+  }
+
   const share = Math.trunc((last.minutes * 100) / (LEAGUES[CLUBS[last.club].league].games * 90));
   if (s.age <= 22 && !free && share < 35) {
     // 뛸 수 있는 구단으로 보내고, 국내 구단을 더 자주 골라요.
@@ -2758,7 +2824,7 @@ function offseasonDecision(s: CareerState): Decision {
   const offerCount = options.filter((item) => item.value === "transfer" || item.value === "loan").length;
   const body = options.length === 1 && options[0].value === "retire"
     ? "더 이상 불러 주는 구단이 없어요. 축구화를 벗을 때가 됐어요."
-    : `${status} ${offerCount ? `새 제안이 ${offerCount}건 왔어요.` : "다른 구단의 제안은 없어요."}`;
+    : `${status} ${offerCount ? `새 제안이 ${offerCount}건 왔어요.` : "다른 구단의 제안은 없어요."}${prospect ? " 잠재력과 이번 시즌 활약을 본 빅클럽의 유망주 영입 제안이 있어요. 유스·2군에서 경쟁하며 1군 기회를 노려요." : ""}`;
   return { kind: "offseason", id: "offseason", title, body, options };
 }
 
@@ -2810,6 +2876,11 @@ function applyOffseason(s: CareerState, choice: Choice) {
       s.parent = null;
       s.contract = choice.years ?? 1;
       s.trust = 0;
+      s.flags = s.flags.filter((flag) => !flag.startsWith("prospect:") && !flag.startsWith("prospect-tested:"));
+      if (choice.prospect) {
+        s.flags.push(`prospect:${s.club}`);
+        s.notes.push("빅클럽의 미래 자원으로 합류 · 유스·2군에서 1군 도전");
+      }
       s.continentalNext = qualifiesByRating(s.club);
       break;
     }
